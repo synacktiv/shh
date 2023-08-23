@@ -1,0 +1,37 @@
+[package]
+name = "shh"
+version = "0.1.0"
+authors = ["Maxime Desbrus <maxime.desbrus@synacktiv.com>"]
+description = "Automatic systemd service hardening guided by strace profiling"
+readme = "README.md"
+edition = "2021"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+
+[dependencies]
+anyhow = { version = "1.0.72", default-features = false, features = ["std", "backtrace"] }
+clap = { version = "4.3.17", default-features = false, features = ["std", "color", "help", "usage", "error-context", "suggestions", "derive"] }
+itertools = { version = "0.11.0", default-features = false, features = ["use_std"] }
+lazy_static = { version = "1.4.0", default-features = false }
+log = { version = "0.4.19", default-features = false, features = ["max_level_trace", "release_max_level_info"] }
+nix = { version = "0.26.2", default-features = false, features = ["fs"] }
+regex = { version = "1.9.1", default-features = false, features = ["std", "perf"] }
+signal-hook = { version = "0.3.17", default-features = false, features = ["iterator"] }
+simple_logger = { version = "4.2.0", default-features = false, features = ["colors", "stderr"] }
+tempfile = { version = "3.7.0", default-features = false }
+
+[dev-dependencies]
+assert_cmd = { version = "2.0.12", default-features = false, features = ["color", "color-auto"] }
+fastrand = { version = "2.0.0", default-features = false, features = ["std"] }
+predicates = { version = "3.0.3", default-features = false, features = ["color"] }
+pretty_assertions = { version = "1.4.0", default-features = false, features = ["std"] }
+
+[features]
+nightly = []
+
+[package.metadata.deb]
+name = "shh"
+depends = "$auto, strace"

@@ -1,0 +1,116 @@
+#![cfg_attr(all(feature = "nightly", test), feature(test))]
+
+use std::thread;
+
+use anyhow::Context;
+use clap::Parser;
+
+mod cl;
+mod strace;
+mod summarize;
+mod systemd;
+
+fn main() -> anyhow::Result<()> {
+    // Init logger
+    simple_logger::SimpleLogger::new()
+        .init()
+        .context("Failed to init logger")?;
+
+    // Parse cl args
+    let args = cl::Args::parse();
+
+    // Get versions
+    let sd_version = systemd::SystemdVersion::local_system()?;
+    let kernel_version = systemd::KernelVersion::local_system()?;
+    log::info!("Detected Systemd version: {sd_version}, Linux kernel version: {kernel_version}");
+
+    // Build supported systemd options
+    let sd_opts = systemd::build_options(&sd_version, &kernel_version);
+    log::info!(
+        "Supported systemd options: {}",
+        sd_opts
+            .iter()
+            .map(|o| o.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+
+    // Handle CL args
+    match args.action {
+        cl::Action::Run { command } => {
+            // Run strace
+            let cmd = command.iter().map(|a| &**a).collect::<Vec<&str>>();
+            let st = strace::Strace::run(&cmd)?;
+
+            // Start signal handling thread
+            let mut signals = signal_hook::iterator::Signals::new([
+                signal_hook::consts::signal::SIGINT,
+                signal_hook::consts::signal::SIGTERM,
+            ])?;
+            thread::spawn(move || {
+                for sig in signals.forever() {
+                    // The strace, and its watched child processes already get the signal, so the iterator will stop naturally
+                    log::info!("Got signal {sig:?}, ignoring");
+                }
+            });
+
+            // Summarize actions
+            let logs = st.log_lines()?;
+            let actions = summarize::summarize(logs)?;
+            log::debug!("{actions:?}");
+
+            // Resolve
+            let resolved_opts = systemd::resolve(&sd_opts, &actions)?;
+
+            // Report
+            systemd::report_options(resolved_opts);
+        }
+        cl::Action::Service(cl::ServiceAction::StartProfile {
+            service,
+            no_restart,
+        }) => {
+            let service = systemd::Service::new(&service);
+            service.add_profile_fragment()?;
+            if !no_restart {
+                service.reload_unit_config()?;
+                service.action("restart")?;
+            } else {
+                log::warn!("Profiling config will only be applied when systemd config is reloaded, and service restarted");
+            }
+        }
+        cl::Action::Service(cl::ServiceAction::FinishProfile {
+            service,
+            apply,
+            no_restart,
+        }) => {
+            let service = systemd::Service::new(&service);
+            service.action("stop")?;
+            service.remove_profile_fragment()?;
+            let resolved_opts = service.profiling_result()?;
+            log::info!(
+                "Resolved systemd options: {}",
+                resolved_opts
+                    .iter()
+                    .map(|o| format!("{}", o))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            if apply && !resolved_opts.is_empty() {
+                service.add_hardening_fragment(resolved_opts)?;
+            }
+            service.reload_unit_config()?;
+            if !no_restart {
+                service.action("start")?;
+            }
+        }
+        cl::Action::Service(cl::ServiceAction::Reset { service }) => {
+            let service = systemd::Service::new(&service);
+            let _ = service.remove_profile_fragment();
+            let _ = service.remove_hardening_fragment();
+            service.reload_unit_config()?;
+            service.action("try-restart")?;
+        }
+    }
+
+    Ok(())
+}
