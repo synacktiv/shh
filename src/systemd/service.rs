@@ -3,7 +3,7 @@
 use std::env;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, BufWriter, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use itertools::Itertools;
@@ -60,13 +60,28 @@ impl Service {
             "Hardening config already exists at {harden_fragment_path:?} and may conflict with profiling"
         );
 
-        // TODO check service is not of type oneshot with several ExecStart ?
+        // Check we have no ExecStartPre/ExecStartPost
+        // Currently we don't profile those, so we'd rather throw an explicit error
+        let config_paths_bufs = self.config_paths()?;
+        let config_paths = config_paths_bufs
+            .iter()
+            .map(|p| p.as_path())
+            .collect::<Vec<_>>();
+        if !Self::config_vals("ExecStartPre", &config_paths)?.is_empty()
+            || !Self::config_vals("ExecStartPost", &config_paths)?.is_empty()
+        {
+            anyhow::bail!("Services with ExecStartPre/ExecStartPost are not supported")
+        }
 
         // Read current service startup command
-        let config_paths = self.config_paths()?;
         log::info!("Located unit config file(s): {config_paths:?}");
-        let cmd = Self::config_val("ExecStart", &config_paths)?
-            .ok_or_else(|| anyhow::anyhow!("Unable to get service startup command"))?;
+        let cmd = Self::config_vals("ExecStart", &config_paths)?
+            .into_iter()
+            .at_most_one()
+            .map_err(|_| {
+                anyhow::anyhow!("Services with multiple ExecStart directives are not supported")
+            })?
+            .ok_or_else(|| anyhow::anyhow!("Unable to get service ExecStart command"))?;
         log::info!("Startup command: {cmd}");
 
         // Write new fragment
@@ -82,7 +97,7 @@ impl Service {
         // needed because strace becomes the main process
         writeln!(fragment_file, "NotifyAccess=all")?;
         writeln!(fragment_file, "Environment=RUST_BACKTRACE=1")?;
-        if Self::config_val("SystemCallFilter", &config_paths)?.is_some() {
+        if !Self::config_vals("SystemCallFilter", &config_paths)?.is_empty() {
             // Allow ptracing, only if a syscall filter is already in place, otherwise it becomes a whitelist
             writeln!(fragment_file, "SystemCallFilter=@debug")?;
         }
@@ -217,24 +232,26 @@ impl Service {
         Ok(opts)
     }
 
-    fn config_val(key: &str, config_paths: &[PathBuf]) -> anyhow::Result<Option<String>> {
-        for config_path in config_paths.iter().rev() {
+    fn config_vals(key: &str, config_paths: &[&Path]) -> anyhow::Result<Vec<String>> {
+        let mut vals = Vec::new();
+        for config_path in config_paths {
             let config_file = BufReader::new(File::open(config_path)?);
-            if let Some(val) = config_file
+            let mut new_vals = config_file
                 .lines()
                 .filter(|l| {
                     l.as_ref()
                         .map(|l| l.starts_with(&format!("{key}=")))
                         .unwrap_or(true)
                 })
-                .last() // TODO handle multiline options?
                 .map(|l| l.map(|l| l.split_once('=').unwrap().1.trim().to_string()))
-            {
-                let val = val?;
-                return Ok(Some(val));
+                .collect::<Result<Vec<_>, _>>()?;
+            while let Some(clear_idx) = new_vals.iter().position(|v| v.is_empty()) {
+                new_vals = new_vals[clear_idx + 1..].to_vec();
+                vals.clear();
             }
+            vals.extend(new_vals);
         }
-        Ok(None)
+        Ok(vals)
     }
 
     fn config_paths(&self) -> anyhow::Result<Vec<PathBuf>> {
@@ -299,5 +316,36 @@ impl Service {
         ]
         .iter()
         .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_config_vals() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let mut cfg_file1 = tempfile::NamedTempFile::new().unwrap();
+        let mut cfg_file2 = tempfile::NamedTempFile::new().unwrap();
+        let mut cfg_file3 = tempfile::NamedTempFile::new().unwrap();
+
+        writeln!(cfg_file1, "blah=a").unwrap();
+        writeln!(cfg_file1, "blah=b").unwrap();
+        writeln!(cfg_file2, "blah=").unwrap();
+        writeln!(cfg_file2, "blah=c").unwrap();
+        writeln!(cfg_file2, "blih=e").unwrap();
+        writeln!(cfg_file2, "bloh=f").unwrap();
+        writeln!(cfg_file3, "blah=d").unwrap();
+
+        assert_eq!(
+            Service::config_vals(
+                "blah",
+                &[cfg_file1.path(), cfg_file2.path(), cfg_file3.path()]
+            )
+            .unwrap(),
+            vec!["c", "d"]
+        );
     }
 }
