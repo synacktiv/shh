@@ -271,10 +271,12 @@ fn parse_argument(caps: &regex::Captures) -> anyhow::Result<SyscallArg> {
                 let int_tokens = tokens
                     .into_iter()
                     .map(|t| {
-                        if t.starts_with("1<<") {
+                        if let Some(one_shift) = t.strip_prefix("1<<") {
                             IntegerExpression::LeftBitShift {
                                 bits: Box::new(IntegerExpression::Literal(1)),
-                                shift: Box::new(IntegerExpression::NamedConst(t[3..].to_string())),
+                                shift: Box::new(IntegerExpression::NamedConst(
+                                    one_shift.to_string(),
+                                )),
                             }
                         } else {
                             IntegerExpression::NamedConst(t.to_string())
