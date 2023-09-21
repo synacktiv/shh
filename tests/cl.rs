@@ -178,7 +178,7 @@ fn run_systemctl() {
 fn run_ss() {
     Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
-        .args(["run", "--", "ss", "-ltpn"])
+        .args(["run", "--", "ss", "-l"])
         .unwrap()
         .assert()
         .success()
@@ -190,6 +190,6 @@ fn run_ss() {
         .stdout(predicate::str::contains("ProtectKernelLogs=true\n").count(1))
         .stdout(predicate::str::contains("ProtectControlGroups=true\n").count(1))
         .stdout(predicate::str::contains("ProtectProc=").not())
-        .stdout(predicate::str::contains("RestrictAddressFamilies=AF_NETLINK\n").count(1))
+        .stdout(predicate::str::contains("RestrictAddressFamilies=AF_NETLINK AF_UNIX\n").count(1))
         .stdout(predicate::str::contains("SystemCallFilter=~@aio @chown @clock @cpu-emulation @debug @io-event @ipc @keyring @memlock @module @mount @obsolete @pkey @privileged @raw-io @reboot @resources @sandbox @setuid @signal @swap @sync @timer\n").count(1));
 }
