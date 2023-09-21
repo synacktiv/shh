@@ -30,6 +30,7 @@ pub enum OptionValue {
     Boolean(bool), // In most case we only model the 'true' value, because false is no-op and the default
     String(String), // enum-like, or free string
     DenyList(Vec<String>),
+    AllowList(Vec<String>),
 }
 
 impl FromStr for OptionValue {
@@ -91,6 +92,8 @@ pub enum OptionValueEffect {
     /// See https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L306
     /// for the content of each class
     DenySyscall { class: String },
+    /// Deny a socket family
+    DenySocketFamily(String),
     /// Union of multiple effects
     Multiple(Vec<OptionValueEffect>),
 }
@@ -127,6 +130,7 @@ impl fmt::Display for OptionWithValue {
                 write!(f, "{value}")
             }
             OptionValue::DenyList(values) => {
+                debug_assert!(!values.is_empty());
                 write!(
                     f,
                     "~{}",
@@ -136,6 +140,21 @@ impl fmt::Display for OptionWithValue {
                         .collect::<Vec<_>>()
                         .join(" ")
                 )
+            }
+            OptionValue::AllowList(values) => {
+                if values.is_empty() {
+                    write!(f, "none")
+                } else {
+                    write!(
+                        f,
+                        "{}",
+                        values
+                            .iter()
+                            .map(|v| v.to_string())
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    )
+                }
             }
         }
     }
@@ -964,6 +983,66 @@ pub fn build_options(
             }],
         });
     }
+
+    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#RestrictAddressFamilies=
+    // https://man7.org/linux/man-pages/man7/address_families.7.html
+    let afs = [
+        "AF_ALG",
+        "AF_APPLETALK",
+        "AF_ATMPVC",
+        "AF_ATMSVC",
+        "AF_AX",
+        "AF_BLUETOOTH",
+        "AF_BRIDGE",
+        "AF_CAIF",
+        "AF_CAN",
+        "AF_DECnet",
+        "AF_ECONET",
+        "AF_IB",
+        "AF_IEEE",
+        "AF_INET",
+        "AF_IPX",
+        "AF_IRDA",
+        "AF_ISDN",
+        "AF_IUCV",
+        "AF_KCM",
+        "AF_KEY",
+        "AF_LLC",
+        "AF_LOCAL",
+        "AF_MPLS",
+        "AF_NETBEUI",
+        "AF_NETLINK",
+        "AF_NETROM",
+        "AF_PACKET",
+        "AF_PHONET",
+        "AF_PPPOX",
+        "AF_QIPCRTR",
+        "AF_RDS",
+        "AF_ROSE",
+        "AF_RXRPC",
+        "AF_SECURITY",
+        "AF_SMC",
+        "AF_TIPC",
+        "AF_UNIX",
+        "AF_VSOCK",
+        "AF_WANPIPE",
+        "AF_X",
+        "AF_XDP",
+    ];
+    options.push(OptionDescription {
+        name: "RestrictAddressFamilies".to_string(),
+        possible_values: vec![OptionValueDescription {
+            value: OptionValue::AllowList(afs.iter().map(|s| s.to_string()).collect()),
+            desc: OptionEffect::Cumulative(
+                afs.into_iter()
+                    .map(|af| OptionValueEffect::DenySocketFamily(af.to_string()))
+                    .collect(),
+            ),
+        }],
+    });
+
+    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateNetwork=
+    // TODO
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#SystemCallFilter=
     let mut syscall_classes: Vec<_> = SYSCALL_CLASSES.keys().cloned().collect();

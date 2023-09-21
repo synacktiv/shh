@@ -25,6 +25,7 @@ fn run_true() {
         .stdout(predicate::str::contains("ProtectKernelLogs=true\n").count(1))
         .stdout(predicate::str::contains("ProtectControlGroups=true\n").count(1))
         .stdout(predicate::str::contains("ProtectProc=ptraceable\n").count(1))
+        .stdout(predicate::str::contains("RestrictAddressFamilies=none\n").count(1))
         .stdout(predicate::str::contains("SystemCallFilter=~@aio @chown @clock @cpu-emulation @debug @io-event @ipc @keyring @memlock @module @mount @network-io @obsolete @pkey @privileged @process @raw-io @reboot @resources @sandbox @setuid @signal @swap @sync @timer\n").count(1));
 }
 
@@ -44,6 +45,7 @@ fn run_write_dev_null() {
         .stdout(predicate::str::contains("ProtectKernelLogs=true\n").count(1))
         .stdout(predicate::str::contains("ProtectControlGroups=true\n").count(1))
         .stdout(predicate::str::contains("ProtectProc=ptraceable\n").count(1))
+        .stdout(predicate::str::contains("RestrictAddressFamilies=none\n").count(1))
         .stdout(predicate::str::contains("SystemCallFilter=~@aio @chown @clock @cpu-emulation @debug @io-event @ipc @keyring @memlock @module @mount @network-io @obsolete @pkey @privileged @process @raw-io @reboot @resources @sandbox @setuid @swap @sync @timer\n").count(1));
 }
 
@@ -57,12 +59,13 @@ fn run_ls_dev() {
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
         .stdout(predicate::str::contains("PrivateTmp=true\n").count(1))
-        .stdout(predicate::str::contains("PrivateDevices=true\n").not())
+        .stdout(predicate::str::contains("PrivateDevices=").not())
         .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelModules=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelLogs=true\n").count(1))
         .stdout(predicate::str::contains("ProtectControlGroups=true\n").count(1))
         .stdout(predicate::str::contains("ProtectProc=ptraceable\n").count(1))
+        .stdout(predicate::str::contains("RestrictAddressFamilies=none\n").count(1))
         .stdout(predicate::str::contains("SystemCallFilter=~@aio @chown @clock @cpu-emulation @debug @io-event @ipc @keyring @memlock @module @mount @network-io @obsolete @pkey @privileged @process @raw-io @reboot @resources @sandbox @setuid @signal @swap @sync @timer\n").count(1));
 }
 
@@ -81,7 +84,8 @@ fn run_ls_proc() {
         .stdout(predicate::str::contains("ProtectKernelModules=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelLogs=true\n").count(1))
         .stdout(predicate::str::contains("ProtectControlGroups=true\n").count(1))
-        .stdout(predicate::str::contains("ProtectProc=ptraceable\n").not())
+        .stdout(predicate::str::contains("ProtectProc=").not())
+        .stdout(predicate::str::contains("RestrictAddressFamilies=none\n").count(1))
         .stdout(predicate::str::contains("SystemCallFilter=~@aio @chown @clock @cpu-emulation @debug @io-event @ipc @keyring @memlock @module @mount @network-io @obsolete @pkey @privileged @process @raw-io @reboot @resources @sandbox @setuid @signal @swap @sync @timer\n").count(1));
 }
 
@@ -96,11 +100,12 @@ fn run_read_kallsyms() {
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
         .stdout(predicate::str::contains("PrivateTmp=true\n").count(1))
         .stdout(predicate::str::contains("PrivateDevices=true\n").count(1))
-        .stdout(predicate::str::contains("ProtectKernelTunables=true\n").not())
+        .stdout(predicate::str::contains("ProtectKernelTunables=").not())
         .stdout(predicate::str::contains("ProtectKernelModules=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelLogs=true\n").count(1))
         .stdout(predicate::str::contains("ProtectControlGroups=true\n").count(1))
         .stdout(predicate::str::contains("ProtectProc=ptraceable\n").count(1))
+        .stdout(predicate::str::contains("RestrictAddressFamilies=none\n").count(1))
         .stdout(predicate::str::contains("SystemCallFilter=~@aio @chown @clock @cpu-emulation @debug @io-event @ipc @keyring @memlock @module @mount @network-io @obsolete @pkey @privileged @process @raw-io @reboot @resources @sandbox @setuid @signal @swap @sync @timer\n").count(1));
 }
 
@@ -116,10 +121,11 @@ fn run_ls_modules() {
         .stdout(predicate::str::contains("PrivateTmp=true\n").count(1))
         .stdout(predicate::str::contains("PrivateDevices=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
-        .stdout(predicate::str::contains("ProtectKernelModules=true\n").not())
+        .stdout(predicate::str::contains("ProtectKernelModules=").not())
         .stdout(predicate::str::contains("ProtectKernelLogs=true\n").count(1))
         .stdout(predicate::str::contains("ProtectControlGroups=true\n").count(1))
         .stdout(predicate::str::contains("ProtectProc=ptraceable\n").count(1))
+        .stdout(predicate::str::contains("RestrictAddressFamilies=none\n").count(1))
         .stdout(predicate::str::contains("SystemCallFilter=~@aio @chown @clock @cpu-emulation @debug @io-event @ipc @keyring @memlock @module @mount @network-io @obsolete @pkey @privileged @process @raw-io @reboot @resources @sandbox @setuid @signal @swap @sync @timer\n").count(1));
 }
 
@@ -134,12 +140,13 @@ fn run_dmesg() {
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
         .stdout(predicate::str::contains("PrivateTmp=true\n").count(1))
-        .stdout(predicate::str::contains("PrivateDevices=true\n").not())
+        .stdout(predicate::str::contains("PrivateDevices=").not())
         .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelModules=true\n").count(1))
-        .stdout(predicate::str::contains("ProtectKernelLogs=true\n").not())
+        .stdout(predicate::str::contains("ProtectKernelLogs=").not())
         .stdout(predicate::str::contains("ProtectControlGroups=true\n").count(1))
         .stdout(predicate::str::contains("ProtectProc=ptraceable\n").count(1))
+        .stdout(predicate::str::contains("RestrictAddressFamilies=none\n").count(1))
         .stdout(predicate::str::contains("SystemCallFilter=~@aio @chown @clock @cpu-emulation @debug @io-event @ipc @keyring @memlock @module @mount @network-io @obsolete @pkey @privileged @process @raw-io @reboot @resources @sandbox @setuid @signal @swap @sync @timer\n").count(1));
 }
 
@@ -160,8 +167,29 @@ fn run_systemctl() {
         .stdout(predicate::str::contains("ProtectKernelLogs=true\n").count(1))
         .stdout(predicate::str::contains("ProtectControlGroups=true\n").count(1))
         .stdout(predicate::str::contains("ProtectProc=ptraceable\n").count(1))
+        .stdout(predicate::str::contains("RestrictAddressFamilies=AF_UNIX\n").count(1))
         .stdout(predicates::boolean::OrPredicate::new(
             predicate::str::contains("SystemCallFilter=~@aio @chown @clock @cpu-emulation @debug @ipc @keyring @memlock @module @mount @obsolete @pkey @privileged @raw-io @reboot @resources @sandbox @setuid @swap @sync @timer\n").count(1),
             predicate::str::contains("SystemCallFilter=~@aio @chown @clock @cpu-emulation @debug @io-event @ipc @keyring @memlock @module @mount @obsolete @pkey @privileged @raw-io @reboot @resources @sandbox @setuid @swap @sync @timer\n").count(1),
         ));
+}
+
+#[test]
+fn run_ss() {
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .args(["run", "--", "ss", "-ltpn"])
+        .unwrap()
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
+        .stdout(predicate::str::contains("PrivateTmp=true\n").count(1))
+        .stdout(predicate::str::contains("PrivateDevices=true\n").count(1))
+        .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
+        .stdout(predicate::str::contains("ProtectKernelModules=true\n").count(1))
+        .stdout(predicate::str::contains("ProtectKernelLogs=true\n").count(1))
+        .stdout(predicate::str::contains("ProtectControlGroups=true\n").count(1))
+        .stdout(predicate::str::contains("ProtectProc=").not())
+        .stdout(predicate::str::contains("RestrictAddressFamilies=AF_NETLINK\n").count(1))
+        .stdout(predicate::str::contains("SystemCallFilter=~@aio @chown @clock @cpu-emulation @debug @io-event @ipc @keyring @memlock @module @mount @obsolete @pkey @privileged @raw-io @reboot @resources @sandbox @setuid @signal @swap @sync @timer\n").count(1));
 }

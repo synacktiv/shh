@@ -31,6 +31,13 @@ impl OptionValueEffect {
                     true
                 }
             }
+            OptionValueEffect::DenySocketFamily(denied_af) => {
+                if let ProgramAction::NetworkActivity { af } = action {
+                    af != denied_af
+                } else {
+                    true
+                }
+            }
             OptionValueEffect::Multiple(effects) => {
                 effects.iter().all(|e| e.compatible(action, prev_actions))
             }
@@ -72,24 +79,39 @@ pub fn resolve(
                     }
                 }
                 OptionEffect::Cumulative(effects) => {
-                    let opt_values = if let OptionValue::DenyList(v) = &opt_value_desc.value {
-                        v
-                    } else {
-                        unreachable!()
-                    };
-                    debug_assert_eq!(opt_values.len(), effects.len());
-                    let mut compatible_opts = Vec::new();
-                    for (optv, opte) in opt_values.iter().zip(effects) {
-                        if actions_compatible(opte, actions) {
-                            compatible_opts.push(optv.clone());
+                    match &opt_value_desc.value {
+                        OptionValue::DenyList(deny_list) => {
+                            let mut compatible_opts = Vec::new();
+                            debug_assert_eq!(deny_list.len(), effects.len());
+                            for (optv, opte) in deny_list.iter().zip(effects) {
+                                if actions_compatible(opte, actions) {
+                                    compatible_opts.push(optv.to_string());
+                                }
+                            }
+                            if !compatible_opts.is_empty() {
+                                candidates.push(OptionWithValue {
+                                    name: opt.name.clone(),
+                                    value: OptionValue::DenyList(compatible_opts),
+                                });
+                                break;
+                            }
                         }
-                    }
-                    if !opt_values.is_empty() {
-                        candidates.push(OptionWithValue {
-                            name: opt.name.clone(),
-                            value: OptionValue::DenyList(compatible_opts),
-                        });
-                    }
+                        OptionValue::AllowList(allow_list) => {
+                            let mut compatible_opts = Vec::new();
+                            debug_assert_eq!(allow_list.len(), effects.len());
+                            for (optv, opte) in allow_list.iter().zip(effects) {
+                                if !actions_compatible(opte, actions) {
+                                    compatible_opts.push(optv.to_string());
+                                }
+                            }
+                            candidates.push(OptionWithValue {
+                                name: opt.name.clone(),
+                                value: OptionValue::AllowList(compatible_opts),
+                            });
+                            break;
+                        }
+                        _ => unreachable!(),
+                    };
                 }
             }
         }

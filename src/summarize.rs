@@ -19,6 +19,8 @@ pub enum ProgramAction {
     Write(PathBuf),
     /// Path was created
     Create(PathBuf),
+    /// Network (socket) activity
+    NetworkActivity { af: String },
     /// Names of the syscalls made by the program
     Syscalls(HashSet<String>),
 }
@@ -304,6 +306,17 @@ where
                 }
                 _ => (),
             }
+        } else if name == "socket" {
+            let af = if let Some(SyscallArg::Integer {
+                value: IntegerExpression::NamedConst(af),
+                ..
+            }) = syscall.args.get(0)
+            {
+                af.to_string()
+            } else {
+                anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
+            };
+            actions.push(ProgramAction::NetworkActivity { af });
         }
     }
 
