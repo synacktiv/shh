@@ -21,6 +21,7 @@ nix = { version = "0.26.2", default-features = false, features = ["fs"] }
 regex = { version = "1.9.1", default-features = false, features = ["std", "perf"] }
 signal-hook = { version = "0.3.17", default-features = false, features = ["iterator"] }
 simple_logger = { version = "4.2.0", default-features = false, features = ["colors", "stderr"] }
+strum = { version = "0.25.0", default-features = false, features = ["std", "derive"] }
 tempfile = { version = "3.7.0", default-features = false }
 
 [dev-dependencies]

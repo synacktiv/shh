@@ -5,7 +5,7 @@ mod resolver;
 mod service;
 mod version;
 
-pub use options::build_options;
+pub use options::{build_options, OptionDescription};
 pub use resolver::resolve;
 pub use service::Service;
 pub use version::{KernelVersion, SystemdVersion};

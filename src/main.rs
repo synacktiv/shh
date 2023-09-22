@@ -10,34 +10,43 @@ mod strace;
 mod summarize;
 mod systemd;
 
-fn main() -> anyhow::Result<()> {
-    // Init logger
-    simple_logger::SimpleLogger::new()
-        .init()
-        .context("Failed to init logger")?;
-
-    // Parse cl args
-    let args = cl::Args::parse();
-
-    // Get versions
-    let sd_version = systemd::SystemdVersion::local_system()?;
-    let kernel_version = systemd::KernelVersion::local_system()?;
-    log::info!("Detected Systemd version: {sd_version}, Linux kernel version: {kernel_version}");
-
-    // Build supported systemd options
-    let sd_opts = systemd::build_options(&sd_version, &kernel_version);
+fn sd_options(
+    sd_version: &systemd::SystemdVersion,
+    kernel_version: &systemd::KernelVersion,
+    mode: &cl::HardeningMode,
+) -> anyhow::Result<Vec<systemd::OptionDescription>> {
+    let sd_opts = systemd::build_options(sd_version, kernel_version, mode);
     log::info!(
-        "Supported systemd options: {}",
+        "Enabled support for systemd options: {}",
         sd_opts
             .iter()
             .map(|o| o.to_string())
             .collect::<Vec<_>>()
             .join(", ")
     );
+    Ok(sd_opts)
+}
+
+fn main() -> anyhow::Result<()> {
+    // Init logger
+    simple_logger::SimpleLogger::new()
+        .init()
+        .context("Failed to init logger")?;
+
+    // Get versions
+    let sd_version = systemd::SystemdVersion::local_system()?;
+    let kernel_version = systemd::KernelVersion::local_system()?;
+    log::info!("Detected Systemd version: {sd_version}, Linux kernel version: {kernel_version}");
+
+    // Parse cl args
+    let args = cl::Args::parse();
 
     // Handle CL args
     match args.action {
-        cl::Action::Run { command } => {
+        cl::Action::Run { command, mode } => {
+            // Build supported systemd options
+            let sd_opts = sd_options(&sd_version, &kernel_version, &mode)?;
+
             // Run strace
             let cmd = command.iter().map(|a| &**a).collect::<Vec<&str>>();
             let st = strace::Strace::run(&cmd)?;
@@ -67,10 +76,11 @@ fn main() -> anyhow::Result<()> {
         }
         cl::Action::Service(cl::ServiceAction::StartProfile {
             service,
+            mode,
             no_restart,
         }) => {
             let service = systemd::Service::new(&service);
-            service.add_profile_fragment()?;
+            service.add_profile_fragment(&mode)?;
             if !no_restart {
                 service.reload_unit_config()?;
                 service.action("restart")?;

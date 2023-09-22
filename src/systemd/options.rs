@@ -9,6 +9,7 @@ use std::str::FromStr;
 
 use lazy_static::lazy_static;
 
+use crate::cl::HardeningMode;
 use crate::systemd::{KernelVersion, SystemdVersion};
 
 /// Systemd option with its possibles values, and their effect
@@ -708,6 +709,7 @@ lazy_static! {
 pub fn build_options(
     systemd_version: &SystemdVersion,
     kernel_version: &KernelVersion,
+    mode: &HardeningMode,
 ) -> Vec<OptionDescription> {
     let mut options = Vec::new();
 
@@ -1053,8 +1055,24 @@ pub fn build_options(
         }],
     });
 
-    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateNetwork=
-    // TODO
+    if let HardeningMode::Aggressive = mode {
+        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateNetwork=
+        //
+        // For now we enable this option if no sockets are used at all, in theory this could break if
+        // a socket file descriptor is passed to it from another process.
+        // Although this is probably a very rare/niche case, we support it only in aggressive mode
+        options.push(OptionDescription {
+            name: "PrivateNetwork".to_string(),
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::Boolean(true),
+                desc: OptionEffect::Simple(OptionValueEffect::Multiple(
+                    afs.into_iter()
+                        .map(|af| OptionValueEffect::DenySocketFamily(af.to_string()))
+                        .collect(),
+                )),
+            }],
+        });
+    }
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#SystemCallFilter=
     let mut syscall_classes: Vec<_> = SYSCALL_CLASSES.keys().cloned().collect();

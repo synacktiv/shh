@@ -126,12 +126,13 @@ pub fn resolve(
 mod tests {
     use super::*;
 
+    use crate::cl::HardeningMode;
     use crate::systemd::{build_options, KernelVersion, SystemdVersion};
 
     fn test_options(names: &[&str]) -> Vec<OptionDescription> {
         let sd_version = SystemdVersion::new(254, 0);
         let kernel_version = KernelVersion::new(6, 4, 0);
-        build_options(&sd_version, &kernel_version)
+        build_options(&sd_version, &kernel_version, &HardeningMode::Safe)
             .into_iter()
             .filter(|o| names.contains(&o.name.as_str()))
             .collect()

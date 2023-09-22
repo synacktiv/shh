@@ -8,6 +8,7 @@ use std::process::{Command, Stdio};
 
 use itertools::Itertools;
 
+use crate::cl::HardeningMode;
 use crate::systemd::{
     options::OptionWithValue, END_OPTION_OUTPUT_SNIPPET, START_OPTION_OUTPUT_SNIPPET,
 };
@@ -47,7 +48,7 @@ impl Service {
         )
     }
 
-    pub fn add_profile_fragment(&self) -> anyhow::Result<()> {
+    pub fn add_profile_fragment(&self, mode: &HardeningMode) -> anyhow::Result<()> {
         // Check first if our fragment does not yet exist
         let fragment_path = self.fragment_path(PROFILING_FRAGMENT_NAME, false);
         anyhow::ensure!(
@@ -106,10 +107,11 @@ impl Service {
         writeln!(fragment_file, "ExecStart=")?;
         writeln!(
             fragment_file,
-            "ExecStart={} run -- {}",
+            "ExecStart={} run -m {} -- {}",
             env::current_exe()?
                 .to_str()
                 .ok_or_else(|| anyhow::anyhow!("Unable to decode current executable path"))?,
+            mode,
             cmd
         )?;
 

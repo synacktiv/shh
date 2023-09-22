@@ -8,12 +8,27 @@ pub struct Args {
     pub action: Action,
 }
 
+/// How hard we should harden
+#[derive(Debug, Clone, Default, clap::ValueEnum, strum::Display)]
+#[strum(serialize_all = "snake_case")]
+pub enum HardeningMode {
+    /// Only generate hardening options if they have a very low risk of breaking things
+    #[default]
+    Safe,
+    /// Will harden further and prevent circumventing restrictions of some options, but may increase the risk of
+    /// breaking services
+    Aggressive,
+}
+
 #[derive(Debug, clap::Subcommand)]
 pub enum Action {
     /// Run a program to profile its behavior
     Run {
         /// The command line to run
         command: Vec<String>,
+        /// How hard we should harden
+        #[arg(short, long, default_value_t, value_enum)]
+        mode: HardeningMode,
     },
     /// Act on a systemd service unit
     #[clap(subcommand)]
@@ -26,6 +41,9 @@ pub enum ServiceAction {
     StartProfile {
         /// Service unit name
         service: String,
+        /// How hard we should harden
+        #[arg(short, long, default_value_t, value_enum)]
+        mode: HardeningMode,
         /// Disable immediate service restart
         #[arg(short, long, default_value_t = false)]
         no_restart: bool,
