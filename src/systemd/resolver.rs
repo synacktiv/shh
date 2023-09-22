@@ -72,6 +72,13 @@ pub fn resolve(
         // so for non cumulative options, iterate from the end
         for opt_value_desc in opt.possible_values.iter().rev() {
             match &opt_value_desc.desc {
+                OptionEffect::None => {
+                    candidates.push(OptionWithValue {
+                        name: opt.name.clone(),
+                        value: opt_value_desc.value.clone(),
+                    });
+                    break;
+                }
                 OptionEffect::Simple(effect) => {
                     if actions_compatible(effect, actions) {
                         candidates.push(OptionWithValue {

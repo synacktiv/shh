@@ -56,6 +56,8 @@ pub struct OptionValueDescription {
 /// The effects a systemd option has if enabled
 #[derive(Debug, Clone)]
 pub enum OptionEffect {
+    /// Option has no modeled effect (it will be unconditionally enabled)
+    None,
     /// Option has several mutually exclusive possible values
     Simple(OptionValueEffect),
     /// Option has several possible values, that can be combined to stack effects
@@ -1090,6 +1092,19 @@ pub fn build_options(
         }],
     });
 
+    if let HardeningMode::Aggressive = mode {
+        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#SystemCallArchitectures=
+        //
+        // This is actually very safe to enable, but since we don't currently support checking for its
+        // compatibility during profiling, only enable it in aggressive mode
+        options.push(OptionDescription {
+            name: "SystemCallArchitectures".to_string(),
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::String("native".to_string()),
+                desc: OptionEffect::None,
+            }],
+        });
+    }
     log::debug!("{options:#?}");
     options
 }
