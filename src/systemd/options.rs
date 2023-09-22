@@ -94,6 +94,8 @@ pub enum OptionValueEffect {
     DenySyscall { class: String },
     /// Deny a socket family
     DenySocketFamily(String),
+    /// Deny a write execute memory mapping
+    DenyWxMemoryMapping,
     /// Union of multiple effects
     Multiple(Vec<OptionValueEffect>),
 }
@@ -983,6 +985,16 @@ pub fn build_options(
             }],
         });
     }
+
+    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#MemoryDenyWriteExecute=
+    // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L1721
+    options.push(OptionDescription {
+        name: "MemoryDenyWriteExecute".to_string(),
+        possible_values: vec![OptionValueDescription {
+            value: OptionValue::Boolean(true),
+            desc: OptionEffect::Simple(OptionValueEffect::DenyWxMemoryMapping),
+        }],
+    });
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#RestrictAddressFamilies=
     // https://man7.org/linux/man-pages/man7/address_families.7.html

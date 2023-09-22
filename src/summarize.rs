@@ -21,6 +21,8 @@ pub enum ProgramAction {
     Create(PathBuf),
     /// Network (socket) activity
     NetworkActivity { af: String },
+    /// Memory mapping with write and execute bits
+    WxMemoryMapping,
     /// Names of the syscalls made by the program
     Syscalls(HashSet<String>),
 }
@@ -37,6 +39,10 @@ struct RenameSyscallInfo {
     relfd_dst_idx: Option<usize>,
     path_dst_idx: usize,
     flags_idx: Option<usize>,
+}
+
+struct MmapSyscallInfo {
+    prot_idx: usize,
 }
 
 lazy_static! {
@@ -95,6 +101,38 @@ lazy_static! {
                 flags_idx: Some(4),
             }
         )
+    ]);
+    static ref MMAP_SYSCALL: HashMap<&'static str, MmapSyscallInfo> = HashMap::from([
+        (
+            "mmap",
+            MmapSyscallInfo {
+                prot_idx: 2,
+            }
+        ),
+        (
+            "mmap2",
+            MmapSyscallInfo {
+                prot_idx: 2,
+            }
+        ),
+        (
+            "shmat",
+            MmapSyscallInfo {
+                prot_idx: 2,
+            }
+        ),
+        (
+            "mprotect",
+            MmapSyscallInfo {
+                prot_idx: 2,
+            }
+        ),
+        (
+            "pkey_mprotect",
+            MmapSyscallInfo {
+                prot_idx: 2,
+            }
+        ),
     ]);
 }
 
@@ -162,6 +200,7 @@ where
             .or_insert(1);
         let name = syscall.name.as_str();
 
+        // TODO convert into a single HashMap search
         if let Some(open_info) = OPEN_SYSCALL.get(name) {
             let (mut path, flags) = if let (
                 Some(SyscallArg::Buffer {
@@ -317,6 +356,17 @@ where
                 anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
             };
             actions.push(ProgramAction::NetworkActivity { af });
+        } else if let Some(mmap_info) = MMAP_SYSCALL.get(name) {
+            let prot = if let Some(SyscallArg::Integer { value: prot, .. }) =
+                syscall.args.get(mmap_info.prot_idx)
+            {
+                prot
+            } else {
+                anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
+            };
+            if prot.is_flag_set("PROT_WRITE") && prot.is_flag_set("PROT_EXEC") {
+                actions.push(ProgramAction::WxMemoryMapping);
+            }
         }
     }
 

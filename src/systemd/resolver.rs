@@ -38,6 +38,9 @@ impl OptionValueEffect {
                     true
                 }
             }
+            OptionValueEffect::DenyWxMemoryMapping => {
+                !matches!(action, ProgramAction::WxMemoryMapping)
+            }
             OptionValueEffect::Multiple(effects) => {
                 effects.iter().all(|e| e.compatible(action, prev_actions))
             }
