@@ -2,8 +2,8 @@
 
 use crate::summarize::ProgramAction;
 use crate::systemd::options::{
-    OptionDescription, OptionEffect, OptionValue, OptionValueEffect, OptionWithValue,
-    SYSCALL_CLASSES,
+    class_syscalls, OptionDescription, OptionEffect, OptionValue, OptionValueEffect,
+    OptionWithValue,
 };
 
 impl OptionValueEffect {
@@ -25,8 +25,8 @@ impl OptionValueEffect {
             }
             OptionValueEffect::DenySyscall { class } => {
                 if let ProgramAction::Syscalls(syscalls) = action {
-                    let denied = SYSCALL_CLASSES.get(class).unwrap();
-                    denied.intersection(syscalls).next().is_none()
+                    let denied_syscalls = class_syscalls(class);
+                    denied_syscalls.intersection(syscalls).next().is_none()
                 } else {
                     true
                 }

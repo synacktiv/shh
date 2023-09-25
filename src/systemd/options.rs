@@ -166,7 +166,7 @@ impl fmt::Display for OptionWithValue {
 }
 
 lazy_static! {
-    pub static ref SYSCALL_CLASSES: HashMap<String, HashSet<String>> = HashMap::from([
+    static ref SYSCALL_CLASSES: HashMap<String, HashSet<String>> = HashMap::from([
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L374
             "@aio".to_string(),
@@ -515,6 +515,12 @@ lazy_static! {
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L703
             "@privileged".to_string(),
              HashSet::from([
+                "@chown".to_string(),
+                "@clock".to_string(),
+                "@module".to_string(),
+                "@raw-io".to_string(),
+                "@reboot".to_string(),
+                "@swap".to_string(),
                 "_sysctl".to_string(),
                 "acct".to_string(),
                 "bpf".to_string(),
@@ -705,6 +711,21 @@ lazy_static! {
             ])
         ),
     ]);
+}
+
+/// Get syscall names from a syscall class name
+pub fn class_syscalls(class: &str) -> HashSet<String> {
+    let mut content = SYSCALL_CLASSES.get(class).unwrap().clone();
+    while content.iter().any(|e| e.starts_with('@')) {
+        content = content
+            .iter()
+            .filter(|e| e.starts_with('@'))
+            .flat_map(|c| SYSCALL_CLASSES.get(c).unwrap())
+            .chain(content.iter().filter(|e| !e.starts_with('@')))
+            .cloned()
+            .collect();
+    }
+    content
 }
 
 #[allow(clippy::vec_init_then_push)]
