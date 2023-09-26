@@ -1098,12 +1098,26 @@ pub fn build_options(
     }
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#SystemCallFilter=
+    //
+    // Also change the default behavior when calling a denied syscall to return EPERM instead og killing
+    // the program.
+    // Rationale:
+    // Some programs call chown as non root even though it always fails, and ignore the error. Since the call
+    // fails, we don't monitor it, but if we deny the chown syscall, the program gets killed with SIGSYS
+    // signal when it makes the call, so change the default to just return EPERM.
+    // Real world example: https://github.com/tjko/jpegoptim/blob/v1.5.5/jpegoptim.c#L1097-L1099
+    //
     let mut syscall_classes: Vec<_> = SYSCALL_CLASSES.keys().cloned().collect();
     syscall_classes.sort();
     options.push(OptionDescription {
         name: "SystemCallFilter".to_string(),
         possible_values: vec![OptionValueDescription {
-            value: OptionValue::DenyList(syscall_classes.clone()),
+            value: OptionValue::DenyList(
+                syscall_classes
+                    .iter()
+                    .map(|c| format!("{c}:EPERM"))
+                    .collect(),
+            ),
             desc: OptionEffect::Cumulative(
                 syscall_classes
                     .into_iter()
