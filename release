@@ -1,0 +1,14 @@
+#!/bin/bash -eu
+
+readonly VERSION="${1-$(date +%-Y.%-m.%-d)}"
+
+cargo set-version "${VERSION}"
+
+cargo update
+
+cargo test
+
+git add Cargo.{toml,lock}
+git commit -m "chore: version ${VERSION}"
+
+git tag "v${VERSION}"
