@@ -2,7 +2,9 @@
 
 Automatic [systemd](https://systemd.io/) service hardening guided by [strace](https://strace.io/) profiling.
 
-## Installation from source
+## Installation
+
+### From source
 
 You need a Rust build environment for example from [rustup](https://rustup.rs/).
 
@@ -10,6 +12,10 @@ You need a Rust build environment for example from [rustup](https://rustup.rs/).
 cargo build --release
 install -Dm 755 -t /usr/local/bin target/release/shh
 ```
+
+### Debian
+
+See [GitHub releases](https://github.com/synacktiv/shh/releases) for Debian packages built for each tagged version.
 
 ## Usage
 
