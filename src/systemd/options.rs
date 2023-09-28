@@ -91,16 +91,47 @@ pub enum OptionValueEffect {
     DenyWrite(PathDescription),
     /// Mount an empty tmpfs under given directory
     Hide(PathDescription),
-    /// Deny a whole class of syscalls
-    /// See https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L306
-    /// for the content of each class
-    DenySyscall { class: String },
+    /// Deny syscall(s)
+    DenySyscalls(DenySyscalls),
     /// Deny a socket family
     DenySocketFamily(String),
     /// Deny a write execute memory mapping
     DenyWxMemoryMapping,
     /// Union of multiple effects
     Multiple(Vec<OptionValueEffect>),
+}
+
+#[derive(Debug, Clone)]
+pub enum DenySyscalls {
+    /// See https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L306
+    /// for the content of each class
+    Class(String),
+    Single(String),
+}
+
+impl DenySyscalls {
+    /// Get denied syscall names
+    pub fn syscalls(&self) -> HashSet<String> {
+        match self {
+            Self::Class(class) => {
+                let mut content = SYSCALL_CLASSES.get(class).unwrap().clone();
+                while content.iter().any(|e| e.starts_with('@')) {
+                    content = content
+                        .iter()
+                        .flat_map(|c| {
+                            c.strip_prefix('@')
+                                .map(|class| SYSCALL_CLASSES.get(class).unwrap())
+                        })
+                        .flatten()
+                        .chain(content.iter().filter(|e| !e.starts_with('@')))
+                        .cloned()
+                        .collect();
+                }
+                content
+            }
+            Self::Single(sc) => HashSet::from([sc.clone()]),
+        }
+    }
 }
 
 /// A systemd option with a value, as would be present in a config file
@@ -169,7 +200,7 @@ lazy_static! {
     static ref SYSCALL_CLASSES: HashMap<String, HashSet<String>> = HashMap::from([
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L374
-            "@aio".to_string(),
+            "aio".to_string(),
              HashSet::from([
                 "io_cancel".to_string(),
                 "io_destroy".to_string(),
@@ -185,7 +216,7 @@ lazy_static! {
         ),
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L389
-            "@basic-io".to_string(),
+            "basic-io".to_string(),
              HashSet::from([
                 "_llseek".to_string(),
                 "close".to_string(),
@@ -208,7 +239,7 @@ lazy_static! {
         ),
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L411
-            "@chown".to_string(),
+            "chown".to_string(),
              HashSet::from([
                 "chown".to_string(),
                 "chown32".to_string(),
@@ -221,7 +252,7 @@ lazy_static! {
         ),
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L423
-            "@clock".to_string(),
+            "clock".to_string(),
              HashSet::from([
                 "adjtimex".to_string(),
                 "clock_adjtime".to_string(),
@@ -233,7 +264,7 @@ lazy_static! {
         ),
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L434
-            "@cpu-emulation".to_string(),
+            "cpu-emulation".to_string(),
              HashSet::from([
                 "modify_ldt".to_string(),
                 "subpage_prot".to_string(),
@@ -244,7 +275,7 @@ lazy_static! {
         ),
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L444
-            "@debug".to_string(),
+            "debug".to_string(),
              HashSet::from([
                 "lookup_dcookie".to_string(),
                 "perf_event_open".to_string(),
@@ -257,7 +288,7 @@ lazy_static! {
         ),
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L456
-            "@file-system".to_string(),
+            "file-system".to_string(),
              HashSet::from([
                 "access".to_string(),
                 "chdir".to_string(),
@@ -339,7 +370,7 @@ lazy_static! {
         ),
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L537
-            "@io-event".to_string(),
+            "io-event".to_string(),
              HashSet::from([
                 "_newselect".to_string(),
                 "epoll_create".to_string(),
@@ -362,7 +393,7 @@ lazy_static! {
         ),
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L559
-            "@ipc".to_string(),
+            "ipc".to_string(),
              HashSet::from([
                 "ipc".to_string(),
                 "memfd_create".to_string(),
@@ -396,7 +427,7 @@ lazy_static! {
         ),
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L592
-            "@keyring".to_string(),
+            "keyring".to_string(),
              HashSet::from([
                 "add_key".to_string(),
                 "keyctl".to_string(),
@@ -405,7 +436,7 @@ lazy_static! {
         ),
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L600
-            "@memlock".to_string(),
+            "memlock".to_string(),
              HashSet::from([
                 "mlock".to_string(),
                 "mlock2".to_string(),
@@ -416,7 +447,7 @@ lazy_static! {
         ),
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L610
-            "@module".to_string(),
+            "module".to_string(),
              HashSet::from([
                 "delete_module".to_string(),
                 "finit_module".to_string(),
@@ -425,7 +456,7 @@ lazy_static! {
         ),
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L618
-            "@mount".to_string(),
+            "mount".to_string(),
              HashSet::from([
                 "chroot".to_string(),
                 "fsconfig".to_string(),
@@ -443,7 +474,7 @@ lazy_static! {
         ),
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L635
-            "@network-io".to_string(),
+            "network-io".to_string(),
              HashSet::from([
                 "accept".to_string(),
                 "accept4".to_string(),
@@ -471,7 +502,7 @@ lazy_static! {
         ),
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L662
-            "@obsolete".to_string(),
+            "obsolete".to_string(),
              HashSet::from([
                 "_sysctl".to_string(),
                 "afs_syscall".to_string(),
@@ -504,7 +535,7 @@ lazy_static! {
         ),
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L695
-            "@pkey".to_string(),
+            "pkey".to_string(),
              HashSet::from([
                 "pkey_alloc".to_string(),
                 "pkey_free".to_string(),
@@ -513,7 +544,7 @@ lazy_static! {
         ),
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L703
-            "@privileged".to_string(),
+            "privileged".to_string(),
              HashSet::from([
                 "@chown".to_string(),
                 "@clock".to_string(),
@@ -550,7 +581,7 @@ lazy_static! {
         ),
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L739
-            "@process".to_string(),
+            "process".to_string(),
              HashSet::from([
                 "capget".to_string(),
                 "clone".to_string(),
@@ -578,7 +609,7 @@ lazy_static! {
         ),
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L769
-            "@raw-io".to_string(),
+            "raw-io".to_string(),
              HashSet::from([
                 "ioperm".to_string(),
                 "iopl".to_string(),
@@ -591,7 +622,7 @@ lazy_static! {
         ),
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L781
-            "@reboot".to_string(),
+            "reboot".to_string(),
              HashSet::from([
                 "kexec_file_load".to_string(),
                 "kexec_load".to_string(),
@@ -600,7 +631,7 @@ lazy_static! {
         ),
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L789
-            "@resources".to_string(),
+            "resources".to_string(),
              HashSet::from([
                 "ioprio_set".to_string(),
                 "mbind".to_string(),
@@ -619,7 +650,7 @@ lazy_static! {
         ),
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L807
-            "@sandbox".to_string(),
+            "sandbox".to_string(),
              HashSet::from([
                 "landlock_add_rule".to_string(),
                 "landlock_create_ruleset".to_string(),
@@ -629,7 +660,7 @@ lazy_static! {
         ),
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L816
-            "@setuid".to_string(),
+            "setuid".to_string(),
              HashSet::from([
                 "setgid".to_string(),
                 "setgid32".to_string(),
@@ -649,7 +680,7 @@ lazy_static! {
         ),
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L835
-            "@signal".to_string(),
+            "signal".to_string(),
              HashSet::from([
                 "rt_sigaction".to_string(),
                 "rt_sigpending".to_string(),
@@ -669,7 +700,7 @@ lazy_static! {
         ),
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L854
-            "@swap".to_string(),
+            "swap".to_string(),
              HashSet::from([
                 "swapoff".to_string(),
                 "swapon".to_string(),
@@ -677,7 +708,7 @@ lazy_static! {
         ),
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L861
-            "@sync".to_string(),
+            "sync".to_string(),
              HashSet::from([
                 "fdatasync".to_string(),
                 "fsync".to_string(),
@@ -690,7 +721,7 @@ lazy_static! {
         ),
         (
             // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L939
-            "@timer".to_string(),
+            "timer".to_string(),
              HashSet::from([
                 "alarm".to_string(),
                 "getitimer".to_string(),
@@ -711,21 +742,6 @@ lazy_static! {
             ])
         ),
     ]);
-}
-
-/// Get syscall names from a syscall class name
-pub fn class_syscalls(class: &str) -> HashSet<String> {
-    let mut content = SYSCALL_CLASSES.get(class).unwrap().clone();
-    while content.iter().any(|e| e.starts_with('@')) {
-        content = content
-            .iter()
-            .filter(|e| e.starts_with('@'))
-            .flat_map(|c| SYSCALL_CLASSES.get(c).unwrap())
-            .chain(content.iter().filter(|e| !e.starts_with('@')))
-            .cloned()
-            .collect();
-    }
-    content
 }
 
 #[allow(clippy::vec_init_then_push)]
@@ -885,9 +901,7 @@ pub fn build_options(
                     .map(|p| PathBuf::from("/dev/").join(p))
                     .collect(),
                 }),
-                OptionValueEffect::DenySyscall {
-                    class: "@raw-io".to_string(),
-                },
+                OptionValueEffect::DenySyscalls(DenySyscalls::Class("raw-io".to_string())),
             ])),
         }],
     });
@@ -953,9 +967,7 @@ pub fn build_options(
                     base: "/usr/lib/modules/".into(),
                     exceptions: vec![],
                 }),
-                OptionValueEffect::DenySyscall {
-                    class: "@module".to_string(),
-                },
+                OptionValueEffect::DenySyscalls(DenySyscalls::Class("module".to_string())),
             ])),
         }],
     });
@@ -1083,7 +1095,7 @@ pub fn build_options(
         //
         // For now we enable this option if no sockets are used at all, in theory this could break if
         // a socket file descriptor is passed to it from another process.
-        // Although this is probably a very rare/niche case, we support it only in aggressive mode
+        // Although this is probably a very rare/niche case, it is possible, so we consider it only in aggressive mode
         options.push(OptionDescription {
             name: "PrivateNetwork".to_string(),
             possible_values: vec![OptionValueDescription {
@@ -1096,6 +1108,20 @@ pub fn build_options(
             }],
         });
     }
+
+    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#LockPersonality=
+    options.push(OptionDescription {
+        name: "LockPersonality".to_string(),
+        possible_values: vec![OptionValueDescription {
+            value: OptionValue::Boolean(true),
+            // In practice, the option allows the call if the default personality is set, but we don't
+            // need to model that level of precision.
+            // The "deny" modeling prevents false positives
+            desc: OptionEffect::Simple(OptionValueEffect::DenySyscalls(DenySyscalls::Single(
+                "personality".to_string(),
+            ))),
+        }],
+    });
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#SystemCallFilter=
     //
@@ -1115,13 +1141,13 @@ pub fn build_options(
             value: OptionValue::DenyList(
                 syscall_classes
                     .iter()
-                    .map(|c| format!("{c}:EPERM"))
+                    .map(|c| format!("@{c}:EPERM"))
                     .collect(),
             ),
             desc: OptionEffect::Cumulative(
                 syscall_classes
                     .into_iter()
-                    .map(|class| OptionValueEffect::DenySyscall { class })
+                    .map(|class| OptionValueEffect::DenySyscalls(DenySyscalls::Class(class)))
                     .collect(),
             ),
         }],
@@ -1140,6 +1166,7 @@ pub fn build_options(
             }],
         });
     }
+
     log::debug!("{options:#?}");
     options
 }
