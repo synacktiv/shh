@@ -27,11 +27,15 @@ tempfile = { version = "3.7.0", default-features = false }
 [dev-dependencies]
 assert_cmd = { version = "2.0.12", default-features = false, features = ["color", "color-auto"] }
 fastrand = { version = "2.0.0", default-features = false, features = ["std"] }
+nix = { version = "0.26.2", default-features = false, features = ["user"] }
 predicates = { version = "3.0.3", default-features = false, features = ["color"] }
 pretty_assertions = { version = "1.4.0", default-features = false, features = ["std"] }
 
 [features]
+# for benchmarks only
 nightly = []
+# for tests only
+as-root = []
 
 [package.metadata.deb]
 name = "shh"

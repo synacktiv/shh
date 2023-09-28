@@ -1,12 +1,17 @@
 //! Command line tests
 
+use std::env;
+
+use nix::unistd::Uid;
+
 use assert_cmd::{assert::OutputAssertExt, Command};
 use predicates::prelude::*;
 
 //
-// Important: these tests assume they are run from a dir under /home, so we don't test for ProtectHome=xxx
-// option values, because they are affected by that.
-// See test_resolve_protect_home for unit test covering that option.
+// Important: these tests have expectations strongly linked to the the environment they run on.
+// For example binary may run lib from ${RUSTUP_HOME}/toolchains/stable-x86_64-unknown-linux-gnu/lib/
+// Hence, they are not truly portabe, and are conditionnaly enabled using feature flags or runtime
+// tests.
 //
 
 #[test]
@@ -18,7 +23,18 @@ fn run_true() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("PrivateTmp=true\n").count(1))
+        .stdout(predicate::str::contains(
+            if Uid::effective().is_root() {
+                "ProtectHome=tmpfs\n"
+            } else {
+                "ProtectHome=read-only\n"
+            }
+        ).count(1))
+        .stdout(if !Uid::effective().is_root() && env::current_exe().unwrap().starts_with("/tmp") {
+            predicate::str::contains("PrivateTmp=true\n").count(0)
+        } else {
+            predicate::str::contains("PrivateTmp=true\n").count(1)
+        })
         .stdout(predicate::str::contains("PrivateDevices=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelModules=true\n").count(1))
@@ -39,7 +55,18 @@ fn run_write_dev_null() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("PrivateTmp=true\n").count(1))
+        .stdout(predicate::str::contains(
+            if Uid::effective().is_root() && !env::current_exe().unwrap().starts_with("/home") {
+                "ProtectHome=tmpfs\n"
+            } else {
+                "ProtectHome=read-only\n"
+            }
+        ).count(1))
+        .stdout(if env::current_exe().unwrap().starts_with("/tmp") {
+            predicate::str::contains("PrivateTmp=true\n").count(0)
+        } else {
+            predicate::str::contains("PrivateTmp=true\n").count(1)
+        })
         .stdout(predicate::str::contains("PrivateDevices=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelModules=true\n").count(1))
@@ -60,7 +87,18 @@ fn run_ls_dev() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("PrivateTmp=true\n").count(1))
+        .stdout(predicate::str::contains(
+            if Uid::effective().is_root() {
+                "ProtectHome=tmpfs\n"
+            } else {
+                "ProtectHome=read-only\n"
+            }
+        ).count(1))
+        .stdout(if !Uid::effective().is_root() && env::current_exe().unwrap().starts_with("/tmp")  {
+            predicate::str::contains("PrivateTmp=true\n").count(0)
+        } else {
+            predicate::str::contains("PrivateTmp=true\n").count(1)
+        })
         .stdout(predicate::str::contains("PrivateDevices=").not())
         .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelModules=true\n").count(1))
@@ -81,7 +119,18 @@ fn run_ls_proc() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("PrivateTmp=true\n").count(1))
+        .stdout(predicate::str::contains(
+            if Uid::effective().is_root() {
+                "ProtectHome=tmpfs\n"
+            } else {
+                "ProtectHome=read-only\n"
+            }
+        ).count(1))
+        .stdout(if !Uid::effective().is_root() && env::current_exe().unwrap().starts_with("/tmp") {
+            predicate::str::contains("PrivateTmp=true\n").count(0)
+        } else {
+            predicate::str::contains("PrivateTmp=true\n").count(1)
+        })
         .stdout(predicate::str::contains("PrivateDevices=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelModules=true\n").count(1))
@@ -102,7 +151,18 @@ fn run_read_kallsyms() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("PrivateTmp=true\n").count(1))
+        .stdout(predicate::str::contains(
+            if Uid::effective().is_root() {
+                "ProtectHome=tmpfs\n"
+            } else {
+                "ProtectHome=read-only\n"
+            }
+        ).count(1))
+        .stdout(if !Uid::effective().is_root() && env::current_exe().unwrap().starts_with("/tmp") {
+            predicate::str::contains("PrivateTmp=true\n").count(0)
+        } else {
+            predicate::str::contains("PrivateTmp=true\n").count(1)
+        })
         .stdout(predicate::str::contains("PrivateDevices=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelTunables=").not())
         .stdout(predicate::str::contains("ProtectKernelModules=true\n").count(1))
@@ -123,7 +183,18 @@ fn run_ls_modules() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("PrivateTmp=true\n").count(1))
+        .stdout(predicate::str::contains(
+            if Uid::effective().is_root() {
+                "ProtectHome=tmpfs\n"
+            } else {
+                "ProtectHome=read-only\n"
+            }
+        ).count(1))
+        .stdout(if !Uid::effective().is_root() && env::current_exe().unwrap().starts_with("/tmp") {
+            predicate::str::contains("PrivateTmp=true\n").count(0)
+        } else {
+            predicate::str::contains("PrivateTmp=true\n").count(1)
+        })
         .stdout(predicate::str::contains("PrivateDevices=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelModules=").not())
@@ -136,7 +207,7 @@ fn run_ls_modules() {
 }
 
 #[test]
-#[ignore] // needs to be run as root
+#[cfg_attr(not(feature = "as-root"), ignore)]
 fn run_dmesg() {
     Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
@@ -145,7 +216,18 @@ fn run_dmesg() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("PrivateTmp=true\n").count(1))
+        .stdout(predicate::str::contains(
+            if Uid::effective().is_root() {
+                "ProtectHome=tmpfs\n"
+            } else {
+                "ProtectHome=read-only\n"
+            }
+        ).count(1))
+        .stdout(if !Uid::effective().is_root() && env::current_exe().unwrap().starts_with("/tmp") {
+            predicate::str::contains("PrivateTmp=true\n").count(0)
+        } else {
+            predicate::str::contains("PrivateTmp=true\n").count(1)
+        })
         .stdout(predicate::str::contains("PrivateDevices=").not())
         .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelModules=true\n").count(1))
@@ -158,7 +240,9 @@ fn run_dmesg() {
 }
 
 #[test]
+#[cfg_attr(feature = "as-root", ignore)]
 fn run_systemctl() {
+    assert!(!Uid::effective().is_root());
     Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .args(["run", "--", "systemctl", "--user"])
@@ -167,7 +251,11 @@ fn run_systemctl() {
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
         .stdout(predicate::str::contains("ProtectHome=read-only\n").count(1))
-        .stdout(predicate::str::contains("PrivateTmp=true\n").count(1))
+        .stdout(if env::current_exe().unwrap().starts_with("/tmp") {
+            predicate::str::contains("PrivateTmp=true\n").count(0)
+        } else {
+            predicate::str::contains("PrivateTmp=true\n").count(1)
+        })
         .stdout(predicate::str::contains("PrivateDevices=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelModules=true\n").count(1))
@@ -191,7 +279,18 @@ fn run_ss() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("PrivateTmp=true\n").count(1))
+        .stdout(predicate::str::contains(
+            if Uid::effective().is_root() {
+                "ProtectHome=tmpfs\n"
+            } else {
+                "ProtectHome=read-only\n"
+            }
+        ).count(1))
+        .stdout(if !Uid::effective().is_root() && env::current_exe().unwrap().starts_with("/tmp") {
+            predicate::str::contains("PrivateTmp=true\n").count(0)
+        } else {
+            predicate::str::contains("PrivateTmp=true\n").count(1)
+        })
         .stdout(predicate::str::contains("PrivateDevices=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelModules=true\n").count(1))
@@ -212,7 +311,12 @@ fn run_mmap_wx() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=full\n").count(1))
-        .stdout(predicate::str::contains("PrivateTmp=true\n").count(1))
+        .stdout(predicate::str::contains("ProtectHome=read-only\n").count(1))
+        .stdout(if env::current_exe().unwrap().starts_with("/tmp") {
+            predicate::str::contains("PrivateTmp=true\n").count(0)
+        } else {
+            predicate::str::contains("PrivateTmp=true\n").count(1)
+        })
         .stdout(predicate::str::contains("PrivateDevices=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelModules=true\n").count(1))

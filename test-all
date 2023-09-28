@@ -1,0 +1,42 @@
+#!/bin/bash -eux
+
+readonly TEST_ARGS="$@"
+
+# auto cleanup
+at_exit() {
+  [ "${TMP_DIR:-}" ] && rm -Rf "${TMP_DIR}"
+}
+trap at_exit EXIT
+
+readonly TMP_DIR=$(mktemp -d /tmp/$(basename -- $0).XXXXXXXXXX)
+
+if ! pwd | grep -q '^/home/'
+then
+  echo 'This script should be run from /home' >&2
+  exit 1
+fi
+
+#
+# runs test in current dir
+#
+
+# unit tests + integration tests
+cargo test ${TEST_ARGS}
+
+# integration tests as root
+CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER='sudo -E' cargo test --features as-root --test '*' ${TEST_ARGS}
+
+#
+# runs test in /tmp
+#
+
+cp -Ra . "${TMP_DIR}"
+pushd "${TMP_DIR}"
+
+  # unit tests + integration tests
+  cargo test --test '*' ${TEST_ARGS}
+
+  # integration tests as root
+  CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER='sudo -E' cargo test --features as-root --test '*' ${TEST_ARGS} 
+
+popd
