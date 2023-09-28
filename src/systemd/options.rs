@@ -96,7 +96,9 @@ pub enum OptionValueEffect {
     /// Deny a socket family
     DenySocketFamily(String),
     /// Deny a write execute memory mapping
-    DenyWxMemoryMapping,
+    DenyWriteExecuteMemoryMapping,
+    /// Deny real time scheduling
+    DenyRealtimeScheduler,
     /// Union of multiple effects
     Multiple(Vec<OptionValueEffect>),
 }
@@ -1029,7 +1031,7 @@ pub fn build_options(
         name: "MemoryDenyWriteExecute".to_string(),
         possible_values: vec![OptionValueDescription {
             value: OptionValue::Boolean(true),
-            desc: OptionEffect::Simple(OptionValueEffect::DenyWxMemoryMapping),
+            desc: OptionEffect::Simple(OptionValueEffect::DenyWriteExecuteMemoryMapping),
         }],
     });
 
@@ -1120,6 +1122,15 @@ pub fn build_options(
             desc: OptionEffect::Simple(OptionValueEffect::DenySyscalls(DenySyscalls::Single(
                 "personality".to_string(),
             ))),
+        }],
+    });
+
+    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#RestrictRealtime=
+    options.push(OptionDescription {
+        name: "RestrictRealtime".to_string(),
+        possible_values: vec![OptionValueDescription {
+            value: OptionValue::Boolean(true),
+            desc: OptionEffect::Simple(OptionValueEffect::DenyRealtimeScheduler),
         }],
     });
 

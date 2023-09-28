@@ -22,7 +22,9 @@ pub enum ProgramAction {
     /// Network (socket) activity
     NetworkActivity { af: String },
     /// Memory mapping with write and execute bits
-    WxMemoryMapping,
+    WriteExecuteMemoryMapping,
+    /// Set scheduler to a real time one
+    SetRealtimeScheduler,
     /// Names of the syscalls made by the program
     Syscalls(HashSet<String>),
 }
@@ -48,6 +50,7 @@ enum SyscallInfo {
         path_dst_idx: usize,
         flags_idx: Option<usize>,
     },
+    SetScheduler,
     Socket,
     StatFd {
         fd_idx: usize,
@@ -129,6 +132,9 @@ lazy_static! {
                 flags_idx: Some(4),
             },
         ),
+
+        // set scheduler
+        ("sched_setscheduler", SyscallInfo::SetScheduler),
 
         // socket
         ("socket", SyscallInfo::Socket),
@@ -369,6 +375,16 @@ where
                     _ => (),
                 }
             }
+            Some(SyscallInfo::SetScheduler) => {
+                let policy = if let Some(SyscallArg::Integer { value, .. }) = syscall.args.get(1) {
+                    value
+                } else {
+                    anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
+                };
+                if policy.is_flag_set("SCHED_FIFO") | policy.is_flag_set("SCHED_RR") {
+                    actions.push(ProgramAction::SetRealtimeScheduler);
+                }
+            }
             Some(SyscallInfo::Socket) => {
                 let af = if let Some(SyscallArg::Integer {
                     value: IntegerExpression::NamedConst(af),
@@ -390,7 +406,7 @@ where
                     anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
                 };
                 if prot.is_flag_set("PROT_WRITE") && prot.is_flag_set("PROT_EXEC") {
-                    actions.push(ProgramAction::WxMemoryMapping);
+                    actions.push(ProgramAction::WriteExecuteMemoryMapping);
                 }
             }
             None => (),
@@ -408,7 +424,7 @@ where
     syscall_names.sort();
     for syscall_name in syscall_names {
         let count = stats.get(syscall_name).unwrap();
-        log::debug!("{:20} {: >12}", format!("{syscall_name}:"), count);
+        log::debug!("{:24} {: >12}", format!("{syscall_name}:"), count);
     }
 
     Ok(actions)

@@ -37,8 +37,11 @@ impl OptionValueEffect {
                     true
                 }
             }
-            OptionValueEffect::DenyWxMemoryMapping => {
-                !matches!(action, ProgramAction::WxMemoryMapping)
+            OptionValueEffect::DenyWriteExecuteMemoryMapping => {
+                !matches!(action, ProgramAction::WriteExecuteMemoryMapping)
+            }
+            OptionValueEffect::DenyRealtimeScheduler => {
+                !matches!(action, ProgramAction::SetRealtimeScheduler)
             }
             OptionValueEffect::Multiple(effects) => {
                 effects.iter().all(|e| e.compatible(action, prev_actions))

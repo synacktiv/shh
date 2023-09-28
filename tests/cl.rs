@@ -44,6 +44,7 @@ fn run_true() {
         .stdout(predicate::str::contains("MemoryDenyWriteExecute=true\n").count(1))
         .stdout(predicate::str::contains("RestrictAddressFamilies=none\n").count(1))
         .stdout(predicate::str::contains("LockPersonality=true\n").count(1))
+        .stdout(predicate::str::contains("RestrictRealtime=true\n").count(1))
         .stdout(predicate::str::contains("SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @io-event:EPERM @ipc:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @network-io:EPERM @obsolete:EPERM @pkey:EPERM @privileged:EPERM @process:EPERM @raw-io:EPERM @reboot:EPERM @resources:EPERM @sandbox:EPERM @setuid:EPERM @signal:EPERM @swap:EPERM @sync:EPERM @timer:EPERM\n").count(1));
 }
 
@@ -77,6 +78,7 @@ fn run_write_dev_null() {
         .stdout(predicate::str::contains("MemoryDenyWriteExecute=true\n").count(1))
         .stdout(predicate::str::contains("RestrictAddressFamilies=none\n").count(1))
         .stdout(predicate::str::contains("LockPersonality=true\n").count(1))
+        .stdout(predicate::str::contains("RestrictRealtime=true\n").count(1))
         .stdout(predicate::str::contains("SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @io-event:EPERM @ipc:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @network-io:EPERM @obsolete:EPERM @pkey:EPERM @privileged:EPERM @process:EPERM @raw-io:EPERM @reboot:EPERM @resources:EPERM @sandbox:EPERM @setuid:EPERM @swap:EPERM @sync:EPERM @timer:EPERM\n").count(1));
 }
 
@@ -110,6 +112,7 @@ fn run_ls_dev() {
         .stdout(predicate::str::contains("MemoryDenyWriteExecute=true\n").count(1))
         .stdout(predicate::str::contains("RestrictAddressFamilies=none\n").count(1))
         .stdout(predicate::str::contains("LockPersonality=true\n").count(1))
+        .stdout(predicate::str::contains("RestrictRealtime=true\n").count(1))
         .stdout(predicate::str::contains("SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @io-event:EPERM @ipc:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @network-io:EPERM @obsolete:EPERM @pkey:EPERM @privileged:EPERM @process:EPERM @raw-io:EPERM @reboot:EPERM @resources:EPERM @sandbox:EPERM @setuid:EPERM @signal:EPERM @swap:EPERM @sync:EPERM @timer:EPERM\n").count(1));
 }
 
@@ -143,6 +146,7 @@ fn run_ls_proc() {
         .stdout(predicate::str::contains("MemoryDenyWriteExecute=true\n").count(1))
         .stdout(predicate::str::contains("RestrictAddressFamilies=none\n").count(1))
         .stdout(predicate::str::contains("LockPersonality=true\n").count(1))
+        .stdout(predicate::str::contains("RestrictRealtime=true\n").count(1))
         .stdout(predicate::str::contains("SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @io-event:EPERM @ipc:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @network-io:EPERM @obsolete:EPERM @pkey:EPERM @privileged:EPERM @process:EPERM @raw-io:EPERM @reboot:EPERM @resources:EPERM @sandbox:EPERM @setuid:EPERM @signal:EPERM @swap:EPERM @sync:EPERM @timer:EPERM\n").count(1));
 }
 
@@ -176,6 +180,7 @@ fn run_read_kallsyms() {
         .stdout(predicate::str::contains("MemoryDenyWriteExecute=true\n").count(1))
         .stdout(predicate::str::contains("RestrictAddressFamilies=none\n").count(1))
         .stdout(predicate::str::contains("LockPersonality=true\n").count(1))
+        .stdout(predicate::str::contains("RestrictRealtime=true\n").count(1))
         .stdout(predicate::str::contains("SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @io-event:EPERM @ipc:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @network-io:EPERM @obsolete:EPERM @pkey:EPERM @privileged:EPERM @process:EPERM @raw-io:EPERM @reboot:EPERM @resources:EPERM @sandbox:EPERM @setuid:EPERM @signal:EPERM @swap:EPERM @sync:EPERM @timer:EPERM\n").count(1));
 }
 
@@ -209,6 +214,7 @@ fn run_ls_modules() {
         .stdout(predicate::str::contains("MemoryDenyWriteExecute=true\n").count(1))
         .stdout(predicate::str::contains("RestrictAddressFamilies=none\n").count(1))
         .stdout(predicate::str::contains("LockPersonality=true\n").count(1))
+        .stdout(predicate::str::contains("RestrictRealtime=true\n").count(1))
         .stdout(predicate::str::contains("SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @io-event:EPERM @ipc:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @network-io:EPERM @obsolete:EPERM @pkey:EPERM @privileged:EPERM @process:EPERM @raw-io:EPERM @reboot:EPERM @resources:EPERM @sandbox:EPERM @setuid:EPERM @signal:EPERM @swap:EPERM @sync:EPERM @timer:EPERM\n").count(1));
 }
 
@@ -216,6 +222,7 @@ fn run_ls_modules() {
 #[cfg_attr(not(feature = "as-root"), ignore)]
 fn run_dmesg() {
     assert!(Uid::effective().is_root());
+
     Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .args(["run", "--", "dmesg"])
@@ -234,6 +241,7 @@ fn run_dmesg() {
         .stdout(predicate::str::contains("MemoryDenyWriteExecute=true\n").count(1))
         .stdout(predicate::str::contains("RestrictAddressFamilies=none\n").count(1))
         .stdout(predicate::str::contains("LockPersonality=true\n").count(1))
+        .stdout(predicate::str::contains("RestrictRealtime=true\n").count(1))
         .stdout(predicate::str::contains("SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @io-event:EPERM @ipc:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @network-io:EPERM @obsolete:EPERM @pkey:EPERM @privileged:EPERM @process:EPERM @raw-io:EPERM @reboot:EPERM @resources:EPERM @sandbox:EPERM @setuid:EPERM @signal:EPERM @swap:EPERM @sync:EPERM @timer:EPERM\n").count(1));
 }
 
@@ -241,6 +249,7 @@ fn run_dmesg() {
 #[cfg_attr(feature = "as-root", ignore)]
 fn run_systemctl() {
     assert!(!Uid::effective().is_root());
+
     Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .args(["run", "--", "systemctl", "--user"])
@@ -263,6 +272,7 @@ fn run_systemctl() {
         .stdout(predicate::str::contains("MemoryDenyWriteExecute=true\n").count(1))
         .stdout(predicate::str::contains("RestrictAddressFamilies=AF_UNIX\n").count(1))
         .stdout(predicate::str::contains("LockPersonality=true\n").count(1))
+        .stdout(predicate::str::contains("RestrictRealtime=true\n").count(1))
         .stdout(predicates::boolean::OrPredicate::new(
             predicate::str::contains("SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @ipc:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @obsolete:EPERM @pkey:EPERM @privileged:EPERM @raw-io:EPERM @reboot:EPERM @resources:EPERM @sandbox:EPERM @setuid:EPERM @swap:EPERM @sync:EPERM @timer:EPERM\n").count(1),
             predicate::str::contains("SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @io-event:EPERM @ipc:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @obsolete:EPERM @pkey:EPERM @privileged:EPERM @raw-io:EPERM @reboot:EPERM @resources:EPERM @sandbox:EPERM @setuid:EPERM @swap:EPERM @sync:EPERM @timer:EPERM\n").count(1),
@@ -299,6 +309,7 @@ fn run_ss() {
         .stdout(predicate::str::contains("MemoryDenyWriteExecute=true\n").count(1))
         .stdout(predicate::str::contains("RestrictAddressFamilies=AF_NETLINK AF_UNIX\n").count(1))
         .stdout(predicate::str::contains("LockPersonality=true\n").count(1))
+        .stdout(predicate::str::contains("RestrictRealtime=true\n").count(1))
         .stdout(predicate::str::contains("SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @io-event:EPERM @ipc:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @obsolete:EPERM @pkey:EPERM @privileged:EPERM @raw-io:EPERM @reboot:EPERM @resources:EPERM @sandbox:EPERM @setuid:EPERM @signal:EPERM @swap:EPERM @sync:EPERM @timer:EPERM\n").count(1));
 }
 
@@ -326,5 +337,87 @@ fn run_mmap_wx() {
         .stdout(predicate::str::contains("MemoryDenyWriteExecute=\n").not())
         .stdout(predicate::str::contains("RestrictAddressFamilies=none\n").count(1))
         .stdout(predicate::str::contains("LockPersonality=true\n").count(1))
+        .stdout(predicate::str::contains("RestrictRealtime=true\n").count(1))
         .stdout(predicate::str::contains("SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @io-event:EPERM @ipc:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @network-io:EPERM @obsolete:EPERM @pkey:EPERM @privileged:EPERM @process:EPERM @raw-io:EPERM @reboot:EPERM @resources:EPERM @sandbox:EPERM @setuid:EPERM @swap:EPERM @sync:EPERM @timer:EPERM\n").count(1));
+
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .args(["run", "--", "python3", "-c", "import mmap, os, tempfile; f = tempfile.NamedTemporaryFile(\"wb\"); f.write(os.urandom(16)); f.flush(); mmap.mmap(f.file.fileno(), 0, prot=mmap.PROT_WRITE)"])
+        .unwrap()
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ProtectSystem=full\n").count(1))
+        .stdout(predicate::str::contains("ProtectHome=read-only\n").count(1))
+        .stdout(if env::current_exe().unwrap().starts_with("/tmp") {
+            predicate::str::contains("PrivateTmp=true\n").count(0)
+        } else {
+            predicate::str::contains("PrivateTmp=true\n").count(1)
+        })
+        .stdout(predicate::str::contains("PrivateDevices=true\n").count(1))
+        .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
+        .stdout(predicate::str::contains("ProtectKernelModules=true\n").count(1))
+        .stdout(predicate::str::contains("ProtectKernelLogs=true\n").count(1))
+        .stdout(predicate::str::contains("ProtectControlGroups=true\n").count(1))
+        .stdout(predicate::str::contains("ProtectProc=ptraceable\n").count(1))
+        .stdout(predicate::str::contains("MemoryDenyWriteExecute=true\n").count(1))
+        .stdout(predicate::str::contains("RestrictAddressFamilies=none\n").count(1))
+        .stdout(predicate::str::contains("LockPersonality=true\n").count(1))
+        .stdout(predicate::str::contains("RestrictRealtime=true\n").count(1))
+        .stdout(predicate::str::contains("SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @io-event:EPERM @ipc:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @network-io:EPERM @obsolete:EPERM @pkey:EPERM @privileged:EPERM @process:EPERM @raw-io:EPERM @reboot:EPERM @resources:EPERM @sandbox:EPERM @setuid:EPERM @swap:EPERM @sync:EPERM @timer:EPERM\n").count(1));
+}
+
+#[test]
+#[cfg_attr(not(feature = "as-root"), ignore)]
+fn run_sched_realtime() {
+    assert!(Uid::effective().is_root());
+
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .args(["run", "--", "python3", "-c", "import os; os.sched_setscheduler(0, os.SCHED_RR, os.sched_param(os.sched_get_priority_min(os.SCHED_RR)))"])
+        .unwrap()
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
+        .stdout(predicate::str::contains("ProtectHome=read-only\n").count(1))
+        .stdout(if !Uid::effective().is_root() && env::current_exe().unwrap().starts_with("/tmp") {
+            predicate::str::contains("PrivateTmp=true\n").count(0)
+        } else {
+            predicate::str::contains("PrivateTmp=true\n").count(1)
+        })
+        .stdout(predicate::str::contains("PrivateDevices=true\n").count(1))
+        .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
+        .stdout(predicate::str::contains("ProtectKernelModules=true\n").count(1))
+        .stdout(predicate::str::contains("ProtectKernelLogs=true\n").count(1))
+        .stdout(predicate::str::contains("ProtectControlGroups=true\n").count(1))
+        .stdout(predicate::str::contains("ProtectProc=ptraceable\n").count(1))
+        .stdout(predicate::str::contains("MemoryDenyWriteExecute=true\n").count(1))
+        .stdout(predicate::str::contains("RestrictAddressFamilies=none\n").count(1))
+        .stdout(predicate::str::contains("LockPersonality=true\n").count(1))
+        .stdout(predicate::str::contains("RestrictRealtime=").not())
+        .stdout(predicate::str::contains("SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @io-event:EPERM @ipc:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @network-io:EPERM @obsolete:EPERM @pkey:EPERM @privileged:EPERM @process:EPERM @raw-io:EPERM @reboot:EPERM @sandbox:EPERM @setuid:EPERM @swap:EPERM @sync:EPERM @timer:EPERM\n").count(1));
+
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .args(["run", "--", "python3", "-c", "import os; os.sched_setscheduler(0, os.SCHED_IDLE, os.sched_param(0))"])
+        .unwrap()
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
+        .stdout(predicate::str::contains("ProtectHome=read-only\n").count(1))
+        .stdout(if !Uid::effective().is_root() && env::current_exe().unwrap().starts_with("/tmp") {
+            predicate::str::contains("PrivateTmp=true\n").count(0)
+        } else {
+            predicate::str::contains("PrivateTmp=true\n").count(1)
+        })
+        .stdout(predicate::str::contains("PrivateDevices=true\n").count(1))
+        .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
+        .stdout(predicate::str::contains("ProtectKernelModules=true\n").count(1))
+        .stdout(predicate::str::contains("ProtectKernelLogs=true\n").count(1))
+        .stdout(predicate::str::contains("ProtectControlGroups=true\n").count(1))
+        .stdout(predicate::str::contains("ProtectProc=ptraceable\n").count(1))
+        .stdout(predicate::str::contains("MemoryDenyWriteExecute=true\n").count(1))
+        .stdout(predicate::str::contains("RestrictAddressFamilies=none\n").count(1))
+        .stdout(predicate::str::contains("LockPersonality=true\n").count(1))
+        .stdout(predicate::str::contains("RestrictRealtime=true\n").count(1))
+        .stdout(predicate::str::contains("SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @io-event:EPERM @ipc:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @network-io:EPERM @obsolete:EPERM @pkey:EPERM @privileged:EPERM @process:EPERM @raw-io:EPERM @reboot:EPERM @sandbox:EPERM @setuid:EPERM @swap:EPERM @sync:EPERM @timer:EPERM\n").count(1));
 }
