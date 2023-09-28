@@ -215,6 +215,7 @@ fn run_ls_modules() {
 #[test]
 #[cfg_attr(not(feature = "as-root"), ignore)]
 fn run_dmesg() {
+    assert!(Uid::effective().is_root());
     Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .args(["run", "--", "dmesg"])
@@ -222,18 +223,8 @@ fn run_dmesg() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains(
-            if Uid::effective().is_root() {
-                "ProtectHome=tmpfs\n"
-            } else {
-                "ProtectHome=read-only\n"
-            }
-        ).count(1))
-        .stdout(if !Uid::effective().is_root() && env::current_exe().unwrap().starts_with("/tmp") {
-            predicate::str::contains("PrivateTmp=true\n").count(0)
-        } else {
-            predicate::str::contains("PrivateTmp=true\n").count(1)
-        })
+        .stdout(predicate::str::contains("ProtectHome=tmpfs\n").count(1))
+        .stdout(predicate::str::contains("PrivateTmp=true\n").count(1))
         .stdout(predicate::str::contains("PrivateDevices=").not())
         .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelModules=true\n").count(1))
