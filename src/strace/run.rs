@@ -22,6 +22,7 @@ impl Strace {
         nix::unistd::mkfifo(&pipe_path, nix::sys::stat::Mode::from_bits(0o600).unwrap())?;
 
         // Start process
+        // TODO setuid/setgid execution will be broken unless strace runs as root
         let child = Command::new("strace")
             .args([
                 "--daemonize=grandchild",

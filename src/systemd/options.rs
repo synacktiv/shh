@@ -1134,6 +1134,18 @@ pub fn build_options(
         }],
     });
 
+    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectClock=
+    options.push(OptionDescription {
+        name: "ProtectClock".to_string(),
+        possible_values: vec![OptionValueDescription {
+            value: OptionValue::Boolean(true),
+            // This option essentially does the same thing as deny @clock
+            desc: OptionEffect::Simple(OptionValueEffect::DenySyscalls(DenySyscalls::Class(
+                "clock".to_string(),
+            ))),
+        }],
+    });
+
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#SystemCallFilter=
     //
     // Also change the default behavior when calling a denied syscall to return EPERM instead og killing
