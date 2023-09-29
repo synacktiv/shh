@@ -7,7 +7,9 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
+use itertools::Itertools;
 use lazy_static::lazy_static;
+use strum::IntoEnumIterator;
 
 use crate::cl::HardeningMode;
 use crate::systemd::{KernelVersion, SystemdVersion};
@@ -25,13 +27,24 @@ impl fmt::Display for OptionDescription {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum ListMode {
+    WhiteList,
+    BlackList,
+}
+
 /// Systemd option value
 #[derive(Debug, Clone)]
 pub enum OptionValue {
     Boolean(bool), // In most case we only model the 'true' value, because false is no-op and the default
     String(String), // enum-like, or free string
-    DenyList(Vec<String>),
-    AllowList(Vec<String>),
+    List {
+        values: Vec<String>,
+        value_if_empty: Option<String>,
+        negation_prefix: bool,
+        repeat_option: bool,
+        mode: ListMode,
+    },
 }
 
 impl FromStr for OptionValue {
@@ -99,6 +112,11 @@ pub enum OptionValueEffect {
     DenyWriteExecuteMemoryMapping,
     /// Deny real time scheduling
     DenyRealtimeScheduler,
+    /// Deny a socket family and protocol socket bind
+    DenySocketBind {
+        af: SocketFamily,
+        proto: SocketProtocol,
+    },
     /// Union of multiple effects
     Multiple(Vec<OptionValueEffect>),
 }
@@ -109,6 +127,43 @@ pub enum DenySyscalls {
     /// for the content of each class
     Class(String),
     Single(String),
+}
+
+// Not a complete enumeration, only used with SocketBindDeny
+#[derive(Debug, Clone, Eq, PartialEq, strum::EnumIter, strum::Display)]
+#[strum(serialize_all = "snake_case")]
+pub enum SocketFamily {
+    Ipv4,
+    Ipv6,
+}
+
+impl SocketFamily {
+    pub fn from_syscall_arg(s: &str) -> Option<Self> {
+        match s {
+            "AF_INET" => Some(Self::Ipv4),
+            "AF_INET6" => Some(Self::Ipv6),
+            _ => None,
+        }
+    }
+}
+
+// Not a complete enumeration, only used with SocketBindDeny
+#[derive(Debug, Clone, Eq, PartialEq, strum::EnumIter, strum::Display)]
+#[strum(serialize_all = "snake_case")]
+pub enum SocketProtocol {
+    Tcp,
+    Udp,
+}
+
+impl SocketProtocol {
+    pub fn from_syscall_arg(s: &str) -> Option<Self> {
+        // Only makes sense for IP addresses
+        match s {
+            "SOCK_STREAM" => Some(Self::Tcp),
+            "SOCK_DGRAM" => Some(Self::Udp),
+            _ => None,
+        }
+    }
 }
 
 impl DenySyscalls {
@@ -159,30 +214,42 @@ impl FromStr for OptionWithValue {
 
 impl fmt::Display for OptionWithValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}=", self.name)?;
         match &self.value {
             OptionValue::Boolean(value) => {
-                write!(f, "{}", if *value { "true" } else { "false" })
+                write!(f, "{}={}", self.name, if *value { "true" } else { "false" })
             }
-            OptionValue::String(value) => {
-                write!(f, "{value}")
-            }
-            OptionValue::DenyList(values) => {
-                debug_assert!(!values.is_empty());
-                write!(
-                    f,
-                    "~{}",
-                    values
-                        .iter()
-                        .map(|v| v.to_string())
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                )
-            }
-            OptionValue::AllowList(values) => {
+            OptionValue::String(value) => write!(f, "{}={}", self.name, value),
+            OptionValue::List {
+                values,
+                value_if_empty,
+                negation_prefix,
+                repeat_option,
+                ..
+            } => {
                 if values.is_empty() {
-                    write!(f, "none")
+                    write!(f, "{}=", self.name)?;
+                    if let Some(value_if_empty) = value_if_empty {
+                        write!(f, "{value_if_empty}")
+                    } else {
+                        unreachable!()
+                    }
+                } else if *repeat_option {
+                    for (i, value) in values.iter().enumerate() {
+                        write!(f, "{}=", self.name)?;
+                        if *negation_prefix {
+                            write!(f, "~")?;
+                        }
+                        write!(f, "{value}")?;
+                        if i < values.len() - 1 {
+                            writeln!(f)?;
+                        }
+                    }
+                    Ok(())
                 } else {
+                    write!(f, "{}=", self.name)?;
+                    if *negation_prefix {
+                        write!(f, "~")?;
+                    }
                     write!(
                         f,
                         "{}",
@@ -1083,7 +1150,13 @@ pub fn build_options(
     options.push(OptionDescription {
         name: "RestrictAddressFamilies".to_string(),
         possible_values: vec![OptionValueDescription {
-            value: OptionValue::AllowList(afs.iter().map(|s| s.to_string()).collect()),
+            value: OptionValue::List {
+                values: afs.iter().map(|s| s.to_string()).collect(),
+                value_if_empty: Some("none".to_string()),
+                negation_prefix: false,
+                repeat_option: false,
+                mode: ListMode::WhiteList,
+            },
             desc: OptionEffect::Cumulative(
                 afs.into_iter()
                     .map(|af| OptionValueEffect::DenySocketFamily(af.to_string()))
@@ -1110,6 +1183,35 @@ pub fn build_options(
             }],
         });
     }
+
+    // https://www.freedesktop.org/software/systemd/man/systemd.resource-control.html#SocketBindAllow=bind-rule
+    //
+    // We don't go as far as allowing/denying individual ports, as that would easily break for example if a port is changed
+    // in a server configuration
+    let deny_binds: Vec<_> = SocketFamily::iter()
+        .cartesian_product(SocketProtocol::iter())
+        .collect();
+    options.push(OptionDescription {
+        name: "SocketBindDeny".to_string(),
+        possible_values: vec![OptionValueDescription {
+            value: OptionValue::List {
+                values: deny_binds
+                    .iter()
+                    .map(|(af, proto)| format!("{af}:{proto}"))
+                    .collect(),
+                value_if_empty: None,
+                negation_prefix: false,
+                repeat_option: true,
+                mode: ListMode::BlackList,
+            },
+            desc: OptionEffect::Cumulative(
+                deny_binds
+                    .into_iter()
+                    .map(|(af, proto)| OptionValueEffect::DenySocketBind { af, proto })
+                    .collect(),
+            ),
+        }],
+    });
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#LockPersonality=
     options.push(OptionDescription {
@@ -1161,12 +1263,16 @@ pub fn build_options(
     options.push(OptionDescription {
         name: "SystemCallFilter".to_string(),
         possible_values: vec![OptionValueDescription {
-            value: OptionValue::DenyList(
-                syscall_classes
+            value: OptionValue::List {
+                values: syscall_classes
                     .iter()
                     .map(|c| format!("@{c}:EPERM"))
                     .collect(),
-            ),
+                value_if_empty: None,
+                negation_prefix: true,
+                repeat_option: false,
+                mode: ListMode::BlackList,
+            },
             desc: OptionEffect::Cumulative(
                 syscall_classes
                     .into_iter()

@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use lazy_static::lazy_static;
 
 use crate::strace::{BufferType, IntegerExpression, Syscall, SyscallArg};
+use crate::systemd::{SocketFamily, SocketProtocol};
 
 /// A high level program runtime action
 /// This does *not* map 1-1 with a syscall, and does *not* necessarily respect chronology
@@ -19,12 +20,17 @@ pub enum ProgramAction {
     Write(PathBuf),
     /// Path was created
     Create(PathBuf),
-    /// Network (socket) activity
+    /// Generic network (socket) activity
     NetworkActivity { af: String },
     /// Memory mapping with write and execute bits
     WriteExecuteMemoryMapping,
     /// Set scheduler to a real time one
     SetRealtimeScheduler,
+    /// Bind socket
+    SocketBind {
+        af: SocketFamily,
+        proto: SocketProtocol,
+    },
     /// Names of the syscalls made by the program
     Syscalls(HashSet<String>),
 }
@@ -205,6 +211,9 @@ where
 {
     let mut actions = Vec::new();
     let mut stats: HashMap<String, u64> = HashMap::new();
+    // keep known socket protocols for bind handling, we don't care for the socket closings
+    // because the fd will be reused or never bound again
+    let mut known_sockets_proto: HashMap<i128, SocketProtocol> = HashMap::new();
     for syscall in syscalls {
         let syscall = syscall?;
         log::trace!("{syscall:?}");
@@ -374,6 +383,27 @@ where
                     }
                     _ => (),
                 }
+
+                if name == "bind" {
+                    let fd = if let Some(SyscallArg::Integer {
+                        value: IntegerExpression::Literal(fd),
+                        ..
+                    }) = syscall.args.get(0)
+                    {
+                        fd
+                    } else {
+                        anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
+                    };
+                    if let (Some(af), Some(proto)) = (
+                        SocketFamily::from_syscall_arg(af),
+                        known_sockets_proto.get(fd),
+                    ) {
+                        actions.push(ProgramAction::SocketBind {
+                            af,
+                            proto: proto.clone(),
+                        });
+                    }
+                }
             }
             Some(SyscallInfo::SetScheduler) => {
                 let policy = if let Some(SyscallArg::Integer { value, .. }) = syscall.args.get(1) {
@@ -396,6 +426,19 @@ where
                     anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
                 };
                 actions.push(ProgramAction::NetworkActivity { af });
+
+                let proto_flags =
+                    if let Some(SyscallArg::Integer { value, .. }) = syscall.args.get(1) {
+                        value.flags()
+                    } else {
+                        anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
+                    };
+                for proto in proto_flags {
+                    if let Some(known_proto) = SocketProtocol::from_syscall_arg(&proto) {
+                        known_sockets_proto.insert(syscall.ret_val, known_proto);
+                        break;
+                    }
+                }
             }
             Some(SyscallInfo::Mmap { prot_idx }) => {
                 let prot = if let Some(SyscallArg::Integer { value: prot, .. }) =

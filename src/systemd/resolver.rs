@@ -2,7 +2,7 @@
 
 use crate::summarize::ProgramAction;
 use crate::systemd::options::{
-    OptionDescription, OptionEffect, OptionValue, OptionValueEffect, OptionWithValue,
+    ListMode, OptionDescription, OptionEffect, OptionValue, OptionValueEffect, OptionWithValue,
 };
 
 impl OptionValueEffect {
@@ -42,6 +42,17 @@ impl OptionValueEffect {
             }
             OptionValueEffect::DenyRealtimeScheduler => {
                 !matches!(action, ProgramAction::SetRealtimeScheduler)
+            }
+            OptionValueEffect::DenySocketBind {
+                af: denied_af,
+                proto: denied_proto,
+            } => {
+                if let ProgramAction::SocketBind { af, proto } = action {
+                    if (denied_af == af) && (denied_proto == proto) {
+                        return false;
+                    }
+                }
+                true
             }
             OptionValueEffect::Multiple(effects) => {
                 effects.iter().all(|e| e.compatible(action, prev_actions))
@@ -92,34 +103,37 @@ pub fn resolve(
                 }
                 OptionEffect::Cumulative(effects) => {
                     match &opt_value_desc.value {
-                        OptionValue::DenyList(deny_list) => {
+                        OptionValue::List {
+                            values,
+                            value_if_empty,
+                            negation_prefix,
+                            repeat_option,
+                            mode,
+                        } => {
                             let mut compatible_opts = Vec::new();
-                            debug_assert_eq!(deny_list.len(), effects.len());
-                            for (optv, opte) in deny_list.iter().zip(effects) {
-                                if actions_compatible(opte, actions) {
+                            debug_assert_eq!(values.len(), effects.len());
+                            for (optv, opte) in values.iter().zip(effects) {
+                                let compatible = actions_compatible(opte, actions);
+                                let enable_opt = match mode {
+                                    ListMode::WhiteList => !compatible,
+                                    ListMode::BlackList => compatible,
+                                };
+                                if enable_opt {
                                     compatible_opts.push(optv.to_string());
                                 }
                             }
-                            if !compatible_opts.is_empty() {
+                            if !compatible_opts.is_empty() || value_if_empty.is_some() {
                                 candidates.push(OptionWithValue {
                                     name: opt.name.clone(),
-                                    value: OptionValue::DenyList(compatible_opts),
+                                    value: OptionValue::List {
+                                        values: compatible_opts,
+                                        value_if_empty: value_if_empty.clone(),
+                                        negation_prefix: *negation_prefix,
+                                        repeat_option: *repeat_option,
+                                        mode: mode.clone(),
+                                    },
                                 });
-                                break;
                             }
-                        }
-                        OptionValue::AllowList(allow_list) => {
-                            let mut compatible_opts = Vec::new();
-                            debug_assert_eq!(allow_list.len(), effects.len());
-                            for (optv, opte) in allow_list.iter().zip(effects) {
-                                if !actions_compatible(opte, actions) {
-                                    compatible_opts.push(optv.to_string());
-                                }
-                            }
-                            candidates.push(OptionWithValue {
-                                name: opt.name.clone(),
-                                value: OptionValue::AllowList(compatible_opts),
-                            });
                             break;
                         }
                         _ => unreachable!(),

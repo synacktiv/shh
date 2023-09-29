@@ -71,6 +71,14 @@ impl IntegerExpression {
             _ => false, // if it was a flag field, strace would have decoded it with named consts
         }
     }
+
+    pub fn flags(&self) -> Vec<String> {
+        match self {
+            IntegerExpression::NamedConst(v) => vec![v.clone()],
+            IntegerExpression::BinaryOr(vs) => vs.iter().flat_map(|v| v.flags()).collect(),
+            _ => vec![],
+        }
+    }
 }
 
 pub type SyscallRetVal = i128; // allows holding both signed and unsigned 64 bit integers
