@@ -211,9 +211,9 @@ where
 {
     let mut actions = Vec::new();
     let mut stats: HashMap<String, u64> = HashMap::new();
-    // keep known socket protocols for bind handling, we don't care for the socket closings
+    // Keep known socket protocols (per process) for bind handling, we don't care for the socket closings
     // because the fd will be reused or never bound again
-    let mut known_sockets_proto: HashMap<i128, SocketProtocol> = HashMap::new();
+    let mut known_sockets_proto: HashMap<(u32, i128), SocketProtocol> = HashMap::new();
     for syscall in syscalls {
         let syscall = syscall?;
         log::trace!("{syscall:?}");
@@ -396,7 +396,7 @@ where
                     };
                     if let (Some(af), Some(proto)) = (
                         SocketFamily::from_syscall_arg(af),
-                        known_sockets_proto.get(fd),
+                        known_sockets_proto.get(&(syscall.pid, *fd)),
                     ) {
                         actions.push(ProgramAction::SocketBind {
                             af,
@@ -435,7 +435,7 @@ where
                     };
                 for proto in proto_flags {
                     if let Some(known_proto) = SocketProtocol::from_syscall_arg(&proto) {
-                        known_sockets_proto.insert(syscall.ret_val, known_proto);
+                        known_sockets_proto.insert((syscall.pid, syscall.ret_val), known_proto);
                         break;
                     }
                 }
