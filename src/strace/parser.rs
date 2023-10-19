@@ -504,8 +504,13 @@ impl Iterator for LogParser {
                     continue;
                 }
                 Err(e) => {
-                    log::error!("Failed to parse line: {line:?}");
-                    return Some(Err(e));
+                    // Unfortunately, some versions of strace output inconsistent line format,
+                    // so we have to ignore some parsing errors
+                    // TODO probe strace version and warn if too old?
+                    // log::error!("Failed to parse line: {line:?}");
+                    // return Some(Err(e));
+                    log::warn!("Failed to parse line ({e}): {line:?}");
+                    continue;
                 }
             };
         };
@@ -1269,6 +1274,19 @@ mod tests {
                 ret_val: 20
             })
         );
+    }
+
+    #[test]
+    fn test_invalid() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        // Bogus output ('{{', note the missing field name) that strace 5.10 can generate
+        let err =
+            parse_line(
+                "57652      0.000071 sendto(19<\\x73\\x6f\\x63\\x6b\\x65\\x74\\x3a\\x5b\\x38\\x34\\x38\\x36\\x39\\x32\\x5d>, {{len=20, type=0x16 /* NLMSG_??? */, flags=NLM_F_REQUEST|0x300, seq=1697715709, pid=0}, \"\\x00\\x00\\x00\\x00\"}, 20, 0, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 20",
+                &[]
+            ).unwrap_err();
+        assert_eq!(&err.to_string(), "Unable to extract struct member name");
     }
 
     #[test]
