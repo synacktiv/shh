@@ -1104,12 +1104,13 @@ pub fn build_options(
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#RestrictAddressFamilies=
     // https://man7.org/linux/man-pages/man7/address_families.7.html
+    // curl https://man7.org/linux/man-pages/man7/address_families.7.html | grep -o 'AF_[A-Za-z0-9]*' | sort -u | xargs -I'{}' echo \"'{}'\",
     let afs = [
         "AF_ALG",
         "AF_APPLETALK",
         "AF_ATMPVC",
         "AF_ATMSVC",
-        "AF_AX",
+        "AF_AX25",
         "AF_BLUETOOTH",
         "AF_BRIDGE",
         "AF_CAIF",
@@ -1117,8 +1118,9 @@ pub fn build_options(
         "AF_DECnet",
         "AF_ECONET",
         "AF_IB",
-        "AF_IEEE",
+        "AF_IEEE802154",
         "AF_INET",
+        "AF_INET6",
         "AF_IPX",
         "AF_IRDA",
         "AF_ISDN",
@@ -1144,7 +1146,7 @@ pub fn build_options(
         "AF_UNIX",
         "AF_VSOCK",
         "AF_WANPIPE",
-        "AF_X",
+        "AF_X25",
         "AF_XDP",
     ];
     options.push(OptionDescription {
