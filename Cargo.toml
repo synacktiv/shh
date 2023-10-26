@@ -1,6 +1,6 @@
 [package]
 name = "shh"
-version = "2023.10.19"
+version = "2023.10.26"
 authors = ["Maxime Desbrus <maxime.desbrus@synacktiv.com>"]
 description = "Automatic systemd service hardening guided by strace profiling"
 readme = "README.md"
