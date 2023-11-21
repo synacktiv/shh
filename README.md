@@ -2,6 +2,8 @@
 
 Automatic [systemd](https://systemd.io/) service hardening guided by [strace](https://strace.io/) profiling.
 
+See [this article](https://www.synacktiv.com/publications/systemd-hardening-made-easy-with-shh) for an introduction.
+
 ## Installation
 
 ### From source
