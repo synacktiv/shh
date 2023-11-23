@@ -1,5 +1,9 @@
 # SHH (Systemd Hardening Helper)
 
+[![Build status](https://github.com/synacktiv/shh/actions/workflows/ci.yml/badge.svg)](https://github.com/synacktiv/shh/actions)
+[![AUR version](https://img.shields.io/aur/version/shh.svg?style=flat)](https://aur.archlinux.org/packages/shh/)
+[![License](https://img.shields.io/github/license/synacktiv/shh.svg?style=flat)](https://github.com/synacktiv/shh/blob/master/LICENSE)
+
 Automatic [systemd](https://systemd.io/) service hardening guided by [strace](https://strace.io/) profiling.
 
 See [this article](https://www.synacktiv.com/publications/systemd-hardening-made-easy-with-shh) for an introduction.
