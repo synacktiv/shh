@@ -21,6 +21,10 @@ install -Dm 755 -t /usr/local/bin target/release/shh
 
 See [GitHub releases](https://github.com/synacktiv/shh/releases) for Debian packages built for each tagged version.
 
+### Arch Linux
+
+Arch Linux users can install the [shh AUR package](https://aur.archlinux.org/packages/shh).
+
 ## Usage
 
 To harden a system unit named `SERVICE.service`:
