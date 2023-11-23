@@ -4,6 +4,8 @@ Automatic [systemd](https://systemd.io/) service hardening guided by [strace](ht
 
 See [this article](https://www.synacktiv.com/publications/systemd-hardening-made-easy-with-shh) for an introduction.
 
+[Official repository](https://github.com/synacktiv/shh) - [Mirror repository](https://github.com/desbma/shh)
+
 ## Installation
 
 ### From source
