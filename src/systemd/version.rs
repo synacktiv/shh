@@ -1,10 +1,11 @@
 //! Systemd & kernel version
 
 use std::fmt;
+use std::io::BufRead;
 use std::process::Command;
 use std::str;
 
-#[derive(Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub struct SystemdVersion {
     pub major: u16,
     pub minor: u16,
@@ -20,20 +21,40 @@ impl SystemdVersion {
         if !output.status.success() {
             anyhow::bail!("systemctl invocation failed with code {:?}", output.status);
         }
-        let (major, rest) = str::from_utf8(&output.stdout)?
+        let line = output
+            .stdout
+            .lines()
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("Unable to get systemd version"))??;
+        Self::parse_version_line(&line)
+    }
+
+    fn parse_version_line(s: &str) -> anyhow::Result<Self> {
+        let version = s
             .split_once('(')
-            .ok_or_else(|| anyhow::anyhow!("Unable to get systemd major version"))?
+            .ok_or_else(|| anyhow::anyhow!("Unable to parse systemd version"))?
             .1
-            .split_once('.')
-            .ok_or_else(|| anyhow::anyhow!("Unable to get systemd minor version"))?;
-        let minor = rest
+            .split_once(')')
+            .ok_or_else(|| anyhow::anyhow!("Unable to parse systemd version"))?
+            .0;
+        let major_str = version
             .chars()
             .take_while(|c| c.is_ascii_digit())
             .collect::<String>();
-        Ok(Self {
-            major: major.parse()?,
-            minor: minor.parse()?,
-        })
+        let major = major_str.parse()?;
+        let minor = if let Some('.') = version.chars().nth(major_str.len()) {
+            // Actual minor version
+            version
+                .chars()
+                .skip(major_str.len() + 1)
+                .take_while(|c| c.is_ascii_digit())
+                .collect::<String>()
+                .parse()?
+        } else {
+            // RC or distro suffix
+            0
+        };
+        Ok(Self { major, minor })
     }
 }
 
@@ -88,5 +109,22 @@ impl KernelVersion {
 impl fmt::Display for KernelVersion {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}.{}.{}", self.major, self.minor, self.release)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::systemd::SystemdVersion;
+
+    #[test]
+    fn test_parse_version() {
+        assert_eq!(
+            SystemdVersion::parse_version_line("systemd 254 (254.1)").unwrap(),
+            SystemdVersion::new(254, 1)
+        );
+        assert_eq!(
+            SystemdVersion::parse_version_line("systemd 255 (255~rc3-2)").unwrap(),
+            SystemdVersion::new(255, 0)
+        );
     }
 }
