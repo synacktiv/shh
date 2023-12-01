@@ -36,7 +36,11 @@ fn main() -> anyhow::Result<()> {
     // Get versions
     let sd_version = systemd::SystemdVersion::local_system()?;
     let kernel_version = systemd::KernelVersion::local_system()?;
-    log::info!("Detected Systemd version: {sd_version}, Linux kernel version: {kernel_version}");
+    let strace_version = strace::StraceVersion::local_system()?;
+    log::info!("Detected versions: Systemd {sd_version}, Linux kernel {kernel_version}, strace {strace_version}");
+    if strace_version < strace::StraceVersion::new(6, 4) {
+        log::warn!("Strace version >=6.4 is strongly recommended, if you experience strace output parsing errors, please consider upgrading")
+    }
 
     // Parse cl args
     let args = cl::Args::parse();
