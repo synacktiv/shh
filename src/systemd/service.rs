@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use itertools::Itertools;
+use rand::Rng;
 
 use crate::cl::HardeningMode;
 use crate::systemd::{
@@ -61,29 +62,12 @@ impl Service {
             "Hardening config already exists at {harden_fragment_path:?} and may conflict with profiling"
         );
 
-        // Check we have no ExecStartPre/ExecStartPost
-        // Currently we don't profile those, so we'd rather throw an explicit error
         let config_paths_bufs = self.config_paths()?;
         let config_paths = config_paths_bufs
             .iter()
             .map(|p| p.as_path())
             .collect::<Vec<_>>();
-        if !Self::config_vals("ExecStartPre", &config_paths)?.is_empty()
-            || !Self::config_vals("ExecStartPost", &config_paths)?.is_empty()
-        {
-            anyhow::bail!("Services with ExecStartPre/ExecStartPost are not supported")
-        }
-
-        // Read current service startup command
         log::info!("Located unit config file(s): {config_paths:?}");
-        let cmd = Self::config_vals("ExecStart", &config_paths)?
-            .into_iter()
-            .at_most_one()
-            .map_err(|_| {
-                anyhow::anyhow!("Services with multiple ExecStart directives are not supported")
-            })?
-            .ok_or_else(|| anyhow::anyhow!("Unable to get service ExecStart command"))?;
-        log::info!("Startup command: {cmd}");
 
         // Write new fragment
         fs::create_dir_all(fragment_path.parent().unwrap())?;
@@ -104,15 +88,59 @@ impl Service {
         }
         // strace may slow down enough to risk reaching some service timeouts
         writeln!(fragment_file, "TimeoutStartSec=infinity")?;
-        writeln!(fragment_file, "ExecStart=")?;
+
+        // Profile data dir
+        let mut rng = rand::thread_rng();
+        let profile_data_dir = PathBuf::from(format!(
+            "/run/{}-profile-data_{:08x}",
+            env!("CARGO_PKG_NAME"),
+            rng.gen::<u32>()
+        ));
         writeln!(
             fragment_file,
-            "ExecStart={} run -m {} -- {}",
-            env::current_exe()?
-                .to_str()
-                .ok_or_else(|| anyhow::anyhow!("Unable to decode current executable path"))?,
+            "RuntimeDirectory={}",
+            profile_data_dir.file_name().unwrap().to_str().unwrap()
+        )?;
+
+        let shh_bin = env::current_exe()?
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Unable to decode current executable path"))?
+            .to_string();
+
+        // Wrap all ExecStartXxx directives
+        let mut exec_start_idx = 1;
+        let mut profile_data_paths = Vec::new();
+        for exec_start_opt in ["ExecStartPre", "ExecStart", "ExecStartPost"] {
+            let exec_start_cmds = Self::config_vals(exec_start_opt, &config_paths)?;
+            if !exec_start_cmds.is_empty() {
+                writeln!(fragment_file, "{}=", exec_start_opt)?;
+            }
+            for cmd in exec_start_cmds {
+                let profile_data_path = profile_data_dir.join(format!("{:03}", exec_start_idx));
+                exec_start_idx += 1;
+                writeln!(
+                    fragment_file,
+                    "{}={} run -m {} -p {} -- {}",
+                    exec_start_opt,
+                    shh_bin,
+                    mode,
+                    profile_data_path.to_str().unwrap(),
+                    cmd
+                )?;
+                profile_data_paths.push(profile_data_path);
+            }
+        }
+
+        // Add invocation that merges previous profiles
+        writeln!(
+            fragment_file,
+            "ExecStopPost={} merge-profile-data -m {} {}",
+            shh_bin,
             mode,
-            cmd
+            profile_data_paths
+                .iter()
+                .map(|p| p.to_str().unwrap())
+                .join(" ")
         )?;
 
         log::info!("Config fragment written in {fragment_path:?}");

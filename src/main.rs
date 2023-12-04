@@ -1,6 +1,9 @@
 #![cfg_attr(all(feature = "nightly", test), feature(test))]
 
-use std::thread;
+use std::{
+    fs::{self, File},
+    thread,
+};
 
 use anyhow::Context;
 use clap::Parser;
@@ -47,7 +50,11 @@ fn main() -> anyhow::Result<()> {
 
     // Handle CL args
     match args.action {
-        cl::Action::Run { command, mode } => {
+        cl::Action::Run {
+            command,
+            mode,
+            profile_data_path,
+        } => {
             // Build supported systemd options
             let sd_opts = sd_options(&sd_version, &kernel_version, &mode)?;
 
@@ -72,11 +79,43 @@ fn main() -> anyhow::Result<()> {
             let actions = summarize::summarize(logs)?;
             log::debug!("{actions:?}");
 
+            if let Some(profile_data_path) = profile_data_path {
+                // Dump profile data
+                log::info!("Writing profile data into {profile_data_path:?}...");
+                let file = File::create(profile_data_path)?;
+                bincode::serialize_into(file, &actions)?;
+            } else {
+                // Resolve
+                let resolved_opts = systemd::resolve(&sd_opts, &actions)?;
+
+                // Report
+                systemd::report_options(resolved_opts);
+            }
+        }
+        cl::Action::MergeProfileData { mode, paths } => {
+            // Build supported systemd options
+            let sd_opts = sd_options(&sd_version, &kernel_version, &mode)?;
+
+            // Load and merge profile data
+            let mut actions: Vec<summarize::ProgramAction> = Vec::new();
+            for path in &paths {
+                let file = File::open(path)?;
+                let mut profile_actions: Vec<summarize::ProgramAction> =
+                    bincode::deserialize_from(file)?;
+                actions.append(&mut profile_actions);
+            }
+            log::debug!("{actions:?}");
+
             // Resolve
             let resolved_opts = systemd::resolve(&sd_opts, &actions)?;
 
             // Report
             systemd::report_options(resolved_opts);
+
+            // Remove profile data files
+            for path in paths {
+                fs::remove_file(path)?;
+            }
         }
         cl::Action::Service(cl::ServiceAction::StartProfile {
             service,

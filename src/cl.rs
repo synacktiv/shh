@@ -1,5 +1,7 @@
 //! Command line interface
 
+use std::path::PathBuf;
+
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -29,6 +31,17 @@ pub enum Action {
         /// How hard we should harden
         #[arg(short, long, default_value_t, value_enum)]
         mode: HardeningMode,
+        /// Generate profile data file to be merged with others instead of generating systemd options directly
+        #[arg(short, long, default_value = None)]
+        profile_data_path: Option<PathBuf>,
+    },
+    /// Merge profile data from previous runs to generate systemd options
+    MergeProfileData {
+        /// How hard we should harden
+        #[arg(short, long, default_value_t, value_enum)]
+        mode: HardeningMode,
+        /// Profile data paths
+        paths: Vec<PathBuf>,
     },
     /// Act on a systemd service unit
     #[clap(subcommand)]

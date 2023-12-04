@@ -12,7 +12,7 @@ use crate::systemd::{SocketFamily, SocketProtocol};
 
 /// A high level program runtime action
 /// This does *not* map 1-1 with a syscall, and does *not* necessarily respect chronology
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ProgramAction {
     /// Path was accessed (open, stat'ed, read...)
     Read(PathBuf),

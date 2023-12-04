@@ -130,7 +130,16 @@ pub enum DenySyscalls {
 }
 
 // Not a complete enumeration, only used with SocketBindDeny
-#[derive(Debug, Clone, Eq, PartialEq, strum::EnumIter, strum::Display)]
+#[derive(
+    Debug,
+    Clone,
+    Eq,
+    PartialEq,
+    strum::EnumIter,
+    strum::Display,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[strum(serialize_all = "snake_case")]
 pub enum SocketFamily {
     Ipv4,
@@ -148,7 +157,16 @@ impl SocketFamily {
 }
 
 // Not a complete enumeration, only used with SocketBindDeny
-#[derive(Debug, Clone, Eq, PartialEq, strum::EnumIter, strum::Display)]
+#[derive(
+    Debug,
+    Clone,
+    Eq,
+    PartialEq,
+    strum::EnumIter,
+    strum::Display,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[strum(serialize_all = "snake_case")]
 pub enum SocketProtocol {
     Tcp,
