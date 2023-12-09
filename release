@@ -6,7 +6,7 @@ cargo set-version "${VERSION}"
 
 cargo update
 
-cargo test
+cargo test --bins
 
 git add Cargo.{toml,lock}
 git commit -m "chore: version ${VERSION}"
