@@ -197,11 +197,15 @@ impl Service {
         Ok(())
     }
 
-    pub fn action(&self, verb: &str) -> anyhow::Result<()> {
-        log::info!("{} {}", verb, &self.unit_name());
-        let status = Command::new("systemctl")
-            .args([verb, &self.unit_name()])
-            .status()?;
+    pub fn action(&self, verb: &str, block: bool) -> anyhow::Result<()> {
+        let unit_name = self.unit_name();
+        log::info!("{} {}", verb, unit_name);
+        let mut cmd = vec![verb];
+        if !block {
+            cmd.push("--no-block");
+        }
+        cmd.push(&unit_name);
+        let status = Command::new("systemctl").args(cmd).status()?;
         if !status.success() {
             anyhow::bail!("systemctl failed: {status}");
         }

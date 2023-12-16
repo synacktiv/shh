@@ -127,7 +127,7 @@ fn main() -> anyhow::Result<()> {
             service.add_profile_fragment(&mode)?;
             if !no_restart {
                 service.reload_unit_config()?;
-                service.action("restart")?;
+                service.action("restart", false)?;
             } else {
                 log::warn!("Profiling config will only be applied when systemd config is reloaded, and service restarted");
             }
@@ -138,7 +138,7 @@ fn main() -> anyhow::Result<()> {
             no_restart,
         }) => {
             let service = systemd::Service::new(&service);
-            service.action("stop")?;
+            service.action("stop", true)?;
             service.remove_profile_fragment()?;
             let resolved_opts = service.profiling_result()?;
             log::info!(
@@ -154,7 +154,7 @@ fn main() -> anyhow::Result<()> {
             }
             service.reload_unit_config()?;
             if !no_restart {
-                service.action("start")?;
+                service.action("start", false)?;
             }
         }
         cl::Action::Service(cl::ServiceAction::Reset { service }) => {
@@ -162,7 +162,7 @@ fn main() -> anyhow::Result<()> {
             let _ = service.remove_profile_fragment();
             let _ = service.remove_hardening_fragment();
             service.reload_unit_config()?;
-            service.action("try-restart")?;
+            service.action("try-restart", false)?;
         }
     }
 
