@@ -88,6 +88,7 @@ impl Service {
         }
         // strace may slow down enough to risk reaching some service timeouts
         writeln!(fragment_file, "TimeoutStartSec=infinity")?;
+        writeln!(fragment_file, "KillMode=control-group")?;
 
         // Profile data dir
         let mut rng = rand::thread_rng();

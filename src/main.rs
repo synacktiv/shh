@@ -65,6 +65,7 @@ fn main() -> anyhow::Result<()> {
             // Start signal handling thread
             let mut signals = signal_hook::iterator::Signals::new([
                 signal_hook::consts::signal::SIGINT,
+                signal_hook::consts::signal::SIGQUIT,
                 signal_hook::consts::signal::SIGTERM,
             ])?;
             thread::spawn(move || {
