@@ -1,14 +1,14 @@
 # SHH (Systemd Hardening Helper)
 
-[![Build status](https://github.com/synacktiv/shh/actions/workflows/ci.yml/badge.svg)](https://github.com/synacktiv/shh/actions)
+[![Build status](https://github.com/desbma/shh/actions/workflows/ci.yml/badge.svg)](https://github.com/desbma/shh/actions)
 [![AUR version](https://img.shields.io/aur/version/shh.svg?style=flat)](https://aur.archlinux.org/packages/shh/)
-[![License](https://img.shields.io/github/license/synacktiv/shh.svg?style=flat)](https://github.com/synacktiv/shh/blob/master/LICENSE)
+[![License](https://img.shields.io/github/license/desbma/shh.svg?style=flat)](https://github.com/desbma/shh/blob/master/LICENSE)
 
 Automatic [systemd](https://systemd.io/) service hardening guided by [strace](https://strace.io/) profiling.
 
 See [this article](https://www.synacktiv.com/publications/systemd-hardening-made-easy-with-shh) for an introduction.
 
-[Official repository](https://github.com/synacktiv/shh) - [Mirror repository](https://github.com/desbma/shh)
+[Official repository](https://github.com/desbma/shh) - [Mirror repository](https://github.com/synacktiv/shh)
 
 ## Installation
 
@@ -23,7 +23,7 @@ install -Dm 755 -t /usr/local/bin target/release/shh
 
 ### Debian
 
-See [GitHub releases](https://github.com/synacktiv/shh/releases) for Debian packages built for each tagged version.
+See [GitHub releases](https://github.com/desbma/shh/releases) for Debian packages built for each tagged version.
 
 ### Arch Linux
 
