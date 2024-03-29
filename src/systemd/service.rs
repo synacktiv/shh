@@ -26,12 +26,12 @@ impl Service {
     pub fn new(unit: &str) -> Self {
         if let Some((name, arg)) = unit.split_once('@') {
             Self {
-                name: name.to_string(),
-                arg: Some(arg.to_string()),
+                name: name.to_owned(),
+                arg: Some(arg.to_owned()),
             }
         } else {
             Self {
-                name: unit.to_string(),
+                name: unit.to_owned(),
                 arg: None,
             }
         }
@@ -44,7 +44,7 @@ impl Service {
             if let Some(arg) = self.arg.as_ref() {
                 format!("@{arg}")
             } else {
-                "".to_string()
+                "".to_owned()
             }
         )
     }
@@ -106,7 +106,7 @@ impl Service {
         let shh_bin = env::current_exe()?
             .to_str()
             .ok_or_else(|| anyhow::anyhow!("Unable to decode current executable path"))?
-            .to_string();
+            .to_owned();
 
         // Wrap all ExecStartXxx directives
         let mut exec_start_idx = 1;
@@ -278,7 +278,7 @@ impl Service {
                         .map(|l| l.starts_with(&format!("{key}=")))
                         .unwrap_or(true)
                 })
-                .map(|l| l.map(|l| l.split_once('=').unwrap().1.trim().to_string()))
+                .map(|l| l.map(|l| l.split_once('=').unwrap().1.trim().to_owned()))
                 .collect::<Result<Vec<_>, _>>()?;
             while let Some(clear_idx) = new_vals.iter().position(|v| v.is_empty()) {
                 new_vals = new_vals[clear_idx + 1..].to_vec();

@@ -40,6 +40,23 @@ nightly = []
 # for tests only
 as-root = []
 
+[lints.rust]
+missing_docs = "warn"
+unsafe_code = "forbid"
+
+[lints.clippy]
+clone_on_ref_ptr = "warn"
+dbg_macro = "warn"
+format_push_string = "warn"
+if_then_some_else_none = "warn"
+multiple_inherent_impl = "warn"
+ref_patterns = "warn"
+semicolon_inside_block = "warn"
+str_to_string = "warn"
+string_to_string = "warn"
+unneeded_field_pattern = "warn"
+verbose_file_reads = "warn"
+
 [package.metadata.deb]
 name = "shh"
 depends = "$auto, strace"

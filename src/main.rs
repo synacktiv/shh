@@ -1,3 +1,5 @@
+//! Systemd Hardening Helper
+
 #![cfg_attr(all(feature = "nightly", test), feature(test))]
 
 use std::{
@@ -42,7 +44,7 @@ fn main() -> anyhow::Result<()> {
     let strace_version = strace::StraceVersion::local_system()?;
     log::info!("Detected versions: Systemd {sd_version}, Linux kernel {kernel_version}, strace {strace_version}");
     if strace_version < strace::StraceVersion::new(6, 4) {
-        log::warn!("Strace version >=6.4 is strongly recommended, if you experience strace output parsing errors, please consider upgrading")
+        log::warn!("Strace version >=6.4 is strongly recommended, if you experience strace output parsing errors, please consider upgrading");
     }
 
     // Parse cl args
@@ -145,7 +147,7 @@ fn main() -> anyhow::Result<()> {
                 "Resolved systemd options: {}",
                 resolved_opts
                     .iter()
-                    .map(|o| format!("{}", o))
+                    .map(|o| format!("{o}"))
                     .collect::<Vec<_>>()
                     .join(", ")
             );

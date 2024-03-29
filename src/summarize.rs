@@ -388,7 +388,7 @@ where
                     let fd = if let Some(SyscallArg::Integer {
                         value: IntegerExpression::Literal(fd),
                         ..
-                    }) = syscall.args.get(0)
+                    }) = syscall.args.first()
                     {
                         fd
                     } else {
@@ -419,9 +419,9 @@ where
                 let af = if let Some(SyscallArg::Integer {
                     value: IntegerExpression::NamedConst(af),
                     ..
-                }) = syscall.args.get(0)
+                }) = syscall.args.first()
                 {
-                    af.to_string()
+                    af.to_owned()
                 } else {
                     anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
                 };
@@ -494,10 +494,10 @@ mod tests {
         let syscalls = [Ok(Syscall {
             pid: 1068781,
             rel_ts: 0.000083,
-            name: "renameat".to_string(),
+            name: "renameat".to_owned(),
             args: vec![
                 SyscallArg::Integer {
-                    value: IntegerExpression::NamedConst("AT_FDCWD".to_string()),
+                    value: IntegerExpression::NamedConst("AT_FDCWD".to_owned()),
                     metadata: Some(temp_dir_src.path().as_os_str().as_bytes().to_vec()),
                 },
                 SyscallArg::Buffer {
@@ -505,7 +505,7 @@ mod tests {
                     type_: BufferType::Unknown,
                 },
                 SyscallArg::Integer {
-                    value: IntegerExpression::NamedConst("AT_FDCWD".to_string()),
+                    value: IntegerExpression::NamedConst("AT_FDCWD".to_owned()),
                     metadata: Some(temp_dir_dst.path().as_os_str().as_bytes().to_vec()),
                 },
                 SyscallArg::Buffer {
@@ -513,7 +513,7 @@ mod tests {
                     type_: BufferType::Unknown,
                 },
                 SyscallArg::Integer {
-                    value: IntegerExpression::NamedConst("RENAME_NOREPLACE".to_string()),
+                    value: IntegerExpression::NamedConst("RENAME_NOREPLACE".to_owned()),
                     metadata: None,
                 },
             ],
@@ -526,7 +526,7 @@ mod tests {
                 ProgramAction::Write(temp_dir_src.path().join("a")),
                 ProgramAction::Create(temp_dir_dst.path().join("b")),
                 ProgramAction::Write(temp_dir_dst.path().join("b")),
-                ProgramAction::Syscalls(["renameat".to_string()].into())
+                ProgramAction::Syscalls(["renameat".to_owned()].into())
             ]
         );
     }
@@ -538,7 +538,7 @@ mod tests {
         let syscalls = [Ok(Syscall {
             pid: 598056,
             rel_ts: 0.000036,
-            name: "connect".to_string(),
+            name: "connect".to_owned(),
             args: vec![
                 SyscallArg::Integer {
                     value: IntegerExpression::Literal(4),
@@ -546,14 +546,14 @@ mod tests {
                 },
                 SyscallArg::Struct(HashMap::from([
                     (
-                        "sa_family".to_string(),
+                        "sa_family".to_owned(),
                         SyscallArg::Integer {
-                            value: IntegerExpression::NamedConst("AF_UNIX".to_string()),
+                            value: IntegerExpression::NamedConst("AF_UNIX".to_owned()),
                             metadata: None,
                         },
                     ),
                     (
-                        "sun_path".to_string(),
+                        "sun_path".to_owned(),
                         SyscallArg::Buffer {
                             value: "/run/user/1000/systemd/private".as_bytes().to_vec(),
                             type_: BufferType::Unknown,
@@ -571,7 +571,7 @@ mod tests {
             summarize(syscalls).unwrap(),
             vec![
                 ProgramAction::Read("/run/user/1000/systemd/private".into()),
-                ProgramAction::Syscalls(["connect".to_string()].into())
+                ProgramAction::Syscalls(["connect".to_owned()].into())
             ]
         );
     }

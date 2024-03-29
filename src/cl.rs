@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
+/// Command line arguments
 #[derive(Parser, Debug)]
 pub struct Args {
     #[command(subcommand)]

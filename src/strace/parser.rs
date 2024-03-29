@@ -253,7 +253,7 @@ fn parse_argument(caps: &regex::Captures) -> anyhow::Result<SyscallArg> {
                 .rsplit(' ')
                 .next()
                 .unwrap()
-                .to_string();
+                .to_owned();
             Ok(SyscallArg::Integer {
                 value: IntegerExpression::BinaryNot(Box::new(IntegerExpression::NamedConst(name))),
                 metadata: None,
@@ -266,7 +266,7 @@ fn parse_argument(caps: &regex::Captures) -> anyhow::Result<SyscallArg> {
                     .map(|m| parse_buffer(m.as_str()))
                     .map_or(Ok(None), |v| v.map(Some))?;
                 Ok(SyscallArg::Integer {
-                    value: IntegerExpression::NamedConst(tokens[0].to_string()),
+                    value: IntegerExpression::NamedConst(tokens[0].to_owned()),
                     metadata,
                 })
             } else {
@@ -277,11 +277,11 @@ fn parse_argument(caps: &regex::Captures) -> anyhow::Result<SyscallArg> {
                             IntegerExpression::LeftBitShift {
                                 bits: Box::new(IntegerExpression::Literal(1)),
                                 shift: Box::new(IntegerExpression::NamedConst(
-                                    one_shift.to_string(),
+                                    one_shift.to_owned(),
                                 )),
                             }
                         } else {
-                            IntegerExpression::NamedConst(t.to_string())
+                            IntegerExpression::NamedConst(t.to_owned())
                         }
                     })
                     .collect();
@@ -293,7 +293,7 @@ fn parse_argument(caps: &regex::Captures) -> anyhow::Result<SyscallArg> {
         }
     } else if let Some(struct_) = caps.name("struct") {
         let mut members = HashMap::new();
-        let mut struct_ = struct_.as_str().to_string();
+        let mut struct_ = struct_.as_str().to_owned();
         while !struct_.is_empty() {
             // dbg!(&struct_);
             if struct_ == "..." {
@@ -311,8 +311,8 @@ fn parse_argument(caps: &regex::Captures) -> anyhow::Result<SyscallArg> {
                 .ok_or_else(|| anyhow::anyhow!("Unable to parse struct member value"))?;
             let v = parse_argument(&caps)?;
             // dbg!(&v);
-            members.insert(k.to_string(), v);
-            struct_ = struct_[k.len() + 1 + caps.get(0).unwrap().len()..struct_.len()].to_string();
+            members.insert(k.to_owned(), v);
+            struct_ = struct_[k.len() + 1 + caps.get(0).unwrap().len()..struct_.len()].to_owned();
         }
         Ok(SyscallArg::Struct(members))
     } else if let Some(array) = caps.name("array") {
@@ -331,13 +331,13 @@ fn parse_argument(caps: &regex::Captures) -> anyhow::Result<SyscallArg> {
         Ok(SyscallArg::Buffer { value: buf, type_ })
     } else if let Some(macro_) = caps.name("macro") {
         let (name, args) = macro_.as_str().split_once('(').unwrap();
-        let args = args[..args.len() - 1].to_string();
+        let args = args[..args.len() - 1].to_owned();
         let args = ARG_REGEX
             .captures_iter(&args)
             .map(|a| parse_argument(&a))
             .collect::<Result<_, _>>()?;
         Ok(SyscallArg::Macro {
-            name: name.to_string(),
+            name: name.to_owned(),
             args,
         })
     } else if let Some(multiplication) = caps.name("multiplication") {
@@ -381,7 +381,7 @@ fn parse_line(line: &str, unfinished_syscalls: &[Syscall]) -> anyhow::Result<Par
                 .map_err(|e| anyhow::Error::new(e).context("Failed to parse timestamp"))?;
 
             if let Some(name) = caps.name("name") {
-                let name = name.as_str().to_string();
+                let name = name.as_str().to_owned();
 
                 let args = if let Some(arguments) = caps.name("arguments") {
                     ARG_REGEX
@@ -520,7 +520,6 @@ impl Iterator for LogParser {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use std::io::Cursor;
 
     use pretty_assertions::assert_eq;
@@ -539,10 +538,10 @@ mod tests {
             ParseResult::Syscall(Syscall {
                 pid: 382944,
                 rel_ts: 0.000054,
-                name: "mmap".to_string(),
+                name: "mmap".to_owned(),
                 args: vec![
                     SyscallArg::Integer {
-                        value: IntegerExpression::NamedConst("NULL".to_string()),
+                        value: IntegerExpression::NamedConst("NULL".to_owned()),
                         metadata: None,
                     },
                     SyscallArg::Integer {
@@ -551,15 +550,15 @@ mod tests {
                     },
                     SyscallArg::Integer {
                         value: IntegerExpression::BinaryOr(vec![
-                            IntegerExpression::NamedConst("PROT_READ".to_string()),
-                            IntegerExpression::NamedConst("PROT_WRITE".to_string()),
+                            IntegerExpression::NamedConst("PROT_READ".to_owned()),
+                            IntegerExpression::NamedConst("PROT_WRITE".to_owned()),
                         ]),
                         metadata: None
                     },
                     SyscallArg::Integer {
                         value: IntegerExpression::BinaryOr(vec![
-                            IntegerExpression::NamedConst("MAP_PRIVATE".to_string()),
-                            IntegerExpression::NamedConst("MAP_ANONYMOUS".to_string()),
+                            IntegerExpression::NamedConst("MAP_PRIVATE".to_owned()),
+                            IntegerExpression::NamedConst("MAP_ANONYMOUS".to_owned()),
                         ]),
                         metadata:None
                     },
@@ -585,7 +584,7 @@ mod tests {
             ParseResult::Syscall(Syscall {
                 pid: 601646,
                 rel_ts: 0.000011,
-                name: "mmap".to_string(),
+                name: "mmap".to_owned(),
                 args: vec![
                     SyscallArg::Integer {
                         value: IntegerExpression::Literal(0x7f2fce8dc000),
@@ -597,16 +596,16 @@ mod tests {
                     },
                     SyscallArg::Integer {
                         value: IntegerExpression::BinaryOr(vec![
-                            IntegerExpression::NamedConst("PROT_READ".to_string()),
-                            IntegerExpression::NamedConst("PROT_EXEC".to_string()),
+                            IntegerExpression::NamedConst("PROT_READ".to_owned()),
+                            IntegerExpression::NamedConst("PROT_EXEC".to_owned()),
                         ]),
                         metadata: None
                     },
                     SyscallArg::Integer {
                         value: IntegerExpression::BinaryOr(vec![
-                            IntegerExpression::NamedConst("MAP_PRIVATE".to_string()),
-                            IntegerExpression::NamedConst("MAP_FIXED".to_string()),
-                            IntegerExpression::NamedConst("MAP_DENYWRITE".to_string()),
+                            IntegerExpression::NamedConst("MAP_PRIVATE".to_owned()),
+                            IntegerExpression::NamedConst("MAP_FIXED".to_owned()),
+                            IntegerExpression::NamedConst("MAP_DENYWRITE".to_owned()),
                         ]),
                         metadata: None
                     },
@@ -636,14 +635,14 @@ mod tests {
             ParseResult::Syscall(Syscall {
                 pid: 382944,
                 rel_ts: 0.000036,
-                name: "access".to_string(),
+                name: "access".to_owned(),
                 args: vec![
                     SyscallArg::Buffer {
                         value: "/etc/ld.so.preload".as_bytes().to_vec(),
                         type_: BufferType::Unknown
                     },
                     SyscallArg::Integer {
-                        value: IntegerExpression::NamedConst("R_OK".to_string()),
+                        value: IntegerExpression::NamedConst("R_OK".to_owned()),
                         metadata: None,
                     },
                 ],
@@ -664,36 +663,36 @@ mod tests {
             ParseResult::Syscall(Syscall {
                 pid: 720313,
                 rel_ts: 0.000064,
-                name: "rt_sigaction".to_string(),
+                name: "rt_sigaction".to_owned(),
                 args: vec![
                     SyscallArg::Integer {
-                        value: IntegerExpression::NamedConst("SIGTERM".to_string()),
+                        value: IntegerExpression::NamedConst("SIGTERM".to_owned()),
                         metadata: None,
                     },
                     SyscallArg::Struct(HashMap::from([
                         (
-                            "sa_handler".to_string(),
+                            "sa_handler".to_owned(),
                             SyscallArg::Integer {
-                                value: IntegerExpression::NamedConst("SIG_DFL".to_string()),
+                                value: IntegerExpression::NamedConst("SIG_DFL".to_owned()),
                                 metadata: None,
                             },
                         ),
                         (
-                            "sa_mask".to_string(),
+                            "sa_mask".to_owned(),
                             SyscallArg::Integer {
-                                value: IntegerExpression::BinaryNot(Box::new(IntegerExpression::NamedConst("RT_1".to_string()))),
+                                value: IntegerExpression::BinaryNot(Box::new(IntegerExpression::NamedConst("RT_1".to_owned()))),
                                 metadata: None,
                             },
                         ),
                         (
-                            "sa_flags".to_string(),
+                            "sa_flags".to_owned(),
                             SyscallArg::Integer {
-                                value: IntegerExpression::NamedConst("SA_RESTORER".to_string()),
+                                value: IntegerExpression::NamedConst("SA_RESTORER".to_owned()),
                                 metadata: None,
                             },
                         ),
                         (
-                            "sa_restorer".to_string(),
+                            "sa_restorer".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(0x7f6da716c510),
                                 metadata: None
@@ -701,7 +700,7 @@ mod tests {
                         ),
                     ])),
                     SyscallArg::Integer {
-                        value: IntegerExpression::NamedConst("NULL".to_string()),
+                        value: IntegerExpression::NamedConst("NULL".to_owned()),
                         metadata: None,
                     },
                     SyscallArg::Integer {
@@ -768,10 +767,10 @@ mod tests {
             ParseResult::Syscall(Syscall {
                 pid: 772627,
                 rel_ts: 0.000010,
-                name: "newfstatat".to_string(),
+                name: "newfstatat".to_owned(),
                 args: vec![
                     SyscallArg::Integer {
-                        value: IntegerExpression::NamedConst("AT_FDCWD".to_string()),
+                        value: IntegerExpression::NamedConst("AT_FDCWD".to_owned()),
                         metadata: None,
                     },
                     SyscallArg::Buffer {
@@ -780,9 +779,9 @@ mod tests {
                     },
                     SyscallArg::Struct(HashMap::from([
                         (
-                            "st_dev".to_string(),
+                            "st_dev".to_owned(),
                             SyscallArg::Macro {
-                                name: "makedev".to_string(),
+                                name: "makedev".to_owned(),
                                 args: vec![
                                     SyscallArg::Integer {
                                         value: IntegerExpression::Literal(0xfd),
@@ -796,101 +795,101 @@ mod tests {
                             },
                         ),
                         (
-                            "st_ino".to_string(),
+                            "st_ino".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(26427782),
                                 metadata: None
                             },
                         ),
                         (
-                            "st_mode".to_string(),
+                            "st_mode".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::BinaryOr(vec![
-                                    IntegerExpression::NamedConst("S_IFDIR".to_string()),
-                                    IntegerExpression::NamedConst("0755".to_string())
+                                    IntegerExpression::NamedConst("S_IFDIR".to_owned()),
+                                    IntegerExpression::NamedConst("0755".to_owned())
                                 ]),
                                 metadata: None,
                             },
                         ),
                         (
-                            "st_nlink".to_string(),
+                            "st_nlink".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(2),
                                 metadata: None
                             },
                         ),
                         (
-                            "st_uid".to_string(),
+                            "st_uid".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(1000),
                                 metadata: None
                             },
                         ),
                         (
-                            "st_gid".to_string(),
+                            "st_gid".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(1000),
                                 metadata: None
                             },
                         ),
                         (
-                            "st_blksize".to_string(),
+                            "st_blksize".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(4096),
                                 metadata: None
                             },
                         ),
                         (
-                            "st_blocks".to_string(),
+                            "st_blocks".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(112),
                                 metadata: None
                             },
                         ),
                         (
-                            "st_size".to_string(),
+                            "st_size".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(53248),
                                 metadata: None
                             },
                         ),
                         (
-                            "st_atime".to_string(),
+                            "st_atime".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(1689948680),
                                 metadata: None
                             },
                         ),
                         (
-                            "st_atime_nsec".to_string(),
+                            "st_atime_nsec".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(28467954),
                                 metadata: None
                             },
                         ),
                         (
-                            "st_mtime".to_string(),
+                            "st_mtime".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(1692975712),
                                 metadata: None
                             },
                         ),
                         (
-                            "st_mtime_nsec".to_string(),
+                            "st_mtime_nsec".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(252908565),
                                 metadata: None
                             },
                         ),
                         (
-                            "st_ctime".to_string(),
+                            "st_ctime".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(1692975712),
                                 metadata: None
                             },
                         ),
                         (
-                            "st_ctime_nsec".to_string(),
+                            "st_ctime_nsec".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(252908565),
                                 metadata: None
@@ -919,7 +918,7 @@ mod tests {
             ParseResult::Syscall(Syscall {
                 pid: 815537,
                 rel_ts: 0.000017,
-                name: "getrandom".to_string(),
+                name: "getrandom".to_owned(),
                 args: vec![
                     SyscallArg::Buffer {
                         value: vec![0x42, 0x18, 0x81, 0x90, 0x40, 0x63, 0x1a, 0x2c],
@@ -930,7 +929,7 @@ mod tests {
                         metadata: None
                     },
                     SyscallArg::Integer {
-                        value: IntegerExpression::NamedConst("GRND_NONBLOCK".to_string()),
+                        value: IntegerExpression::NamedConst("GRND_NONBLOCK".to_owned()),
                         metadata: None,
                     },
                 ],
@@ -951,7 +950,7 @@ mod tests {
             ParseResult::Syscall(Syscall {
                 pid: 244841,
                 rel_ts: 0.000033,
-                name: "fstatfs".to_string(),
+                name: "fstatfs".to_owned(),
                 args: vec![
                     SyscallArg::Integer {
                         value: IntegerExpression::Literal(6),
@@ -959,59 +958,59 @@ mod tests {
                     },
                     SyscallArg::Struct(HashMap::from([
                         (
-                            "f_type".to_string(),
+                            "f_type".to_owned(),
                             SyscallArg::Integer {
-                                value: IntegerExpression::NamedConst("EXT2_SUPER_MAGIC".to_string()),
+                                value: IntegerExpression::NamedConst("EXT2_SUPER_MAGIC".to_owned()),
                                 metadata: None,
                             },
                         ),
                         (
-                            "f_bsize".to_string(),
+                            "f_bsize".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(4096),
                                 metadata: None
                             },
                         ),
                         (
-                            "f_blocks".to_string(),
+                            "f_blocks".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(231830864),
                                 metadata: None
                             },
                         ),
                         (
-                            "f_bfree".to_string(),
+                            "f_bfree".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(38594207),
                                 metadata: None
                             },
                         ),
                         (
-                            "f_bavail".to_string(),
+                            "f_bavail".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(26799417),
                                 metadata: None
                             },
                         ),
                         (
-                            "f_files".to_string(),
+                            "f_files".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(58957824),
                                 metadata: None
                             },
                         ),
                         (
-                            "f_ffree".to_string(),
+                            "f_ffree".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(54942232),
                                 metadata: None
                             },
                         ),
                         (
-                            "f_fsid".to_string(),
+                            "f_fsid".to_owned(),
                             SyscallArg::Struct(HashMap::from([
                                 (
-                                    "val".to_string(),
+                                    "val".to_owned(),
                                     SyscallArg::Array(vec![
                                         SyscallArg::Integer {
                                             value: IntegerExpression::Literal(1360496552),
@@ -1026,25 +1025,25 @@ mod tests {
                             ]))
                         ),
                         (
-                            "f_namelen".to_string(),
+                            "f_namelen".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(255),
                                 metadata: None
                             },
                         ),
                         (
-                            "f_frsize".to_string(),
+                            "f_frsize".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(4096),
                                 metadata: None
                             },
                         ),
                         (
-                            "f_flags".to_string(),
+                            "f_flags".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::BinaryOr(vec![
-                                    IntegerExpression::NamedConst("ST_VALID".to_string()),
-                                    IntegerExpression::NamedConst("ST_NOATIME".to_string())
+                                    IntegerExpression::NamedConst("ST_VALID".to_owned()),
+                                    IntegerExpression::NamedConst("ST_NOATIME".to_owned())
                                 ]),
                                 metadata: None,
                             },
@@ -1063,7 +1062,7 @@ mod tests {
             ParseResult::Syscall(Syscall {
                 pid: 895683,
                 rel_ts: 0.000028,
-                name: "fstatfs".to_string(),
+                name: "fstatfs".to_owned(),
                 args: vec![
                     SyscallArg::Integer {
                         value: IntegerExpression::Literal(3),
@@ -1071,59 +1070,59 @@ mod tests {
                     },
                     SyscallArg::Struct(HashMap::from([
                         (
-                            "f_type".to_string(),
+                            "f_type".to_owned(),
                             SyscallArg::Integer {
-                                value: IntegerExpression::NamedConst("PROC_SUPER_MAGIC".to_string()),
+                                value: IntegerExpression::NamedConst("PROC_SUPER_MAGIC".to_owned()),
                                 metadata: None,
                             },
                         ),
                         (
-                            "f_bsize".to_string(),
+                            "f_bsize".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(4096),
                                 metadata: None
                             },
                         ),
                         (
-                            "f_blocks".to_string(),
+                            "f_blocks".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(0),
                                 metadata: None
                             },
                         ),
                         (
-                            "f_bfree".to_string(),
+                            "f_bfree".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(0),
                                 metadata: None
                             },
                         ),
                         (
-                            "f_bavail".to_string(),
+                            "f_bavail".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(0),
                                 metadata: None
                             },
                         ),
                         (
-                            "f_files".to_string(),
+                            "f_files".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(0),
                                 metadata: None
                             },
                         ),
                         (
-                            "f_ffree".to_string(),
+                            "f_ffree".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(0),
                                 metadata: None
                             },
                         ),
                         (
-                            "f_fsid".to_string(),
+                            "f_fsid".to_owned(),
                             SyscallArg::Struct(HashMap::from([
                                 (
-                                    "val".to_string(),
+                                    "val".to_owned(),
                                     SyscallArg::Array(vec![
                                         SyscallArg::Integer {
                                             value: IntegerExpression::Literal(0),
@@ -1138,28 +1137,28 @@ mod tests {
                             ]))
                         ),
                         (
-                            "f_namelen".to_string(),
+                            "f_namelen".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(255),
                                 metadata: None
                             },
                         ),
                         (
-                            "f_frsize".to_string(),
+                            "f_frsize".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(4096),
                                 metadata: None
                             },
                         ),
                         (
-                            "f_flags".to_string(),
+                            "f_flags".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::BinaryOr(vec![
-                                    IntegerExpression::NamedConst("ST_VALID".to_string()),
-                                    IntegerExpression::NamedConst("ST_NOSUID".to_string()),
-                                    IntegerExpression::NamedConst("ST_NODEV".to_string()),
-                                    IntegerExpression::NamedConst("ST_NOEXEC".to_string()),
-                                    IntegerExpression::NamedConst("ST_RELATIME".to_string())
+                                    IntegerExpression::NamedConst("ST_VALID".to_owned()),
+                                    IntegerExpression::NamedConst("ST_NOSUID".to_owned()),
+                                    IntegerExpression::NamedConst("ST_NODEV".to_owned()),
+                                    IntegerExpression::NamedConst("ST_NOEXEC".to_owned()),
+                                    IntegerExpression::NamedConst("ST_RELATIME".to_owned())
                                 ]),
                                 metadata: None,
                             },
@@ -1183,10 +1182,10 @@ mod tests {
             ParseResult::Syscall(Syscall {
                 pid: 998518,
                 rel_ts: 0.000033,
-                name: "openat".to_string(),
+                name: "openat".to_owned(),
                 args: vec![
                     SyscallArg::Integer {
-                        value: IntegerExpression::NamedConst("AT_FDCWD".to_string()),
+                        value: IntegerExpression::NamedConst("AT_FDCWD".to_owned()),
                         metadata: Some(vec![0x2f, 0x68, 0x6f, 0x6d, 0x65, 0x2f, 0x6d, 0x64, 0x65, 0x2f, 0x73, 0x72, 0x63, 0x2f, 0x73, 0x68, 0x68]),
                     },
                     SyscallArg::Buffer {
@@ -1195,10 +1194,10 @@ mod tests {
                     },
                     SyscallArg::Integer {
                         value: IntegerExpression::BinaryOr(vec![
-                            IntegerExpression::NamedConst("O_RDONLY".to_string()),
-                            IntegerExpression::NamedConst("O_NONBLOCK".to_string()),
-                            IntegerExpression::NamedConst("O_CLOEXEC".to_string()),
-                            IntegerExpression::NamedConst("O_DIRECTORY".to_string())
+                            IntegerExpression::NamedConst("O_RDONLY".to_owned()),
+                            IntegerExpression::NamedConst("O_NONBLOCK".to_owned()),
+                            IntegerExpression::NamedConst("O_CLOEXEC".to_owned()),
+                            IntegerExpression::NamedConst("O_DIRECTORY".to_owned())
                         ]),
                         metadata: None,
                     },
@@ -1220,7 +1219,7 @@ mod tests {
             ParseResult::Syscall(Syscall {
                 pid: 28707,
                 rel_ts: 0.000194,
-                name: "sendto".to_string(),
+                name: "sendto".to_owned(),
                 args: vec![
                     SyscallArg::Integer {
                         value: IntegerExpression::Literal(15),
@@ -1229,38 +1228,38 @@ mod tests {
                     SyscallArg::Array(vec![
                         SyscallArg::Struct(HashMap::from([
                             (
-                                "nlmsg_len".to_string(),
+                                "nlmsg_len".to_owned(),
                                 SyscallArg::Integer {
                                     value: IntegerExpression::Literal(20),
                                     metadata: None,
                                 },
                             ),
                             (
-                                "nlmsg_type".to_string(),
+                                "nlmsg_type".to_owned(),
                                 SyscallArg::Integer {
-                                    value: IntegerExpression::NamedConst("RTM_GETADDR".to_string()),
+                                    value: IntegerExpression::NamedConst("RTM_GETADDR".to_owned()),
                                     metadata: None,
                                 },
                             ),
                             (
-                                "nlmsg_flags".to_string(),
+                                "nlmsg_flags".to_owned(),
                                 SyscallArg::Integer {
                                     value: IntegerExpression::BinaryOr(vec![
-                                        IntegerExpression::NamedConst("NLM_F_REQUEST".to_string()),
-                                        IntegerExpression::NamedConst("NLM_F_DUMP".to_string()),
+                                        IntegerExpression::NamedConst("NLM_F_REQUEST".to_owned()),
+                                        IntegerExpression::NamedConst("NLM_F_DUMP".to_owned()),
                                     ]),
                                     metadata: None,
                                 },
                             ),
                             (
-                                "nlmsg_seq".to_string(),
+                                "nlmsg_seq".to_owned(),
                                 SyscallArg::Integer {
                                     value: IntegerExpression::Literal(1694010548),
                                     metadata: None,
                                 },
                             ),
                             (
-                                "nlmsg_pid".to_string(),
+                                "nlmsg_pid".to_owned(),
                                 SyscallArg::Integer {
                                     value: IntegerExpression::Literal(0),
                                     metadata: None,
@@ -1269,9 +1268,9 @@ mod tests {
                         ])),
                         SyscallArg::Struct(HashMap::from([
                             (
-                                "ifa_family".to_string(),
+                                "ifa_family".to_owned(),
                                 SyscallArg::Integer {
-                                    value: IntegerExpression::NamedConst("AF_UNSPEC".to_string()),
+                                    value: IntegerExpression::NamedConst("AF_UNSPEC".to_owned()),
                                     metadata: None,
                                 },
                             ),
@@ -1287,21 +1286,21 @@ mod tests {
                     },
                     SyscallArg::Struct(HashMap::from([
                         (
-                            "sa_family".to_string(),
+                            "sa_family".to_owned(),
                             SyscallArg::Integer {
-                                value: IntegerExpression::NamedConst("AF_NETLINK".to_string()),
+                                value: IntegerExpression::NamedConst("AF_NETLINK".to_owned()),
                                 metadata: None,
                             },
                         ),
                         (
-                            "nl_pid".to_string(),
+                            "nl_pid".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(0),
                                 metadata: None,
                             },
                         ),
                         (
-                            "nl_groups".to_string(),
+                            "nl_groups".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Literal(0),
                                 metadata: None,
@@ -1343,7 +1342,7 @@ mod tests {
             ParseResult::Syscall(Syscall {
                 pid: 688129,
                 rel_ts: 0.000023,
-                name: "bind".to_string(),
+                name: "bind".to_owned(),
                 args: vec![
                     SyscallArg::Integer {
                         value: IntegerExpression::Literal(4),
@@ -1351,14 +1350,14 @@ mod tests {
                     },
                     SyscallArg::Struct(HashMap::from([
                         (
-                            "sa_family".to_string(),
+                            "sa_family".to_owned(),
                             SyscallArg::Integer {
-                                value: IntegerExpression::NamedConst("AF_UNIX".to_string()),
+                                value: IntegerExpression::NamedConst("AF_UNIX".to_owned()),
                                 metadata: None,
                             },
                         ),
                         (
-                            "sun_path".to_string(),
+                            "sun_path".to_owned(),
                             SyscallArg::Buffer {
                                 value: "b193d0b0ccd705f9/bus/systemctl/".as_bytes().to_vec(),
                                 type_: BufferType::AbstractPath,
@@ -1382,7 +1381,7 @@ mod tests {
             ParseResult::Syscall(Syscall {
                 pid: 132360,
                 rel_ts: 0.000022,
-                name: "bind".to_string(),
+                name: "bind".to_owned(),
                 args: vec![
                     SyscallArg::Integer {
                         value: IntegerExpression::Literal(6),
@@ -1390,16 +1389,16 @@ mod tests {
                     },
                     SyscallArg::Struct(HashMap::from([
                         (
-                            "sa_family".to_string(),
+                            "sa_family".to_owned(),
                             SyscallArg::Integer {
-                                value: IntegerExpression::NamedConst("AF_INET".to_string()),
+                                value: IntegerExpression::NamedConst("AF_INET".to_owned()),
                                 metadata: None,
                             },
                         ),
                         (
-                            "sin_port".to_string(),
+                            "sin_port".to_owned(),
                             SyscallArg::Macro {
-                                name: "htons".to_string(),
+                                name: "htons".to_owned(),
                                 args: vec![
                                     SyscallArg::Integer {
                                         value: IntegerExpression::Literal(8025),
@@ -1409,9 +1408,9 @@ mod tests {
                             }
                         ),
                         (
-                            "sin_addr".to_string(),
+                            "sin_addr".to_owned(),
                             SyscallArg::Macro {
-                                name: "inet_addr".to_string(),
+                                name: "inet_addr".to_owned(),
                                 args: vec![
                                     SyscallArg::Buffer {
                                         value: vec![49, 50, 55, 46, 48, 46, 48, 46, 49],
@@ -1443,19 +1442,19 @@ mod tests {
             ParseResult::Syscall(Syscall {
                 pid: 85195,
                 rel_ts: 0.000038,
-                name: "prlimit64".to_string(),
+                name: "prlimit64".to_owned(),
                 args: vec![
                     SyscallArg::Integer {
                         value: IntegerExpression::Literal(0),
                         metadata: None,
                     },
                     SyscallArg::Integer {
-                        value: IntegerExpression::NamedConst("RLIMIT_NOFILE".to_string()),
+                        value: IntegerExpression::NamedConst("RLIMIT_NOFILE".to_owned()),
                         metadata: None,
                     },
                     SyscallArg::Struct(HashMap::from([
                         (
-                            "rlim_cur".to_string(),
+                            "rlim_cur".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Multiplication(vec![
                                     IntegerExpression::Literal(512),
@@ -1465,7 +1464,7 @@ mod tests {
                             },
                         ),
                         (
-                            "rlim_max".to_string(),
+                            "rlim_max".to_owned(),
                             SyscallArg::Integer {
                                 value: IntegerExpression::Multiplication(vec![
                                     IntegerExpression::Literal(512),
@@ -1476,7 +1475,7 @@ mod tests {
                         ),
                     ])),
                     SyscallArg::Integer {
-                        value: IntegerExpression::NamedConst("NULL".to_string()),
+                        value: IntegerExpression::NamedConst("NULL".to_owned()),
                         metadata: None,
                     },
                 ],
@@ -1497,14 +1496,14 @@ mod tests {
             ParseResult::Syscall(Syscall {
                 pid: 114586,
                 rel_ts: 0.000075,
-                name: "epoll_ctl".to_string(),
+                name: "epoll_ctl".to_owned(),
                 args: vec![
                     SyscallArg::Integer {
                         value: IntegerExpression::Literal(3),
                         metadata: Some(vec![97, 110, 111, 110, 95, 105, 110, 111, 100, 101, 58, 91, 101, 118, 101, 110, 116, 112, 111, 108, 108, 93]),
                     },
                     SyscallArg::Integer {
-                        value: IntegerExpression::NamedConst("EPOLL_CTL_ADD".to_string()),
+                        value: IntegerExpression::NamedConst("EPOLL_CTL_ADD".to_owned()),
                         metadata: None,
                     },
                     SyscallArg::Integer {
@@ -1513,24 +1512,24 @@ mod tests {
                     },
                     SyscallArg::Struct(HashMap::from([
                         (
-                            "events".to_string(),
+                            "events".to_owned(),
                             SyscallArg::Integer {
-                                value: IntegerExpression::NamedConst("EPOLLIN".to_string()),
+                                value: IntegerExpression::NamedConst("EPOLLIN".to_owned()),
                                 metadata: None,
                             },
                         ),
                         (
-                            "data".to_string(),
+                            "data".to_owned(),
                             SyscallArg::Struct(HashMap::from([
                                 (
-                                    "u32".to_string(),
+                                    "u32".to_owned(),
                                     SyscallArg::Integer {
                                         value: IntegerExpression::Literal(4),
                                         metadata: None,
                                     }
                                 ),
                                 (
-                                    "u64".to_string(),
+                                    "u64".to_owned(),
                                     SyscallArg::Integer {
                                         value: IntegerExpression::Literal(4),
                                         metadata: None,
@@ -1552,7 +1551,7 @@ mod tests {
             ParseResult::Syscall(Syscall {
                 pid: 3487,
                 rel_ts: 0.000130,
-                name: "epoll_pwait".to_string(),
+                name: "epoll_pwait".to_owned(),
                 args: vec![
                     SyscallArg::Integer {
                         value: IntegerExpression::Literal(4),
@@ -1561,24 +1560,24 @@ mod tests {
                     SyscallArg::Array(vec![
                         SyscallArg::Struct(HashMap::from([
                             (
-                                "events".to_string(),
+                                "events".to_owned(),
                                 SyscallArg::Integer {
-                                    value: IntegerExpression::NamedConst("EPOLLOUT".to_string()),
+                                    value: IntegerExpression::NamedConst("EPOLLOUT".to_owned()),
                                     metadata: None,
                                 },
                             ),
                             (
-                                "data".to_string(),
+                                "data".to_owned(),
                                 SyscallArg::Struct(HashMap::from([
                                     (
-                                        "u32".to_string(),
+                                        "u32".to_owned(),
                                         SyscallArg::Integer {
                                             value: IntegerExpression::Literal(833093633),
                                             metadata: None,
                                         }
                                     ),
                                     (
-                                        "u64".to_string(),
+                                        "u64".to_owned(),
                                         SyscallArg::Integer {
                                             value: IntegerExpression::Literal(9163493471957811201),
                                             metadata: None,
@@ -1589,24 +1588,24 @@ mod tests {
                         ])),
                         SyscallArg::Struct(HashMap::from([
                             (
-                                "events".to_string(),
+                                "events".to_owned(),
                                 SyscallArg::Integer {
-                                    value: IntegerExpression::NamedConst("EPOLLOUT".to_string()),
+                                    value: IntegerExpression::NamedConst("EPOLLOUT".to_owned()),
                                     metadata: None,
                                 },
                             ),
                             (
-                                "data".to_string(),
+                                "data".to_owned(),
                                 SyscallArg::Struct(HashMap::from([
                                     (
-                                        "u32".to_string(),
+                                        "u32".to_owned(),
                                         SyscallArg::Integer {
                                             value: IntegerExpression::Literal(800587777),
                                             metadata: None,
                                         }
                                     ),
                                     (
-                                        "u64".to_string(),
+                                        "u64".to_owned(),
                                         SyscallArg::Integer {
                                             value: IntegerExpression::Literal(9163493471925305345),
                                             metadata: None,
@@ -1625,7 +1624,7 @@ mod tests {
                         metadata: None,
                     },
                     SyscallArg::Integer {
-                        value: IntegerExpression::NamedConst("NULL".to_string()),
+                        value: IntegerExpression::NamedConst("NULL".to_owned()),
                         metadata: None,
                     },
                     SyscallArg::Integer {
@@ -1658,22 +1657,22 @@ mod tests {
                 Syscall {
                     pid: 2,
                     rel_ts: 0.000002,
-                    name: "clock_gettime".to_string(),
+                    name: "clock_gettime".to_owned(),
                     args: vec![
                         SyscallArg::Integer {
-                            value: IntegerExpression::NamedConst("CLOCK_REALTIME".to_string()),
+                            value: IntegerExpression::NamedConst("CLOCK_REALTIME".to_owned()),
                             metadata: None,
                         },
                         SyscallArg::Struct(HashMap::from([
                             (
-                                "tv_sec".to_string(),
+                                "tv_sec".to_owned(),
                                 SyscallArg::Integer {
                                     value: IntegerExpression::Literal(1130322148),
                                     metadata: None,
                                 },
                             ),
                             (
-                                "tv_nsec".to_string(),
+                                "tv_nsec".to_owned(),
                                 SyscallArg::Integer {
                                     value: IntegerExpression::Literal(3977000),
                                     metadata: None,
@@ -1686,7 +1685,7 @@ mod tests {
                 Syscall {
                     pid: 1,
                     rel_ts: 0.000003,
-                    name: "select".to_string(),
+                    name: "select".to_owned(),
                     args: vec![
                         SyscallArg::Integer {
                             value: IntegerExpression::Literal(4),
@@ -1697,15 +1696,15 @@ mod tests {
                             metadata: None,
                         },]),
                         SyscallArg::Integer {
-                            value: IntegerExpression::NamedConst("NULL".to_string()),
+                            value: IntegerExpression::NamedConst("NULL".to_owned()),
                             metadata: None,
                         },
                         SyscallArg::Integer {
-                            value: IntegerExpression::NamedConst("NULL".to_string()),
+                            value: IntegerExpression::NamedConst("NULL".to_owned()),
                             metadata: None,
                         },
                         SyscallArg::Integer {
-                            value: IntegerExpression::NamedConst("NULL".to_string()),
+                            value: IntegerExpression::NamedConst("NULL".to_owned()),
                             metadata: None,
                         },
                     ],
