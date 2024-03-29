@@ -150,7 +150,7 @@ $
     |
     (
         \[
-        (?<array>.+)
+        (?<array>[^\]]+)
         \]
     )
     |
@@ -710,6 +710,48 @@ mod tests {
                     },
                 ],
                 ret_val: 0
+            })
+        );
+    }
+
+    #[test]
+    fn test_rt_sigprocmask() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        assert_eq!(
+            parse_line("440663      0.002174 rt_sigprocmask(SIG_SETMASK, [], ~[KILL STOP RTMIN RT_1], 8) = 0", &[]).unwrap(),
+            ParseResult::Syscall(Syscall {pid: 440663,
+                rel_ts: 0.002174,
+                name: "rt_sigprocmask".to_owned(),
+                args: vec![
+                    SyscallArg::Integer {
+                        value: IntegerExpression::NamedConst(
+                            "SIG_SETMASK".to_owned(),
+                        ),
+                        metadata: None,
+                    },
+                    SyscallArg::Integer {
+                        value: IntegerExpression::NamedConst(
+                            "[]".to_owned(),
+                        ),
+                        metadata: None,
+                    },
+                    SyscallArg::Integer {
+                        value: IntegerExpression::BinaryNot(
+                            Box::new(IntegerExpression::NamedConst(
+                                "RT_1".to_owned(),
+                            )),
+                        ),
+                        metadata: None,
+                    },
+                    SyscallArg::Integer {
+                        value: IntegerExpression::Literal(
+                            8,
+                        ),
+                        metadata: None,
+                    },
+                ],
+                ret_val: 0,
             })
         );
     }
