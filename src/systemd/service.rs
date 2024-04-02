@@ -268,23 +268,46 @@ impl Service {
     }
 
     fn config_vals(key: &str, config_paths: &[&Path]) -> anyhow::Result<Vec<String>> {
+        // Note: we could use 'systemctl show -p xxx' but its output is different from config
+        // files, and we would need to interpret it anyway
         let mut vals = Vec::new();
         for config_path in config_paths {
             let config_file = BufReader::new(File::open(config_path)?);
-            let mut new_vals = config_file
-                .lines()
-                .filter(|l| {
-                    l.as_ref()
-                        .map(|l| l.starts_with(&format!("{key}=")))
-                        .unwrap_or(true)
-                })
-                .map(|l| l.map(|l| l.split_once('=').unwrap().1.trim().to_owned()))
-                .collect::<Result<Vec<_>, _>>()?;
-            while let Some(clear_idx) = new_vals.iter().position(|v| v.is_empty()) {
-                new_vals = new_vals[clear_idx + 1..].to_vec();
+            let prefix = format!("{key}=");
+            let mut file_vals = vec![];
+            let mut lines = config_file.lines();
+            while let Some(line) = lines.next() {
+                let line = line?;
+                if line.starts_with(&prefix) {
+                    let val = if line.ends_with('\\') {
+                        let mut val = line.split_once('=').unwrap().1.trim().to_owned();
+                        // Remove trailing '\'
+                        val.pop();
+                        // Append next lines
+                        loop {
+                            let next_line = lines
+                                .next()
+                                .ok_or_else(|| anyhow::anyhow!("Unexpected end of file"))??;
+                            val = format!("{} {}", val, next_line.trim_start());
+                            if next_line.ends_with('\\') {
+                                // Remove trailing '\'
+                                val.pop();
+                            } else {
+                                break;
+                            }
+                        }
+                        val
+                    } else {
+                        line.split_once('=').unwrap().1.trim().to_owned()
+                    };
+                    file_vals.push(val);
+                }
+            }
+            while let Some(clear_idx) = file_vals.iter().position(|v| v.is_empty()) {
+                file_vals = file_vals[clear_idx + 1..].to_vec();
                 vals.clear();
             }
-            vals.extend(new_vals);
+            vals.extend(file_vals);
         }
         Ok(vals)
     }
@@ -381,6 +404,28 @@ mod tests {
             )
             .unwrap(),
             vec!["c", "d"]
+        );
+    }
+
+    #[test]
+    fn test_config_val_multiline() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let mut cfg_file = tempfile::NamedTempFile::new().unwrap();
+
+        writeln!(
+            cfg_file,
+            r#"ExecStartPre=/bin/sh -c "[ ! -e /usr/bin/galera_recovery ] && VAR= || \
+ VAR=`cd /usr/bin/..; /usr/bin/galera_recovery`; [ $? -eq 0 ] \
+ && systemctl set-environment _WSREP_START_POSITION=$VAR || exit 1""#
+        )
+        .unwrap();
+
+        assert_eq!(
+            Service::config_vals("ExecStartPre", &[cfg_file.path()]).unwrap(),
+            vec![
+                r#"/bin/sh -c "[ ! -e /usr/bin/galera_recovery ] && VAR= ||  VAR=`cd /usr/bin/..; /usr/bin/galera_recovery`; [ $? -eq 0 ]  && systemctl set-environment _WSREP_START_POSITION=$VAR || exit 1""#
+            ]
         );
     }
 }
