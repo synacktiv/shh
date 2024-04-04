@@ -28,6 +28,7 @@ pub enum Action {
     /// Run a program to profile its behavior
     Run {
         /// The command line to run
+        #[arg(num_args = 1.., required = true)]
         command: Vec<String>,
         /// How hard we should harden
         #[arg(short, long, default_value_t, value_enum)]
@@ -42,6 +43,7 @@ pub enum Action {
         #[arg(short, long, default_value_t, value_enum)]
         mode: HardeningMode,
         /// Profile data paths
+        #[arg(num_args = 1.., required = true)]
         paths: Vec<PathBuf>,
     },
     /// Act on a systemd service unit
