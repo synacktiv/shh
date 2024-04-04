@@ -1,4 +1,4 @@
-//! Systemd option modeling
+//! Systemd option model
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -1240,7 +1240,7 @@ pub fn build_options(
             value: OptionValue::Boolean(true),
             // In practice, the option allows the call if the default personality is set, but we don't
             // need to model that level of precision.
-            // The "deny" modeling prevents false positives
+            // The "deny" model prevents false positives
             desc: OptionEffect::Simple(OptionValueEffect::DenySyscalls(DenySyscalls::Single(
                 "personality".to_owned(),
             ))),
