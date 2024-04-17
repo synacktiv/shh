@@ -5,6 +5,8 @@ use std::io::BufReader;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 
+use anyhow::Context as _;
+
 use crate::strace::parser::LogParser;
 
 pub struct Strace {
@@ -49,7 +51,8 @@ impl Strace {
             .args(command)
             .env("LANG", "C") // avoids locale side effects
             .stdin(Stdio::null())
-            .spawn()?;
+            .spawn()
+            .context("Failed to start strace")?;
 
         Ok(Self {
             process: child,
