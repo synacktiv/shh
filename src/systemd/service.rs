@@ -21,6 +21,9 @@ pub struct Service {
 
 const PROFILING_FRAGMENT_NAME: &str = "profile";
 const HARDENING_FRAGMENT_NAME: &str = "harden";
+/// Command line prefix for ExecStartXxx= that bypasses all hardening options
+/// See https://www.freedesktop.org/software/systemd/man/255/systemd.service.html#Command%20lines
+const PRIVILEGED_PREFIX: &str = "+";
 
 impl Service {
     pub fn new(unit: &str) -> Self {
@@ -108,7 +111,7 @@ impl Service {
             .ok_or_else(|| anyhow::anyhow!("Unable to decode current executable path"))?
             .to_owned();
 
-        // Wrap all ExecStartXxx directives
+        // Wrap ExecStartXxx directives
         let mut exec_start_idx = 1;
         let mut profile_data_paths = Vec::new();
         for exec_start_opt in ["ExecStartPre", "ExecStart", "ExecStartPost"] {
@@ -117,18 +120,24 @@ impl Service {
                 writeln!(fragment_file, "{}=", exec_start_opt)?;
             }
             for cmd in exec_start_cmds {
-                let profile_data_path = profile_data_dir.join(format!("{:03}", exec_start_idx));
-                exec_start_idx += 1;
-                writeln!(
-                    fragment_file,
-                    "{}={} run -m {} -p {} -- {}",
-                    exec_start_opt,
-                    shh_bin,
-                    mode,
-                    profile_data_path.to_str().unwrap(),
-                    cmd
-                )?;
-                profile_data_paths.push(profile_data_path);
+                if cmd.starts_with(PRIVILEGED_PREFIX) {
+                    // TODO handle other special prefixes?
+                    // Write command unchanged
+                    writeln!(fragment_file, "{}={}", exec_start_opt, cmd)?;
+                } else {
+                    let profile_data_path = profile_data_dir.join(format!("{:03}", exec_start_idx));
+                    exec_start_idx += 1;
+                    writeln!(
+                        fragment_file,
+                        "{}={} run -m {} -p {} -- {}",
+                        exec_start_opt,
+                        shh_bin,
+                        mode,
+                        profile_data_path.to_str().unwrap(),
+                        cmd
+                    )?;
+                    profile_data_paths.push(profile_data_path);
+                }
             }
         }
 
