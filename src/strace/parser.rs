@@ -312,7 +312,11 @@ fn parse_argument(caps: &regex::Captures) -> anyhow::Result<SyscallArg> {
             let v = parse_argument(&caps)?;
             // dbg!(&v);
             members.insert(k.to_owned(), v);
-            struct_ = struct_[k.len() + 1 + caps.get(0).unwrap().len()..struct_.len()].to_owned();
+            #[allow(clippy::assigning_clones)]
+            {
+                struct_ =
+                    struct_[k.len() + 1 + caps.get(0).unwrap().len()..struct_.len()].to_owned();
+            }
         }
         Ok(SyscallArg::Struct(members))
     } else if let Some(array) = caps.name("array") {
