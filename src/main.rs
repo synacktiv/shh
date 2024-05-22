@@ -35,8 +35,14 @@ fn sd_options(
 fn main() -> anyhow::Result<()> {
     // Init logger
     simple_logger::SimpleLogger::new()
+        .with_level(if cfg!(debug_assertions) {
+            log::LevelFilter::Debug
+        } else {
+            log::LevelFilter::Info
+        })
+        .env()
         .init()
-        .context("Failed to init logger")?;
+        .context("Failed to setup logger")?;
 
     // Get versions
     let sd_version = systemd::SystemdVersion::local_system()?;

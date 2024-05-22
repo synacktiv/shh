@@ -16,7 +16,7 @@ pub struct Syscall {
     pub pid: u32,
     pub rel_ts: f64,
     pub name: String,
-    pub args: Vec<SyscallArg>,
+    pub args: Vec<Expression>,
     pub ret_val: SyscallRetVal,
 }
 
@@ -27,59 +27,70 @@ pub enum BufferType {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum SyscallArg {
-    Buffer {
-        value: Vec<u8>,
-        type_: BufferType,
-    },
-    Integer {
-        value: IntegerExpression,
-        metadata: Option<Vec<u8>>,
-    },
-    Struct(HashMap<String, SyscallArg>),
-    Array(Vec<SyscallArg>),
-    Macro {
-        name: String,
-        args: Vec<SyscallArg>,
-    },
+pub struct IntegerExpression {
+    pub value: IntegerExpressionValue,
+    pub metadata: Option<Vec<u8>>,
 }
 
-impl SyscallArg {
+#[derive(Debug, Clone, PartialEq)]
+pub struct BufferExpression {
+    pub value: Vec<u8>,
+    pub type_: BufferType,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Expression {
+    Buffer(BufferExpression),
+    Integer(IntegerExpression),
+    Struct(HashMap<String, Expression>),
+    // The strace syntax can be ambiguous between array and set (ie sigset_t in sigprocmask),
+    // so store both in this, and let the summary interpret
+    Collection {
+        complement: bool,
+        values: Vec<Expression>,
+    },
+    Macro {
+        name: String,
+        args: Vec<Expression>,
+    },
+    // Only used for strace pseudo macro invocations, see `test_macro_addr_arg` for an example
+    DestinationAddress(String),
+}
+
+impl Expression {
     pub fn metadata(&self) -> Option<&[u8]> {
         match self {
-            Self::Integer { metadata, .. } => metadata.as_deref(),
+            Self::Integer(IntegerExpression { metadata, .. }) => metadata.as_deref(),
             _ => None,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum IntegerExpression {
-    BinaryNot(Box<IntegerExpression>),
-    BinaryOr(Vec<IntegerExpression>),
-    Multiplication(Vec<IntegerExpression>),
+pub enum IntegerExpressionValue {
+    BinaryOr(Vec<IntegerExpressionValue>),
+    Multiplication(Vec<IntegerExpressionValue>),
     LeftBitShift {
-        bits: Box<IntegerExpression>,
-        shift: Box<IntegerExpression>,
+        bits: Box<IntegerExpressionValue>,
+        shift: Box<IntegerExpressionValue>,
     },
     NamedConst(String),
     Literal(i128), // allows holding both signed and unsigned 64 bit integers
 }
 
-impl IntegerExpression {
+impl IntegerExpressionValue {
     pub fn is_flag_set(&self, flag: &str) -> bool {
         match self {
-            IntegerExpression::NamedConst(v) => flag == v,
-            IntegerExpression::BinaryOr(ces) => ces.iter().any(|ce| ce.is_flag_set(flag)),
-            IntegerExpression::BinaryNot(ce) => !ce.is_flag_set(flag),
+            IntegerExpressionValue::NamedConst(v) => flag == v,
+            IntegerExpressionValue::BinaryOr(ces) => ces.iter().any(|ce| ce.is_flag_set(flag)),
             _ => false, // if it was a flag field, strace would have decoded it with named consts
         }
     }
 
     pub fn flags(&self) -> Vec<String> {
         match self {
-            IntegerExpression::NamedConst(v) => vec![v.clone()],
-            IntegerExpression::BinaryOr(vs) => vs.iter().flat_map(|v| v.flags()).collect(),
+            IntegerExpressionValue::NamedConst(v) => vec![v.clone()],
+            IntegerExpressionValue::BinaryOr(vs) => vs.iter().flat_map(|v| v.flags()).collect(),
             _ => vec![],
         }
     }

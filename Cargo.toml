@@ -19,6 +19,8 @@ itertools = { version = "0.11.0", default-features = false, features = ["use_std
 lazy_static = { version = "1.4.0", default-features = false }
 log = { version = "0.4.19", default-features = false, features = ["max_level_trace", "release_max_level_info"] }
 nix = { version = "0.26.2", default-features = false, features = ["fs"] }
+pest = { version = "2.7.10", default-features = false, features = ["std", "memchr"], optional = true }
+pest_derive = { version = "2.7.10", default-features = false, features = ["std", "grammar-extras"], optional = true}
 rand = { version = "0.8.5", default-features = false, features = ["std", "std_rng"] }
 regex = { version = "1.9.1", default-features = false, features = ["std", "perf"] }
 serde = { version = "1.0.193", default-features = false, features = ["std", "derive"] }
@@ -35,10 +37,11 @@ predicates = { version = "3.0.3", default-features = false, features = ["color"]
 pretty_assertions = { version = "1.4.0", default-features = false, features = ["std"] }
 
 [features]
-# for benchmarks only
-nightly = []
-# for tests only
-as-root = []
+default = ["parser-peg"]
+as-root = [] # for tests only
+nightly = [] # for benchmarks only
+parser-peg = ["dep:pest", "dep:pest_derive"]
+parser-regex = []
 
 [lints.rust]
 missing_docs = "warn"

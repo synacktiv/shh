@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 
 use lazy_static::lazy_static;
 
-use crate::strace::{BufferType, IntegerExpression, Syscall, SyscallArg};
+use crate::strace::{
+    BufferExpression, BufferType, Expression, IntegerExpression, IntegerExpressionValue, Syscall,
+};
 use crate::systemd::{SocketFamily, SocketProtocol};
 
 /// A high level program runtime action
@@ -191,13 +193,13 @@ fn is_fd_pseudo_path(path: &[u8]) -> bool {
 
 /// Extract path for socket address structure if it's a non abstract one
 fn socket_address_uds_path(
-    members: &HashMap<String, SyscallArg>,
+    members: &HashMap<String, Expression>,
     syscall: &Syscall,
 ) -> Option<PathBuf> {
-    if let Some(SyscallArg::Buffer {
+    if let Some(Expression::Buffer(BufferExpression {
         value: b,
         type_: BufferType::Unknown,
-    }) = members.get("sun_path")
+    })) = members.get("sun_path")
     {
         resolve_path(&PathBuf::from(OsStr::from_bytes(b)), None, syscall)
     } else {
@@ -230,11 +232,11 @@ where
                 flags_idx,
             }) => {
                 let (mut path, flags) = if let (
-                    Some(SyscallArg::Buffer {
+                    Some(Expression::Buffer(BufferExpression {
                         value: b,
                         type_: BufferType::Unknown,
-                    }),
-                    Some(SyscallArg::Integer { value: e, .. }),
+                    })),
+                    Some(Expression::Integer(IntegerExpression { value: e, .. })),
                 ) =
                     (syscall.args.get(*path_idx), syscall.args.get(*flags_idx))
                 {
@@ -270,14 +272,14 @@ where
                 flags_idx,
             }) => {
                 let (mut path_src, mut path_dst) = if let (
-                    Some(SyscallArg::Buffer {
+                    Some(Expression::Buffer(BufferExpression {
                         value: b1,
                         type_: BufferType::Unknown,
-                    }),
-                    Some(SyscallArg::Buffer {
+                    })),
+                    Some(Expression::Buffer(BufferExpression {
                         value: b2,
                         type_: BufferType::Unknown,
-                    }),
+                    })),
                 ) = (
                     syscall.args.get(*path_src_idx),
                     syscall.args.get(*path_dst_idx),
@@ -300,8 +302,10 @@ where
                 };
 
                 let exchange = if let Some(flags_idx) = flags_idx {
-                    let flags = if let Some(SyscallArg::Integer { value: flags, .. }) =
-                        syscall.args.get(*flags_idx)
+                    let flags = if let Some(Expression::Integer(IntegerExpression {
+                        value: flags,
+                        ..
+                    })) = syscall.args.get(*flags_idx)
                     {
                         flags
                     } else {
@@ -340,10 +344,10 @@ where
                 relfd_idx,
                 path_idx,
             }) => {
-                let mut path = if let Some(SyscallArg::Buffer {
+                let mut path = if let Some(Expression::Buffer(BufferExpression {
                     value: b,
                     type_: BufferType::Unknown,
-                }) = syscall.args.get(*path_idx)
+                })) = syscall.args.get(*path_idx)
                 {
                     PathBuf::from(OsStr::from_bytes(b))
                 } else {
@@ -358,11 +362,11 @@ where
             }
             Some(SyscallInfo::Network { sockaddr_idx }) => {
                 let (af, addr) =
-                    if let Some(SyscallArg::Struct(members)) = syscall.args.get(*sockaddr_idx) {
-                        let af = if let Some(SyscallArg::Integer {
-                            value: IntegerExpression::NamedConst(af),
+                    if let Some(Expression::Struct(members)) = syscall.args.get(*sockaddr_idx) {
+                        let af = if let Some(Expression::Integer(IntegerExpression {
+                            value: IntegerExpressionValue::NamedConst(af),
                             ..
-                        }) = members.get("sa_family")
+                        })) = members.get("sa_family")
                         {
                             af
                         } else {
@@ -385,10 +389,10 @@ where
                 }
 
                 if name == "bind" {
-                    let fd = if let Some(SyscallArg::Integer {
-                        value: IntegerExpression::Literal(fd),
+                    let fd = if let Some(Expression::Integer(IntegerExpression {
+                        value: IntegerExpressionValue::Literal(fd),
                         ..
-                    }) = syscall.args.first()
+                    })) = syscall.args.first()
                     {
                         fd
                     } else {
@@ -406,7 +410,9 @@ where
                 }
             }
             Some(SyscallInfo::SetScheduler) => {
-                let policy = if let Some(SyscallArg::Integer { value, .. }) = syscall.args.get(1) {
+                let policy = if let Some(Expression::Integer(IntegerExpression { value, .. })) =
+                    syscall.args.get(1)
+                {
                     value
                 } else {
                     anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
@@ -416,10 +422,10 @@ where
                 }
             }
             Some(SyscallInfo::Socket) => {
-                let af = if let Some(SyscallArg::Integer {
-                    value: IntegerExpression::NamedConst(af),
+                let af = if let Some(Expression::Integer(IntegerExpression {
+                    value: IntegerExpressionValue::NamedConst(af),
                     ..
-                }) = syscall.args.first()
+                })) = syscall.args.first()
                 {
                     af.to_owned()
                 } else {
@@ -428,7 +434,9 @@ where
                 actions.push(ProgramAction::NetworkActivity { af });
 
                 let proto_flags =
-                    if let Some(SyscallArg::Integer { value, .. }) = syscall.args.get(1) {
+                    if let Some(Expression::Integer(IntegerExpression { value, .. })) =
+                        syscall.args.get(1)
+                    {
                         value.flags()
                     } else {
                         anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
@@ -441,13 +449,14 @@ where
                 }
             }
             Some(SyscallInfo::Mmap { prot_idx }) => {
-                let prot = if let Some(SyscallArg::Integer { value: prot, .. }) =
-                    syscall.args.get(*prot_idx)
-                {
-                    prot
-                } else {
-                    anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
-                };
+                let prot =
+                    if let Some(Expression::Integer(IntegerExpression { value: prot, .. })) =
+                        syscall.args.get(*prot_idx)
+                    {
+                        prot
+                    } else {
+                        anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
+                    };
                 if prot.is_flag_set("PROT_WRITE") && prot.is_flag_set("PROT_EXEC") {
                     actions.push(ProgramAction::WriteExecuteMemoryMapping);
                 }
@@ -496,26 +505,26 @@ mod tests {
             rel_ts: 0.000083,
             name: "renameat".to_owned(),
             args: vec![
-                SyscallArg::Integer {
-                    value: IntegerExpression::NamedConst("AT_FDCWD".to_owned()),
+                Expression::Integer(IntegerExpression {
+                    value: IntegerExpressionValue::NamedConst("AT_FDCWD".to_owned()),
                     metadata: Some(temp_dir_src.path().as_os_str().as_bytes().to_vec()),
-                },
-                SyscallArg::Buffer {
+                }),
+                Expression::Buffer(BufferExpression {
                     value: "a".as_bytes().to_vec(),
                     type_: BufferType::Unknown,
-                },
-                SyscallArg::Integer {
-                    value: IntegerExpression::NamedConst("AT_FDCWD".to_owned()),
+                }),
+                Expression::Integer(IntegerExpression {
+                    value: IntegerExpressionValue::NamedConst("AT_FDCWD".to_owned()),
                     metadata: Some(temp_dir_dst.path().as_os_str().as_bytes().to_vec()),
-                },
-                SyscallArg::Buffer {
+                }),
+                Expression::Buffer(BufferExpression {
                     value: "b".as_bytes().to_vec(),
                     type_: BufferType::Unknown,
-                },
-                SyscallArg::Integer {
-                    value: IntegerExpression::NamedConst("RENAME_NOREPLACE".to_owned()),
+                }),
+                Expression::Integer(IntegerExpression {
+                    value: IntegerExpressionValue::NamedConst("RENAME_NOREPLACE".to_owned()),
                     metadata: None,
-                },
+                }),
             ],
             ret_val: 0,
         })];
@@ -540,30 +549,30 @@ mod tests {
             rel_ts: 0.000036,
             name: "connect".to_owned(),
             args: vec![
-                SyscallArg::Integer {
-                    value: IntegerExpression::Literal(4),
+                Expression::Integer(IntegerExpression {
+                    value: IntegerExpressionValue::Literal(4),
                     metadata: Some("/run/user/1000/systemd/private".as_bytes().to_vec()),
-                },
-                SyscallArg::Struct(HashMap::from([
+                }),
+                Expression::Struct(HashMap::from([
                     (
                         "sa_family".to_owned(),
-                        SyscallArg::Integer {
-                            value: IntegerExpression::NamedConst("AF_UNIX".to_owned()),
+                        Expression::Integer(IntegerExpression {
+                            value: IntegerExpressionValue::NamedConst("AF_UNIX".to_owned()),
                             metadata: None,
-                        },
+                        }),
                     ),
                     (
                         "sun_path".to_owned(),
-                        SyscallArg::Buffer {
+                        Expression::Buffer(BufferExpression {
                             value: "/run/user/1000/systemd/private".as_bytes().to_vec(),
                             type_: BufferType::Unknown,
-                        },
+                        }),
                     ),
                 ])),
-                SyscallArg::Integer {
-                    value: IntegerExpression::Literal(33),
+                Expression::Integer(IntegerExpression {
+                    value: IntegerExpressionValue::Literal(33),
                     metadata: None,
-                },
+                }),
             ],
             ret_val: 0,
         })];
