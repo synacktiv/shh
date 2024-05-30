@@ -1730,3 +1730,33 @@ mod tests {
         );
     }
 }
+
+#[cfg(all(feature = "nightly", test))]
+mod benchs {
+    extern crate test;
+
+    use std::io::BufReader;
+
+    use super::*;
+
+    use test::Bencher;
+
+    #[bench]
+    fn bench_parse_line(b: &mut Bencher) {
+        let log_path = Path::new("strace.log");
+        if !log_path.is_file() {
+            return;
+        }
+        let log_lines: Vec<_> = BufReader::new(File::open(log_path).unwrap())
+            .lines()
+            .take(1000)
+            .collect::<Result<_, _>>()
+            .unwrap();
+
+        b.iter(|| {
+            for log_line in &log_lines {
+                let _ = parse_line(&log_line, &[]);
+            }
+        });
+    }
+}
