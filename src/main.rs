@@ -62,13 +62,14 @@ fn main() -> anyhow::Result<()> {
             command,
             mode,
             profile_data_path,
+            strace_log_path,
         } => {
             // Build supported systemd options
             let sd_opts = sd_options(&sd_version, &kernel_version, &mode)?;
 
             // Run strace
             let cmd = command.iter().map(|a| &**a).collect::<Vec<&str>>();
-            let st = strace::Strace::run(&cmd)?;
+            let st = strace::Strace::run(&cmd, strace_log_path)?;
 
             // Start signal handling thread
             let mut signals = signal_hook::iterator::Signals::new([

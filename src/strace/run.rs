@@ -14,10 +14,12 @@ pub struct Strace {
     process: Child,
     /// Temp dir for pipe location
     pipe_dir: tempfile::TempDir,
+    /// Strace log mirror path
+    log_path: Option<PathBuf>,
 }
 
 impl Strace {
-    pub fn run(command: &[&str]) -> anyhow::Result<Self> {
+    pub fn run(command: &[&str], log_path: Option<PathBuf>) -> anyhow::Result<Self> {
         // Create named pipe
         let pipe_dir = tempfile::tempdir()?;
         let pipe_path = Self::pipe_path(&pipe_dir);
@@ -57,6 +59,7 @@ impl Strace {
         Ok(Self {
             process: child,
             pipe_dir,
+            log_path,
         })
     }
 
@@ -67,7 +70,7 @@ impl Strace {
     pub fn log_lines(&self) -> anyhow::Result<LogParser> {
         let pipe_path = Self::pipe_path(&self.pipe_dir);
         let reader = BufReader::new(File::open(pipe_path)?);
-        LogParser::new(Box::new(reader))
+        LogParser::new(Box::new(reader), self.log_path.as_deref())
     }
 }
 

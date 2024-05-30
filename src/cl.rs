@@ -36,6 +36,10 @@ pub enum Action {
         /// Generate profile data file to be merged with others instead of generating systemd options directly
         #[arg(short, long, default_value = None)]
         profile_data_path: Option<PathBuf>,
+        /// Log strace output to this file.
+        /// Only use for debugging: this will slow down processing, and may generate a huge file.
+        #[arg(short = 'l', long, default_value = None)]
+        strace_log_path: Option<PathBuf>,
     },
     /// Merge profile data from previous runs to generate systemd options
     MergeProfileData {

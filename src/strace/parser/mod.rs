@@ -1,6 +1,10 @@
 //! Strace output parser
 
-use std::io::BufRead;
+use std::{
+    fs::File,
+    io::{self, BufRead, BufWriter, Write},
+    path::Path,
+};
 
 use crate::strace::Syscall;
 
@@ -16,14 +20,22 @@ use regex::parse_line;
 
 pub struct LogParser {
     reader: Box<dyn BufRead>,
+    log: Option<BufWriter<File>>,
     buf: String,
     unfinished_syscalls: Vec<Syscall>,
 }
 
 impl LogParser {
-    pub fn new(reader: Box<dyn BufRead>) -> anyhow::Result<Self> {
+    pub fn new(reader: Box<dyn BufRead>, log_path: Option<&Path>) -> anyhow::Result<Self> {
+        let log = log_path
+            .map(|p| -> io::Result<_> {
+                let file = File::options().create(true).append(true).open(p)?;
+                Ok(BufWriter::with_capacity(64 * 1024, file))
+            })
+            .map_or(Ok(None), |v| v.map(Some))?;
         Ok(Self {
             reader,
+            log,
             buf: String::new(),
             unfinished_syscalls: Vec::new(),
         })
@@ -63,6 +75,12 @@ impl Iterator for LogParser {
             if line.ends_with(" +++") || line.ends_with(" ---") {
                 // Process exited, or signal received, not a syscall
                 continue;
+            }
+
+            if let Some(log) = self.log.as_mut() {
+                if let Err(e) = writeln!(log, "{line}") {
+                    return Some(Err(e.into()));
+                }
             }
 
             match parse_line(line, &self.unfinished_syscalls) {
@@ -1286,7 +1304,7 @@ mod tests {
                 .as_bytes()
                 .to_vec(),
         );
-        let parser = LogParser::new(Box::new(lines)).unwrap();
+        let parser = LogParser::new(Box::new(lines), None).unwrap();
         let syscalls: Vec<Syscall> = parser.into_iter().collect::<Result<_, _>>().unwrap();
 
         assert_eq!(
