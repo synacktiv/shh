@@ -1,9 +1,6 @@
 //! Systemd & kernel version
 
-use std::fmt;
-use std::io::BufRead;
-use std::process::Command;
-use std::str;
+use std::{fmt, io::BufRead, process::Command, str};
 
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub struct SystemdVersion {

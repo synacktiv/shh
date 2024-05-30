@@ -1,8 +1,10 @@
 //! Resolver code that finds options compatible with program actions
 
-use crate::summarize::ProgramAction;
-use crate::systemd::options::{
-    ListMode, OptionDescription, OptionEffect, OptionValue, OptionValueEffect, OptionWithValue,
+use crate::{
+    summarize::ProgramAction,
+    systemd::options::{
+        ListMode, OptionDescription, OptionEffect, OptionValue, OptionValueEffect, OptionWithValue,
+    },
 };
 
 impl OptionValueEffect {
@@ -149,8 +151,10 @@ pub fn resolve(
 mod tests {
     use super::*;
 
-    use crate::cl::HardeningMode;
-    use crate::systemd::{build_options, KernelVersion, SystemdVersion};
+    use crate::{
+        cl::HardeningMode,
+        systemd::{build_options, KernelVersion, SystemdVersion},
+    };
 
     fn test_options(names: &[&str]) -> Vec<OptionDescription> {
         let sd_version = SystemdVersion::new(254, 0);

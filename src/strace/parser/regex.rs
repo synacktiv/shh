@@ -1,7 +1,6 @@
 //! Regex based strace output parser
 
-use std::collections::HashMap;
-use std::str;
+use std::{collections::HashMap, str};
 
 use lazy_static::lazy_static;
 

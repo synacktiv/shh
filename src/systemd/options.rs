@@ -1,18 +1,21 @@
 //! Systemd option model
 
-use std::collections::{HashMap, HashSet};
-use std::fmt;
-use std::iter;
-use std::os::unix::ffi::OsStrExt;
-use std::path::{Path, PathBuf};
-use std::str::FromStr;
+use std::{
+    collections::{HashMap, HashSet},
+    fmt, iter,
+    os::unix::ffi::OsStrExt,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use strum::IntoEnumIterator;
 
-use crate::cl::HardeningMode;
-use crate::systemd::{KernelVersion, SystemdVersion};
+use crate::{
+    cl::HardeningMode,
+    systemd::{KernelVersion, SystemdVersion},
+};
 
 /// Systemd option with its possibles values, and their effect
 #[derive(Debug)]

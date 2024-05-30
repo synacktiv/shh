@@ -1,8 +1,7 @@
 //! PEG based strace output parser
 
 use itertools::Itertools;
-use pest::iterators::Pair;
-use pest::Parser as _;
+use pest::{iterators::Pair, Parser as _};
 
 use crate::strace::{
     BufferExpression, BufferType, Expression, IntegerExpression, IntegerExpressionValue, Syscall,

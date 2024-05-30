@@ -1,9 +1,11 @@
 //! Strace invocation code
 
-use std::fs::File;
-use std::io::BufReader;
-use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+use std::{
+    fs::File,
+    io::BufReader,
+    path::PathBuf,
+    process::{Child, Command, Stdio},
+};
 
 use anyhow::Context as _;
 

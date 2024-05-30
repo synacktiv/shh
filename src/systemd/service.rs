@@ -1,17 +1,19 @@
 //! Systemd service actions
 
-use std::env;
-use std::fs::{self, File};
-use std::io::{BufRead, BufReader, BufWriter, Write};
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::{
+    env,
+    fs::{self, File},
+    io::{BufRead, BufReader, BufWriter, Write},
+    path::{Path, PathBuf},
+    process::{Command, Stdio},
+};
 
 use itertools::Itertools;
 use rand::Rng;
 
-use crate::cl::HardeningMode;
-use crate::systemd::{
-    options::OptionWithValue, END_OPTION_OUTPUT_SNIPPET, START_OPTION_OUTPUT_SNIPPET,
+use crate::{
+    cl::HardeningMode,
+    systemd::{options::OptionWithValue, END_OPTION_OUTPUT_SNIPPET, START_OPTION_OUTPUT_SNIPPET},
 };
 
 pub struct Service {

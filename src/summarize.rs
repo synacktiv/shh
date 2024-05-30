@@ -1,16 +1,21 @@
 //! Summarize program syscalls into higher level action
 
-use std::collections::{HashMap, HashSet};
-use std::ffi::OsStr;
-use std::os::unix::ffi::OsStrExt;
-use std::path::{Path, PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    ffi::OsStr,
+    os::unix::ffi::OsStrExt,
+    path::{Path, PathBuf},
+};
 
 use lazy_static::lazy_static;
 
-use crate::strace::{
-    BufferExpression, BufferType, Expression, IntegerExpression, IntegerExpressionValue, Syscall,
+use crate::{
+    strace::{
+        BufferExpression, BufferType, Expression, IntegerExpression, IntegerExpressionValue,
+        Syscall,
+    },
+    systemd::{SocketFamily, SocketProtocol},
 };
-use crate::systemd::{SocketFamily, SocketProtocol};
 
 /// A high level program runtime action
 /// This does *not* map 1-1 with a syscall, and does *not* necessarily respect chronology
