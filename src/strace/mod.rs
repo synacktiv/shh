@@ -50,6 +50,7 @@ pub enum Expression {
         args: Vec<Expression>,
     },
     // Only used for strace pseudo macro invocations, see `test_macro_addr_arg` for an example
+    #[cfg_attr(feature = "strace-parser-regex", allow(dead_code))]
     DestinationAddress(String),
 }
 

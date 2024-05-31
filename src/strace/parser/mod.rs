@@ -8,14 +8,18 @@ use std::{
 
 use crate::strace::Syscall;
 
-#[cfg(feature = "parser-peg")]
+#[cfg(feature = "strace-parser-combinator")]
+mod combinator;
+#[cfg(feature = "strace-parser-peg")]
 mod peg;
-#[cfg(feature = "parser-regex")]
+#[cfg(feature = "strace-parser-regex")]
 mod regex;
 
-#[cfg(feature = "parser-peg")]
+#[cfg(feature = "strace-parser-combinator")]
+use combinator::parse_line;
+#[cfg(feature = "strace-parser-peg")]
 use peg::parse_line;
-#[cfg(feature = "parser-regex")]
+#[cfg(feature = "strace-parser-regex")]
 use regex::parse_line;
 
 pub struct LogParser {
@@ -960,6 +964,35 @@ mod tests {
                 ret_val: 20
             })
         );
+
+        #[cfg(not(feature = "strace-parser-regex"))]
+        assert_eq!(
+            parse_line(
+                "215947      0.000022 read(3, \"\\x12\\xef\"..., 832) = 832",
+                &[]
+            )
+            .unwrap(),
+            ParseResult::Syscall(Syscall {
+                pid: 215947,
+                rel_ts: 0.000022,
+                name: "read".to_owned(),
+                args: vec![
+                    Expression::Integer(IntegerExpression {
+                        value: IntegerExpressionValue::Literal(3),
+                        metadata: None,
+                    }),
+                    Expression::Buffer(BufferExpression {
+                        value: vec![0x12, 0xef],
+                        type_: BufferType::Unknown,
+                    }),
+                    Expression::Integer(IntegerExpression {
+                        value: IntegerExpressionValue::Literal(832),
+                        metadata: None,
+                    }),
+                ],
+                ret_val: 832
+            })
+        );
     }
 
     #[test]
@@ -1390,6 +1423,97 @@ mod tests {
     }
 
     #[test]
+    fn test_close() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        assert_eq!(
+            parse_line("246722      0.000003 close(39<\\x2f\\x6d\\x65\\x6d\\x66\\x64\\x3a\\x6d\\x6f\\x7a\\x69\\x6c\\x6c\\x61\\x2d\\x69\\x70\\x63>(deleted)) = 0", &[]).unwrap(),
+            ParseResult::Syscall(Syscall {
+                pid: 246722,
+                rel_ts: 0.000003,
+                name: "close".to_owned(),
+                args: vec![
+                    Expression::Integer(IntegerExpression {
+                        value: IntegerExpressionValue::Literal(39),
+                        metadata: Some("/memfd:mozilla-ipc".as_bytes().to_vec()),
+                    }),
+                ],
+                ret_val: 0
+            })
+        );
+    }
+
+    #[cfg_attr(
+        feature = "strace-parser-regex",
+        ignore = "bit sets are buggy with regex parser"
+    )]
+    #[test]
+    fn test_sched_getaffinity() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        assert_eq!(
+            parse_line(
+                "231196      0.000017 sched_getaffinity(0, 512, [0 1 2 3 4 5 6 7]) = 8",
+                &[]
+            )
+            .unwrap(),
+            ParseResult::Syscall(Syscall {
+                pid: 231196,
+                rel_ts: 0.000017,
+                name: "sched_getaffinity".to_owned(),
+                args: vec![
+                    Expression::Integer(IntegerExpression {
+                        value: IntegerExpressionValue::Literal(0),
+                        metadata: None,
+                    }),
+                    Expression::Integer(IntegerExpression {
+                        value: IntegerExpressionValue::Literal(512),
+                        metadata: None,
+                    }),
+                    Expression::Collection {
+                        complement: false,
+                        values: vec![
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(0),
+                                metadata: None,
+                            }),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(1),
+                                metadata: None,
+                            }),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(2),
+                                metadata: None,
+                            }),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(3),
+                                metadata: None,
+                            }),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(4),
+                                metadata: None,
+                            }),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(5),
+                                metadata: None,
+                            }),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(6),
+                                metadata: None,
+                            }),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(7),
+                                metadata: None,
+                            }),
+                        ]
+                    },
+                ],
+                ret_val: 8
+            })
+        );
+    }
+
+    #[test]
     fn test_execve() {
         let _ = simple_logger::SimpleLogger::new().init();
 
@@ -1429,7 +1553,7 @@ mod tests {
     }
 
     #[cfg_attr(
-        feature = "parser-regex",
+        feature = "strace-parser-regex",
         ignore = "in/out arguments not supported by regex parser"
     )]
     #[test]
@@ -1516,10 +1640,50 @@ mod tests {
                 ret_val: 664773
             })
         );
+
+        assert_eq!(
+            parse_line(
+                "237494      0.000026 getpeername(3, {sa_family=AF_UNIX, sun_path=@\"nope\"}, [124 => 20]) = 0",
+                &[]
+            )
+            .unwrap(),
+            ParseResult::Syscall(Syscall {
+                pid: 237494,
+                rel_ts: 0.000026,
+                name: "getpeername".to_owned(),
+                args: vec![
+                    Expression::Integer(IntegerExpression {
+                        value: IntegerExpressionValue::Literal(3),
+                        metadata: None,
+                    }),
+                    Expression::Struct(HashMap::from([
+                        (
+                            "sa_family".to_owned(),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::NamedConst("AF_UNIX".to_owned()),
+                                metadata: None
+                            }),
+                        ),
+                        (
+                            "sun_path".to_owned(),
+                            Expression::Buffer(BufferExpression {
+                                value: "nope".as_bytes().to_vec(),
+                                type_: BufferType::AbstractPath
+                            }),
+                        )
+                    ])),
+                    Expression::Integer(IntegerExpression {
+                        value: IntegerExpressionValue::Literal(124),
+                        metadata: None,
+                    }),
+                ],
+                ret_val: 0
+            })
+        );
     }
 
     #[cfg_attr(
-        feature = "parser-regex",
+        feature = "strace-parser-regex",
         ignore = "named arguments not supported by regex parser"
     )]
     #[test]
@@ -1571,7 +1735,7 @@ mod tests {
     }
 
     #[cfg_attr(
-        feature = "parser-regex",
+        feature = "strace-parser-regex",
         ignore = "bit shifts are broken with regex parser"
     )]
     #[test]
@@ -1641,7 +1805,7 @@ mod tests {
     }
 
     #[cfg_attr(
-        feature = "parser-regex",
+        feature = "strace-parser-regex",
         ignore = "macro address argument not supported by regex parser"
     )]
     #[test]

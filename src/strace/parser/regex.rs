@@ -345,7 +345,7 @@ fn parse_argument(caps: &regex::Captures) -> anyhow::Result<Expression> {
                                     one_shift.to_owned(),
                                 )),
                             })
-                        } else if t.starts_with("0") {
+                        } else if t.starts_with('0') {
                             Ok(IntegerExpressionValue::Literal(i128::from_str_radix(t, 8)?))
                         } else {
                             Ok(IntegerExpressionValue::NamedConst(t.to_owned()))
