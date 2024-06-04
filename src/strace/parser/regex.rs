@@ -9,7 +9,7 @@ use crate::strace::{
     SyscallRetVal,
 };
 
-use super::ParseResult;
+use super::{ParseResult, SyscallEnd, SyscallStart};
 
 // See also:
 // - https://github.com/rbtcollins/strace-parse.rs/blob/master/src/lib.rs for a nom based parsing approach
@@ -185,7 +185,7 @@ $
         regex::bytes::Regex::new(r"\\x[0-9a-f]{2}").unwrap();
 }
 
-pub fn parse_line(line: &str, unfinished_syscalls: &[Syscall]) -> anyhow::Result<ParseResult> {
+pub fn parse_line(line: &str) -> anyhow::Result<ParseResult> {
     match LINE_REGEX.captures(line) {
         Some(caps) => {
             let pid = caps
@@ -227,12 +227,11 @@ pub fn parse_line(line: &str, unfinished_syscalls: &[Syscall]) -> anyhow::Result
                             .context(format!("Failed to parse hexadecimal return value: {s:?}"))
                     })?
                 } else if caps.name("unfinished").is_some() {
-                    return Ok(ParseResult::UnfinishedSyscall(Syscall {
+                    return Ok(ParseResult::SyscallStart(SyscallStart {
                         pid,
                         rel_ts,
                         name,
                         args,
-                        ret_val: SyscallRetVal::MAX, // Set dummy value we will replace
                     }));
                 } else {
                     unreachable!();
@@ -263,21 +262,13 @@ pub fn parse_line(line: &str, unfinished_syscalls: &[Syscall]) -> anyhow::Result
                     unreachable!();
                 };
 
-                let (unfinished_index, unfinished_sc) = unfinished_syscalls
-                    .iter()
-                    .enumerate()
-                    .find(|(_i, sc)| (sc.name == name_resumed) && (sc.pid == pid))
-                    .ok_or_else(|| anyhow::anyhow!("Unabled to find first part of syscall"))?;
-                let sc = Syscall {
-                    // Update return val and timestamp (to get return time instead of call time)
-                    ret_val,
+                let sc = SyscallEnd {
+                    pid,
                     rel_ts,
-                    ..unfinished_sc.clone()
+                    name: name_resumed.to_owned(),
+                    ret_val,
                 };
-                Ok(ParseResult::FinishedSyscall {
-                    sc,
-                    unfinished_index,
-                })
+                Ok(ParseResult::SyscallEnd(sc))
             } else {
                 unreachable!();
             }

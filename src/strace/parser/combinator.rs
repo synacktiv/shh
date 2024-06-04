@@ -16,6 +16,7 @@ use nom::{
 };
 
 use crate::strace::{
+    parser::{SyscallEnd, SyscallStart},
     BufferExpression, BufferType, Expression, IntegerExpression, IntegerExpressionValue, Syscall,
 };
 
@@ -27,27 +28,10 @@ macro_rules! dbg_parser {
     };
 }
 
-pub fn parse_line(line: &str, unfinished_syscalls: &[Syscall]) -> anyhow::Result<ParseResult> {
+pub fn parse_line(line: &str) -> anyhow::Result<ParseResult> {
     match parse_syscall_line(line).map(|s| s.1) {
         Err(nom::Err::Incomplete(_)) | Err(nom::Err::Error(_)) => Ok(ParseResult::IgnoredLine),
         Err(nom::Err::Failure(e)) => Err(anyhow::anyhow!("{e}")),
-        Ok(ParseResult::FinishedSyscall { sc: sc_end, .. }) => {
-            let (unfinished_index, sc_start) = unfinished_syscalls
-                .iter()
-                .enumerate()
-                .find(|(_i, sc)| (sc.name == sc_end.name) && (sc.pid == sc_end.pid))
-                .ok_or_else(|| anyhow::anyhow!("Unabled to find first part of syscall"))?;
-            let sc_merged = Syscall {
-                // Update return val and timestamp (to get return time instead of call time)
-                ret_val: sc_end.ret_val,
-                rel_ts: sc_end.rel_ts,
-                ..sc_start.clone()
-            };
-            Ok(ParseResult::FinishedSyscall {
-                sc: sc_merged,
-                unfinished_index,
-            })
-        }
         Ok(res) => Ok(res),
     }
 }
@@ -81,12 +65,11 @@ fn parse_syscall_line(i: &str) -> IResult<&str, ParseResult> {
         map(
             tuple((parse_pid, parse_rel_ts, parse_name, parse_args_incomplete)),
             |(pid, rel_ts, name, args)| {
-                ParseResult::UnfinishedSyscall(Syscall {
+                ParseResult::SyscallStart(SyscallStart {
                     pid,
                     rel_ts,
                     name: name.to_owned(),
                     args,
-                    ret_val: i128::MAX,
                 })
             },
         ),
@@ -102,15 +85,13 @@ fn parse_syscall_line(i: &str) -> IResult<&str, ParseResult> {
                 ),
                 parse_ret_val,
             )),
-            |(pid, rel_ts, name, ret_val)| ParseResult::FinishedSyscall {
-                sc: Syscall {
+            |(pid, rel_ts, name, ret_val)| {
+                ParseResult::SyscallEnd(SyscallEnd {
                     pid,
                     rel_ts,
                     name: name.to_owned(),
-                    args: vec![],
                     ret_val,
-                },
-                unfinished_index: usize::MAX,
+                })
             },
         ),
     ))(i)

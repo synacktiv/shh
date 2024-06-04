@@ -22,11 +22,13 @@ use peg::parse_line;
 #[cfg(feature = "strace-parser-regex")]
 use regex::parse_line;
 
+use super::{Expression, SyscallRetVal};
+
 pub struct LogParser {
     reader: Box<dyn BufRead>,
     log: Option<BufWriter<File>>,
     buf: String,
-    unfinished_syscalls: Vec<Syscall>,
+    unfinished_syscalls: Vec<SyscallStart>,
 }
 
 impl LogParser {
@@ -52,14 +54,44 @@ enum ParseResult {
     /// (strace sometimes outputs complete garbage like '1008333      0.000045 ???( <unfinished ...>')
     IgnoredLine,
     /// This line describes an unfinished syscall
-    UnfinishedSyscall(Syscall),
+    SyscallStart(SyscallStart),
     /// This line describes a previously unfinished syscall that is now finished
-    FinishedSyscall {
-        sc: Syscall,
-        unfinished_index: usize,
-    },
+    SyscallEnd(SyscallEnd),
     /// This line describes a complete syscall
     Syscall(Syscall),
+}
+
+/// A syscall started that did not yet return
+#[derive(Debug, Clone, PartialEq)]
+pub struct SyscallStart {
+    pub pid: u32,
+    pub rel_ts: f64,
+    pub name: String,
+    pub args: Vec<Expression>,
+}
+
+impl SyscallStart {
+    /// Merge syscall start and end to build a complete syscall invocation description
+    pub fn end(self, end: SyscallEnd) -> Syscall {
+        debug_assert_eq!(self.pid, end.pid);
+        debug_assert_eq!(self.name, end.name);
+        Syscall {
+            pid: self.pid,
+            rel_ts: end.rel_ts,
+            name: self.name,
+            args: self.args,
+            ret_val: end.ret_val,
+        }
+    }
+}
+
+/// A syscall that ended
+#[derive(Debug, Clone, PartialEq)]
+pub struct SyscallEnd {
+    pub pid: u32,
+    pub rel_ts: f64,
+    pub name: String,
+    pub ret_val: SyscallRetVal,
 }
 
 impl Iterator for LogParser {
@@ -87,21 +119,28 @@ impl Iterator for LogParser {
                 }
             }
 
-            match parse_line(line, &self.unfinished_syscalls) {
+            match parse_line(line) {
                 Ok(ParseResult::Syscall(sc)) => {
                     log::trace!("Parsed line: {line:?}");
                     break sc;
                 }
-                Ok(ParseResult::UnfinishedSyscall(sc)) => {
+                Ok(ParseResult::SyscallStart(sc)) => {
                     self.unfinished_syscalls.push(sc);
                     continue;
                 }
-                Ok(ParseResult::FinishedSyscall {
-                    sc,
-                    unfinished_index,
-                }) => {
-                    self.unfinished_syscalls.swap_remove(unfinished_index); // I fucking love Rust <3
-                    break sc;
+                Ok(ParseResult::SyscallEnd(sc_end)) => {
+                    let unfinished_index = if let Some(index) = self
+                        .unfinished_syscalls
+                        .iter()
+                        .position(|sc| (sc.name == sc_end.name) && (sc.pid == sc_end.pid))
+                    {
+                        index
+                    } else {
+                        log::warn!("Unable to find first part of syscall");
+                        continue;
+                    };
+                    let sc_start = self.unfinished_syscalls.swap_remove(unfinished_index); // I fucking love Rust <3
+                    break sc_start.end(sc_end);
                 }
                 Ok(ParseResult::IgnoredLine) => {
                     log::warn!("Ignored line: {line:?}");
@@ -141,7 +180,6 @@ mod tests {
         assert_eq!(
             parse_line(
                 "382944      0.000054 mmap(NULL, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7f52a332e000",
-                &[]
             ).unwrap(),
             ParseResult::Syscall(Syscall {
                 pid: 382944,
@@ -187,7 +225,6 @@ mod tests {
         assert_eq!(
             parse_line(
                 "601646      0.000011 mmap(0x7f2fce8dc000, 1396736, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0x26000) = 0x7f2fce8dc000",
-                &[]
             ).unwrap(),
             ParseResult::Syscall(Syscall {
                 pid: 601646,
@@ -238,7 +275,6 @@ mod tests {
         assert_eq!(
             parse_line(
                 "382944      0.000036 access(\"/etc/ld.so.preload\", R_OK) = -1 ENOENT (No such file or directory)",
-                &[]
             ).unwrap(),
             ParseResult::Syscall(Syscall {
                 pid: 382944,
@@ -266,7 +302,6 @@ mod tests {
         assert_eq!(
             parse_line(
                 "720313      0.000064 rt_sigaction(SIGTERM, {sa_handler=SIG_DFL, sa_mask=~[RTMIN RT_1], sa_flags=SA_RESTORER, sa_restorer=0x7f6da716c510}, NULL, 8) = 0",
-                &[]
             ).unwrap(),
             ParseResult::Syscall(Syscall {
                 pid: 720313,
@@ -339,7 +374,7 @@ mod tests {
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_eq!(
-            parse_line("440663      0.002174 rt_sigprocmask(SIG_SETMASK, [], ~[KILL STOP RTMIN RT_1], 8) = 0", &[]).unwrap(),
+            parse_line("440663      0.002174 rt_sigprocmask(SIG_SETMASK, [], ~[KILL STOP RTMIN RT_1], 8) = 0").unwrap(),
             ParseResult::Syscall(Syscall {pid: 440663,
                 rel_ts: 0.002174,
                 name: "rt_sigprocmask".to_owned(),
@@ -402,7 +437,6 @@ mod tests {
         assert_eq!(
             parse_line(
                 "772627      0.000010 newfstatat(AT_FDCWD, \"/a/path\", {st_dev=makedev(0xfd, 0x1), st_ino=26427782, st_mode=S_IFDIR|0755, st_nlink=2, st_uid=1000, st_gid=1000, st_blksize=4096, st_blocks=112, st_size=53248, st_atime=1689948680 /* 2023-07-21T16:11:20.028467954+0200 */, st_atime_nsec=28467954, st_mtime=1692975712 /* 2023-08-25T17:01:52.252908565+0200 */, st_mtime_nsec=252908565, st_ctime=1692975712 /* 2023-08-25T17:01:52.252908565+0200 */, st_ctime_nsec=252908565}, 0) = 0",
-                &[]
             ).unwrap(),
             ParseResult::Syscall(Syscall {
                 pid: 772627,
@@ -553,7 +587,6 @@ mod tests {
         assert_eq!(
             parse_line(
                 "815537      0.000017 getrandom(\"\\x42\\x18\\x81\\x90\\x40\\x63\\x1a\\x2c\", 8, GRND_NONBLOCK) = 8",
-                &[]
             ).unwrap(),
             ParseResult::Syscall(Syscall {
                 pid: 815537,
@@ -585,7 +618,6 @@ mod tests {
         assert_eq!(
             parse_line(
                 "244841      0.000033 fstatfs(6, {f_type=EXT2_SUPER_MAGIC, f_bsize=4096, f_blocks=231830864, f_bfree=38594207, f_bavail=26799417, f_files=58957824, f_ffree=54942232, f_fsid={val=[0x511787a8, 0x92a74a52]}, f_namelen=255, f_frsize=4096, f_flags=ST_VALID|ST_NOATIME}) = 0",
-                &[]
             ).unwrap(),
             ParseResult::Syscall(Syscall {
                 pid: 244841,
@@ -700,7 +732,6 @@ mod tests {
         assert_eq!(
             parse_line(
                 "895683      0.000028 fstatfs(3, {f_type=PROC_SUPER_MAGIC, f_bsize=4096, f_blocks=0, f_bfree=0, f_bavail=0, f_files=0, f_ffree=0, f_fsid={val=[0, 0]}, f_namelen=255, f_frsize=4096, f_flags=ST_VALID|ST_NOSUID|ST_NODEV|ST_NOEXEC|ST_RELATIME}) = 0",
-                &[]
             ).unwrap(),
             ParseResult::Syscall(Syscall {
                 pid: 895683,
@@ -823,7 +854,6 @@ mod tests {
         assert_eq!(
             parse_line(
                 "998518      0.000033 openat(AT_FDCWD<\\x2f\\x68\\x6f\\x6d\\x65\\x2f\\x6d\\x64\\x65\\x2f\\x73\\x72\\x63\\x2f\\x73\\x68\\x68>, \"\\x2e\\x2e\", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 3<\\x2f\\x68\\x6f\\x6d\\x65\\x2f\\x6d\\x64\\x65\\x2f\\x73\\x72\\x63>",
-                &[]
             ).unwrap(),
             ParseResult::Syscall(Syscall {
                 pid: 998518,
@@ -860,7 +890,6 @@ mod tests {
         assert_eq!(
             parse_line(
                 "28707      0.000194 sendto(15<\\x73\\x6f\\x63\\x6b\\x65\\x74\\x3a\\x5b\\x35\\x34\\x31\\x38\\x32\\x31\\x33\\x5d>, [{nlmsg_len=20, nlmsg_type=RTM_GETADDR, nlmsg_flags=NLM_F_REQUEST|NLM_F_DUMP, nlmsg_seq=1694010548, nlmsg_pid=0}, {ifa_family=AF_UNSPEC, ...}], 20, 0, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 20",
-                &[]
             ).unwrap(),
             ParseResult::Syscall(Syscall {
                 pid: 28707,
@@ -967,11 +996,7 @@ mod tests {
 
         #[cfg(not(feature = "strace-parser-regex"))]
         assert_eq!(
-            parse_line(
-                "215947      0.000022 read(3, \"\\x12\\xef\"..., 832) = 832",
-                &[]
-            )
-            .unwrap(),
+            parse_line("215947      0.000022 read(3, \"\\x12\\xef\"..., 832) = 832",).unwrap(),
             ParseResult::Syscall(Syscall {
                 pid: 215947,
                 rel_ts: 0.000022,
@@ -1003,7 +1028,6 @@ mod tests {
         let res =
             parse_line(
                 "57652      0.000071 sendto(19<\\x73\\x6f\\x63\\x6b\\x65\\x74\\x3a\\x5b\\x38\\x34\\x38\\x36\\x39\\x32\\x5d>, {{len=20, type=0x16 /* NLMSG_??? */, flags=NLM_F_REQUEST|0x300, seq=1697715709, pid=0}, \"\\x00\\x00\\x00\\x00\"}, 20, 0, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 20",
-                &[]
             );
         // Give some leeway to the parser behavior, as long at it does not return Ok
         match res {
@@ -1023,7 +1047,6 @@ mod tests {
         assert_eq!(
             parse_line(
                 "688129      0.000023 bind(4<\\x73\\x6f\\x63\\x6b\\x65\\x74\\x3a\\x5b\\x34\\x31\\x38\\x34\\x35\\x32\\x32\\x5d>, {sa_family=AF_UNIX, sun_path=@\"\\x62\\x31\\x39\\x33\\x64\\x30\\x62\\x30\\x63\\x63\\x64\\x37\\x30\\x35\\x66\\x39\\x2f\\x62\\x75\\x73\\x2f\\x73\\x79\\x73\\x74\\x65\\x6d\\x63\\x74\\x6c\\x2f\"}, 34) = 0",
-                &[]
             ).unwrap(),
             ParseResult::Syscall(Syscall {
                 pid: 688129,
@@ -1062,7 +1085,6 @@ mod tests {
         assert_eq!(
             parse_line(
                 "132360      0.000022 bind(6<\\x73\\x6f\\x63\\x6b\\x65\\x74\\x3a\\x5b\\x38\\x31\\x35\\x36\\x39\\x33\\x5d>, {sa_family=AF_INET, sin_port=htons(8025), sin_addr=inet_addr(\"\\x31\\x32\\x37\\x2e\\x30\\x2e\\x30\\x2e\\x31\")}, 16) = 0",
-                &[]
             ).unwrap(),
             ParseResult::Syscall(Syscall {
                 pid: 132360,
@@ -1123,7 +1145,6 @@ mod tests {
         assert_eq!(
             parse_line(
                 "85195      0.000038 prlimit64(0, RLIMIT_NOFILE, {rlim_cur=512*1024, rlim_max=512*1024}, NULL) = 0",
-                &[]
             ).unwrap(),
             ParseResult::Syscall(Syscall {
                 pid: 85195,
@@ -1177,7 +1198,6 @@ mod tests {
         assert_eq!(
             parse_line(
                 "114586      0.000075 epoll_ctl(3<\\x61\\x6e\\x6f\\x6e\\x5f\\x69\\x6e\\x6f\\x64\\x65\\x3a\\x5b\\x65\\x76\\x65\\x6e\\x74\\x70\\x6f\\x6c\\x6c\\x5d>, EPOLL_CTL_ADD, 4<\\x73\\x6f\\x63\\x6b\\x65\\x74\\x3a\\x5b\\x37\\x33\\x31\\x35\\x39\\x38\\x5d>, {events=EPOLLIN, data={u32=4, u64=4}}) = 0",
-                &[]
             ).unwrap(),
             ParseResult::Syscall(Syscall {
                 pid: 114586,
@@ -1232,7 +1252,6 @@ mod tests {
         assert_eq!(
             parse_line(
                 "3487       0.000130 epoll_pwait(4<\\x61\\x6e\\x6f\\x6e\\x5f\\x69\\x6e\\x6f\\x64\\x65\\x3a\\x5b\\x65\\x76\\x65\\x6e\\x74\\x70\\x6f\\x6c\\x6c\\x5d>, [{events=EPOLLOUT, data={u32=833093633, u64=9163493471957811201}}, {events=EPOLLOUT, data={u32=800587777, u64=9163493471925305345}}], 128, 0, NULL, 0) = 2",
-                &[]
             ).unwrap(),
             ParseResult::Syscall(Syscall {
                 pid: 3487,
@@ -1411,7 +1430,7 @@ mod tests {
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_eq!(
-            parse_line("641342      0.000022 getpid()           = 641314", &[]).unwrap(),
+            parse_line("641342      0.000022 getpid()           = 641314").unwrap(),
             ParseResult::Syscall(Syscall {
                 pid: 641342,
                 rel_ts: 0.000022,
@@ -1427,7 +1446,7 @@ mod tests {
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_eq!(
-            parse_line("246722      0.000003 close(39<\\x2f\\x6d\\x65\\x6d\\x66\\x64\\x3a\\x6d\\x6f\\x7a\\x69\\x6c\\x6c\\x61\\x2d\\x69\\x70\\x63>(deleted)) = 0", &[]).unwrap(),
+            parse_line("246722      0.000003 close(39<\\x2f\\x6d\\x65\\x6d\\x66\\x64\\x3a\\x6d\\x6f\\x7a\\x69\\x6c\\x6c\\x61\\x2d\\x69\\x70\\x63>(deleted)) = 0").unwrap(),
             ParseResult::Syscall(Syscall {
                 pid: 246722,
                 rel_ts: 0.000003,
@@ -1452,11 +1471,8 @@ mod tests {
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_eq!(
-            parse_line(
-                "231196      0.000017 sched_getaffinity(0, 512, [0 1 2 3 4 5 6 7]) = 8",
-                &[]
-            )
-            .unwrap(),
+            parse_line("231196      0.000017 sched_getaffinity(0, 512, [0 1 2 3 4 5 6 7]) = 8",)
+                .unwrap(),
             ParseResult::Syscall(Syscall {
                 pid: 231196,
                 rel_ts: 0.000017,
@@ -1518,11 +1534,8 @@ mod tests {
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_eq!(
-            parse_line(
-                "1234      0.000000 execve(\"\\x12\", [\"\\x34\"], [\"\\x56\"]) = 0",
-                &[]
-            )
-            .unwrap(),
+            parse_line("1234      0.000000 execve(\"\\x12\", [\"\\x34\"], [\"\\x56\"]) = 0",)
+                .unwrap(),
             ParseResult::Syscall(Syscall {
                 pid: 1234,
                 rel_ts: 0.000000,
@@ -1563,7 +1576,6 @@ mod tests {
         assert_eq!(
             parse_line(
                 "664767      0.000014 clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7f3b7c000990, parent_tid=0x7f3b7c000990, exit_signal=0, stack=0x7f3b7b800000, stack_size=0x7ff880, tls=0x7f3b7c0006c0} => {parent_tid=[664773]}, 88) = 664773",
-                &[]
             )
             .unwrap(),
             ParseResult::Syscall(Syscall {
@@ -1644,7 +1656,6 @@ mod tests {
         assert_eq!(
             parse_line(
                 "237494      0.000026 getpeername(3, {sa_family=AF_UNIX, sun_path=@\"nope\"}, [124 => 20]) = 0",
-                &[]
             )
             .unwrap(),
             ParseResult::Syscall(Syscall {
@@ -1693,7 +1704,6 @@ mod tests {
         assert_eq!(
             parse_line(
                 "714433      0.000035 clone(child_stack=NULL, flags=CLONE_CHILD_CLEARTID|CLONE_CHILD_SETTID|SIGCHLD, child_tidptr=0x7f3f3c2f5090) = 714434",
-                &[]
             )
             .unwrap(),
             ParseResult::Syscall(Syscall {
@@ -1745,7 +1755,6 @@ mod tests {
         assert_eq!(
             parse_line(
                 "794046      0.000024 capset({version=_LINUX_CAPABILITY_VERSION_3, pid=0}, {effective=1<<CAP_SYS_CHROOT, permitted=1<<CAP_SYS_CHROOT, inheritable=0}) = 0",
-                &[]
             )
             .unwrap(),
             ParseResult::Syscall(Syscall {
@@ -1815,7 +1824,6 @@ mod tests {
         assert_eq!(
             parse_line(
                 "813299      0.000023 connect(93, {sa_family=AF_INET6, sin6_port=htons(0), sin6_flowinfo=htonl(0), inet_pton(AF_INET6, \"\\x12\\x34\", &sin6_addr), sin6_scope_id=0}, 28) = 0",
-                &[]
             )
             .unwrap(),
             ParseResult::Syscall(Syscall {
@@ -1913,14 +1921,12 @@ mod benchs {
         }
         let log_lines: Vec<_> = BufReader::new(File::open(log_path).unwrap())
             .lines()
-            .take(1000)
+            .take(5000)
             .collect::<Result<_, _>>()
             .unwrap();
 
         b.iter(|| {
-            for log_line in &log_lines {
-                let _ = parse_line(&log_line, &[]);
-            }
+            log_lines.iter().map(|l| parse_line(&l)).for_each(drop);
         });
     }
 }

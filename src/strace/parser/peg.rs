@@ -7,13 +7,13 @@ use crate::strace::{
     BufferExpression, BufferType, Expression, IntegerExpression, IntegerExpressionValue, Syscall,
 };
 
-use super::ParseResult;
+use super::{ParseResult, SyscallEnd, SyscallStart};
 
 #[derive(pest_derive::Parser)]
 #[grammar = "strace/parser/peg.pest"]
 struct PegParser;
 
-pub fn parse_line(line: &str, unfinished_syscalls: &[Syscall]) -> anyhow::Result<ParseResult> {
+pub fn parse_line(line: &str) -> anyhow::Result<ParseResult> {
     let pair = match PegParser::parse(Rule::syscall_line, line) {
         Err(_) => return Ok(ParseResult::IgnoredLine),
         Ok(mut p) => pair_descend(p.next().unwrap(), 1).unwrap(),
@@ -21,25 +21,8 @@ pub fn parse_line(line: &str, unfinished_syscalls: &[Syscall]) -> anyhow::Result
     log::trace!("{:#?}", pair);
     match pair.as_node_tag() {
         Some("complete") => Ok(ParseResult::Syscall(pair.try_into()?)),
-        Some("start") => Ok(ParseResult::UnfinishedSyscall(pair.try_into()?)),
-        Some("end") => {
-            let sc_end: Syscall = pair.try_into()?;
-            let (unfinished_index, sc_start) = unfinished_syscalls
-                .iter()
-                .enumerate()
-                .find(|(_i, sc)| (sc.name == sc_end.name) && (sc.pid == sc_end.pid))
-                .ok_or_else(|| anyhow::anyhow!("Unabled to find first part of syscall"))?;
-            let sc_merged = Syscall {
-                // Update return val and timestamp (to get return time instead of call time)
-                ret_val: sc_end.ret_val,
-                rel_ts: sc_end.rel_ts,
-                ..sc_start.clone()
-            };
-            Ok(ParseResult::FinishedSyscall {
-                sc: sc_merged,
-                unfinished_index,
-            })
-        }
+        Some("start") => Ok(ParseResult::SyscallStart(pair.try_into()?)),
+        Some("end") => Ok(ParseResult::SyscallEnd(pair.try_into()?)),
         _ => anyhow::bail!("Unhandled pair: {pair:?}"),
     }
 }
@@ -314,10 +297,6 @@ impl TryFrom<Pair<'_, Rule>> for Syscall {
     type Error = anyhow::Error;
 
     fn try_from(pair: Pair<Rule>) -> Result<Self, Self::Error> {
-        let pair_tag = pair
-            .as_node_tag()
-            .ok_or_else(|| anyhow::anyhow!("Unhandled pair: {pair:?}"))?
-            .to_owned();
         let mut subpairs = pair.into_inner();
         // Note if the grammar is correct, we should *never* panic below
         let pid = subpairs
@@ -336,69 +315,174 @@ impl TryFrom<Pair<'_, Rule>> for Syscall {
             .as_str()
             .to_owned();
 
-        let args = if pair_tag.as_str() != "end" {
-            let args_pair = subpairs
-                .next()
-                .ok_or_else(|| anyhow::anyhow!("Missing arguments node"))?;
-            let args_pair = pair_descend(args_pair, 1)?;
-            match args_pair.as_node_tag() {
-                Some("unnamed") => args_pair
-                    .into_inner()
-                    .map(|p| {
-                        let p = pair_descend(p, 1)?;
-                        match p.as_node_tag() {
-                            Some("in") => pair_descend(p, 2)?.try_into(),
-                            Some("in_out") => {
-                                // Only take the 'in' part, ignore the rest
-                                pair_descend(p, 2)?.try_into()
-                            }
-                            _ => anyhow::bail!("Unhandled pair: {p:?}"),
+        let args_pair = subpairs
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("Missing arguments node"))?;
+        let args_pair = pair_descend(args_pair, 1)?;
+        let args = match args_pair.as_node_tag() {
+            Some("unnamed") => args_pair
+                .into_inner()
+                .map(|p| {
+                    let p = pair_descend(p, 1)?;
+                    match p.as_node_tag() {
+                        Some("in") => pair_descend(p, 2)?.try_into(),
+                        Some("in_out") => {
+                            // Only take the 'in' part, ignore the rest
+                            pair_descend(p, 2)?.try_into()
                         }
-                    })
-                    .collect::<Result<_, _>>()?,
-                Some("named") => {
-                    // Handle name arguments as a single struct
-                    vec![Expression::Struct(
-                        args_pair
-                            .into_inner()
-                            .map(|p| -> anyhow::Result<_> {
-                                let (name, val) = p.into_inner().next_tuple().ok_or_else(|| {
-                                    anyhow::anyhow!("Missing name arguments nodes")
-                                })?;
-                                Ok((name.as_str().to_owned(), pair_descend(val, 1)?.try_into()?))
-                            })
-                            .collect::<Result<_, _>>()?,
-                    )]
-                }
-                _ => anyhow::bail!("Unhandled pair: {args_pair:?}"),
+                        _ => anyhow::bail!("Unhandled pair: {p:?}"),
+                    }
+                })
+                .collect::<Result<_, _>>()?,
+            Some("named") => {
+                // Handle name arguments as a single struct
+                vec![Expression::Struct(
+                    args_pair
+                        .into_inner()
+                        .map(|p| -> anyhow::Result<_> {
+                            let (name, val) = p
+                                .into_inner()
+                                .next_tuple()
+                                .ok_or_else(|| anyhow::anyhow!("Missing name arguments nodes"))?;
+                            Ok((name.as_str().to_owned(), pair_descend(val, 1)?.try_into()?))
+                        })
+                        .collect::<Result<_, _>>()?,
+                )]
             }
+            _ => anyhow::bail!("Unhandled pair: {args_pair:?}"),
+        };
+
+        let ret_val_pair = pair_descend(
+            subpairs
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("Missing return value node"))?,
+            2,
+        )?;
+        let ret_val = if let IntegerExpressionValue::Literal(val) =
+            IntegerExpression::try_from(ret_val_pair)?.value
+        {
+            val
         } else {
-            vec![]
+            anyhow::bail!("Return value is not a literal int");
         };
-        let ret_val = match pair_tag.as_str() {
-            "complete" | "end" => {
-                let ret_val_pair = pair_descend(
-                    subpairs
-                        .next()
-                        .ok_or_else(|| anyhow::anyhow!("Missing return value node"))?,
-                    2,
-                )?;
-                if let IntegerExpressionValue::Literal(val) =
-                    IntegerExpression::try_from(ret_val_pair)?.value
-                {
-                    val
-                } else {
-                    anyhow::bail!("Return value is not a literal int");
-                }
-            }
-            "start" => i128::MAX,
-            tag => anyhow::bail!("Unhandled pair tag: {tag:?}"),
-        };
-        Ok(Syscall {
+
+        Ok(Self {
             pid,
             rel_ts,
             name,
             args,
+            ret_val,
+        })
+    }
+}
+impl TryFrom<Pair<'_, Rule>> for SyscallStart {
+    type Error = anyhow::Error;
+
+    fn try_from(pair: Pair<Rule>) -> Result<Self, Self::Error> {
+        let mut subpairs = pair.into_inner();
+        // Note if the grammar is correct, we should *never* panic below
+        let pid = subpairs
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("Missing pid node"))?
+            .as_str()
+            .parse()?;
+        let rel_ts = subpairs
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("Missing ts node"))?
+            .as_str()
+            .parse()?;
+        let name = subpairs
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("Missing name node"))?
+            .as_str()
+            .to_owned();
+
+        let args_pair = subpairs
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("Missing arguments node"))?;
+        let args_pair = pair_descend(args_pair, 1)?;
+        let args = match args_pair.as_node_tag() {
+            Some("unnamed") => args_pair
+                .into_inner()
+                .map(|p| {
+                    let p = pair_descend(p, 1)?;
+                    match p.as_node_tag() {
+                        Some("in") => pair_descend(p, 2)?.try_into(),
+                        Some("in_out") => {
+                            // Only take the 'in' part, ignore the rest
+                            pair_descend(p, 2)?.try_into()
+                        }
+                        _ => anyhow::bail!("Unhandled pair: {p:?}"),
+                    }
+                })
+                .collect::<Result<_, _>>()?,
+            Some("named") => {
+                // Handle name arguments as a single struct
+                vec![Expression::Struct(
+                    args_pair
+                        .into_inner()
+                        .map(|p| -> anyhow::Result<_> {
+                            let (name, val) = p
+                                .into_inner()
+                                .next_tuple()
+                                .ok_or_else(|| anyhow::anyhow!("Missing name arguments nodes"))?;
+                            Ok((name.as_str().to_owned(), pair_descend(val, 1)?.try_into()?))
+                        })
+                        .collect::<Result<_, _>>()?,
+                )]
+            }
+            _ => anyhow::bail!("Unhandled pair: {args_pair:?}"),
+        };
+
+        Ok(Self {
+            pid,
+            rel_ts,
+            name,
+            args,
+        })
+    }
+}
+
+impl TryFrom<Pair<'_, Rule>> for SyscallEnd {
+    type Error = anyhow::Error;
+
+    fn try_from(pair: Pair<Rule>) -> Result<Self, Self::Error> {
+        let mut subpairs = pair.into_inner();
+        // Note if the grammar is correct, we should *never* panic below
+        let pid = subpairs
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("Missing pid node"))?
+            .as_str()
+            .parse()?;
+        let rel_ts = subpairs
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("Missing ts node"))?
+            .as_str()
+            .parse()?;
+        let name = subpairs
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("Missing name node"))?
+            .as_str()
+            .to_owned();
+
+        let ret_val_pair = pair_descend(
+            subpairs
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("Missing return value node"))?,
+            2,
+        )?;
+        let ret_val = if let IntegerExpressionValue::Literal(val) =
+            IntegerExpression::try_from(ret_val_pair)?.value
+        {
+            val
+        } else {
+            anyhow::bail!("Return value is not a literal int");
+        };
+
+        Ok(Self {
+            pid,
+            rel_ts,
+            name,
             ret_val,
         })
     }
