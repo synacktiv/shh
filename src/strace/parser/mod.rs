@@ -12,15 +12,11 @@ use crate::strace::Syscall;
 mod combinator;
 #[cfg(feature = "strace-parser-peg")]
 mod peg;
-#[cfg(feature = "strace-parser-regex")]
-mod regex;
 
 #[cfg(feature = "strace-parser-combinator")]
 use combinator::parse_line;
 #[cfg(feature = "strace-parser-peg")]
 use peg::parse_line;
-#[cfg(feature = "strace-parser-regex")]
-use regex::parse_line;
 
 use super::{Expression, SyscallRetVal};
 
@@ -994,7 +990,6 @@ mod tests {
             })
         );
 
-        #[cfg(not(feature = "strace-parser-regex"))]
         assert_eq!(
             parse_line("215947      0.000022 read(3, \"\\x12\\xef\"..., 832) = 832",).unwrap(),
             ParseResult::Syscall(Syscall {
@@ -1462,10 +1457,6 @@ mod tests {
         );
     }
 
-    #[cfg_attr(
-        feature = "strace-parser-regex",
-        ignore = "bit sets are buggy with regex parser"
-    )]
     #[test]
     fn test_sched_getaffinity() {
         let _ = simple_logger::SimpleLogger::new().init();
@@ -1565,10 +1556,6 @@ mod tests {
         );
     }
 
-    #[cfg_attr(
-        feature = "strace-parser-regex",
-        ignore = "in/out arguments not supported by regex parser"
-    )]
     #[test]
     fn test_in_out_args() {
         let _ = simple_logger::SimpleLogger::new().init();
@@ -1693,10 +1680,6 @@ mod tests {
         );
     }
 
-    #[cfg_attr(
-        feature = "strace-parser-regex",
-        ignore = "named arguments not supported by regex parser"
-    )]
     #[test]
     fn test_named_args() {
         let _ = simple_logger::SimpleLogger::new().init();
@@ -1744,10 +1727,6 @@ mod tests {
         );
     }
 
-    #[cfg_attr(
-        feature = "strace-parser-regex",
-        ignore = "bit shifts are broken with regex parser"
-    )]
     #[test]
     fn test_bitshift() {
         let _ = simple_logger::SimpleLogger::new().init();
@@ -1813,10 +1792,6 @@ mod tests {
         );
     }
 
-    #[cfg_attr(
-        feature = "strace-parser-regex",
-        ignore = "macro address argument not supported by regex parser"
-    )]
     #[test]
     fn test_macro_addr_arg() {
         let _ = simple_logger::SimpleLogger::new().init();

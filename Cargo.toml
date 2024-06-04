@@ -44,7 +44,6 @@ as-root = [] # for tests only
 nightly = [] # for benchmarks only
 strace-parser-combinator = ["dep:function_name", "dep:nom"]
 strace-parser-peg = ["dep:pest", "dep:pest_derive"]
-strace-parser-regex = []
 
 [lints.rust]
 missing_docs = "warn"
