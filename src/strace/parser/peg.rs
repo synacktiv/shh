@@ -19,10 +19,10 @@ pub fn parse_line(line: &str) -> anyhow::Result<ParseResult> {
         Ok(mut p) => pair_descend(p.next().unwrap(), 1).unwrap(),
     };
     log::trace!("{:#?}", pair);
-    match pair.as_node_tag() {
-        Some("complete") => Ok(ParseResult::Syscall(pair.try_into()?)),
-        Some("start") => Ok(ParseResult::SyscallStart(pair.try_into()?)),
-        Some("end") => Ok(ParseResult::SyscallEnd(pair.try_into()?)),
+    match pair.as_rule() {
+        Rule::syscall_line_complete => Ok(ParseResult::Syscall(pair.try_into()?)),
+        Rule::syscall_line_start => Ok(ParseResult::SyscallStart(pair.try_into()?)),
+        Rule::syscall_line_end => Ok(ParseResult::SyscallEnd(pair.try_into()?)),
         _ => anyhow::bail!("Unhandled pair: {pair:?}"),
     }
 }
@@ -45,15 +45,15 @@ impl TryFrom<Pair<'_, Rule>> for Expression {
     type Error = anyhow::Error;
 
     fn try_from(pair: Pair<Rule>) -> Result<Self, Self::Error> {
-        match pair.as_node_tag() {
-            Some("int") => Ok(Expression::Integer(pair_descend(pair, 1)?.try_into()?)),
-            Some("buf") => Ok(Expression::Buffer(pair.try_into()?)),
-            Some("struct") => Ok(Expression::Struct(
+        match pair.as_rule() {
+            Rule::int => Ok(Expression::Integer(pair_descend(pair, 1)?.try_into()?)),
+            Rule::buffer => Ok(Expression::Buffer(pair.try_into()?)),
+            Rule::r#struct => Ok(Expression::Struct(
                 pair.into_inner()
                     .map(|m| -> anyhow::Result<_> {
                         let m = pair_descend(m, 1)?;
-                        match m.as_node_tag() {
-                            Some("member_named") => {
+                        match m.as_rule() {
+                            Rule::named_affectation => {
                                 let (name_pair, val_pair) =
                                     m.into_inner().next_tuple().ok_or_else(|| {
                                         anyhow::anyhow!("Missing struct member name/value")
@@ -61,7 +61,7 @@ impl TryFrom<Pair<'_, Rule>> for Expression {
                                 let val: Expression = pair_descend(val_pair, 1)?.try_into()?;
                                 Ok((name_pair.as_str().to_owned(), val))
                             }
-                            Some("macro_addr") => {
+                            Rule::r#macro => {
                                 let macro_: Expression = m.try_into()?;
                                 let member_name = if let Expression::Macro { args, .. } = &macro_ {
                                     args.iter()
@@ -85,7 +85,7 @@ impl TryFrom<Pair<'_, Rule>> for Expression {
                     })
                     .collect::<Result<_, _>>()?,
             )),
-            Some("macro") | Some("macro_addr") => {
+            Rule::r#macro => {
                 let (name, args) = pair
                     .into_inner()
                     .next_tuple()
@@ -96,9 +96,9 @@ impl TryFrom<Pair<'_, Rule>> for Expression {
                         .into_inner()
                         .map(|p| {
                             let p = pair_descend(p, 1)?;
-                            match p.as_node_tag() {
-                                Some("expr") => Expression::try_from(pair_descend(p, 1)?),
-                                Some("addr") => Ok(Expression::DestinationAddress(
+                            match p.as_rule() {
+                                Rule::expression => Expression::try_from(pair_descend(p, 1)?),
+                                Rule::pseudo_addr => Ok(Expression::DestinationAddress(
                                     pair_descend(p, 1)?.as_str().to_owned(),
                                 )),
                                 _ => anyhow::bail!("Unhandled pair: {p:?}"),
@@ -107,14 +107,14 @@ impl TryFrom<Pair<'_, Rule>> for Expression {
                         .collect::<Result<_, _>>()?,
                 })
             }
-            Some("array") => Ok(Expression::Collection {
+            Rule::array => Ok(Expression::Collection {
                 complement: false,
                 values: pair
                     .into_inner()
                     .map(|p| Expression::try_from(pair_descend(p, 1)?))
                     .collect::<Result<_, _>>()?,
             }),
-            Some("set") => {
+            Rule::set => {
                 let complement = pair.as_str().starts_with('~');
                 Ok(Expression::Collection {
                     complement,
@@ -163,16 +163,16 @@ impl TryFrom<Pair<'_, Rule>> for BufferExpression {
 
 /// Helper to parse 'literal' pair
 fn lit_pair(pair: Pair<Rule>) -> anyhow::Result<IntegerExpression> {
-    let (val, metadata) = match pair.as_node_tag() {
-        Some("oct") => (i128::from_str_radix(pair.as_str(), 8)?, None),
-        Some("hex") => (
+    let (val, metadata) = match pair.as_rule() {
+        Rule::literal_int_oct => (i128::from_str_radix(pair.as_str(), 8)?, None),
+        Rule::literal_int_hex => (
             pair.as_str()
                 .strip_prefix("0x")
                 .map(|s| i128::from_str_radix(s, 16))
                 .unwrap()?,
             None,
         ),
-        Some("dec") => {
+        Rule::literal_int_dec => {
             let mut children = pair.into_inner();
             let val_pair = children
                 .next()
@@ -181,7 +181,7 @@ fn lit_pair(pair: Pair<Rule>) -> anyhow::Result<IntegerExpression> {
             // TODO use Option::take_if if it gets stable
             if metadata_pair
                 .as_ref()
-                .is_some_and(|p| p.as_node_tag() == Some("com"))
+                .is_some_and(|p| matches!(p.as_rule(), Rule::comment))
             {
                 metadata_pair = None;
             }
@@ -204,12 +204,12 @@ impl TryFrom<Pair<'_, Rule>> for IntegerExpression {
     type Error = anyhow::Error;
 
     fn try_from(pair: Pair<Rule>) -> Result<Self, Self::Error> {
-        match pair.as_node_tag() {
-            Some("lit") => {
+        match pair.as_rule() {
+            Rule::literal_int => {
                 let pair = pair_descend(pair, 1)?;
                 lit_pair(pair)
             }
-            Some("named") => {
+            Rule::named_constant => {
                 let mut children = pair.into_inner();
                 let val_pair = children
                     .next()
@@ -222,7 +222,7 @@ impl TryFrom<Pair<'_, Rule>> for IntegerExpression {
                         .map_or(Ok(None), |v| v.map(Some))?,
                 })
             }
-            Some("or") => {
+            Rule::or => {
                 let mut children = pair.into_inner();
                 let mut or_elems = Vec::with_capacity(children.len());
                 or_elems.push(IntegerExpressionValue::NamedConst(
@@ -251,7 +251,7 @@ impl TryFrom<Pair<'_, Rule>> for IntegerExpression {
                     metadata: None,
                 })
             }
-            Some("mul") => {
+            Rule::multiplication => {
                 let mut children = pair.into_inner();
                 let mut mul_elems = Vec::with_capacity(children.len());
                 mul_elems.push(
@@ -273,7 +273,7 @@ impl TryFrom<Pair<'_, Rule>> for IntegerExpression {
                     metadata: None,
                 })
             }
-            Some("lshift") => {
+            Rule::left_bit_shift => {
                 let (left_pair, right_pair) = pair
                     .into_inner()
                     .next_tuple()
@@ -319,14 +319,14 @@ impl TryFrom<Pair<'_, Rule>> for Syscall {
             .next()
             .ok_or_else(|| anyhow::anyhow!("Missing arguments node"))?;
         let args_pair = pair_descend(args_pair, 1)?;
-        let args = match args_pair.as_node_tag() {
-            Some("unnamed") => args_pair
+        let args = match args_pair.as_rule() {
+            Rule::unnamed_arguments => args_pair
                 .into_inner()
                 .map(|p| {
                     let p = pair_descend(p, 1)?;
-                    match p.as_node_tag() {
-                        Some("in") => pair_descend(p, 2)?.try_into(),
-                        Some("in_out") => {
+                    match p.as_rule() {
+                        Rule::in_argument => pair_descend(p, 2)?.try_into(),
+                        Rule::in_out_argument => {
                             // Only take the 'in' part, ignore the rest
                             pair_descend(p, 2)?.try_into()
                         }
@@ -334,7 +334,7 @@ impl TryFrom<Pair<'_, Rule>> for Syscall {
                     }
                 })
                 .collect::<Result<_, _>>()?,
-            Some("named") => {
+            Rule::named_arguments => {
                 // Handle name arguments as a single struct
                 vec![Expression::Struct(
                     args_pair
@@ -401,14 +401,14 @@ impl TryFrom<Pair<'_, Rule>> for SyscallStart {
             .next()
             .ok_or_else(|| anyhow::anyhow!("Missing arguments node"))?;
         let args_pair = pair_descend(args_pair, 1)?;
-        let args = match args_pair.as_node_tag() {
-            Some("unnamed") => args_pair
+        let args = match args_pair.as_rule() {
+            Rule::unnamed_arguments => args_pair
                 .into_inner()
                 .map(|p| {
                     let p = pair_descend(p, 1)?;
-                    match p.as_node_tag() {
-                        Some("in") => pair_descend(p, 2)?.try_into(),
-                        Some("in_out") => {
+                    match p.as_rule() {
+                        Rule::in_argument => pair_descend(p, 2)?.try_into(),
+                        Rule::in_out_argument => {
                             // Only take the 'in' part, ignore the rest
                             pair_descend(p, 2)?.try_into()
                         }
@@ -416,7 +416,7 @@ impl TryFrom<Pair<'_, Rule>> for SyscallStart {
                     }
                 })
                 .collect::<Result<_, _>>()?,
-            Some("named") => {
+            Rule::named_arguments => {
                 // Handle name arguments as a single struct
                 vec![Expression::Struct(
                     args_pair

@@ -3,9 +3,9 @@
 // Line formats
 
 syscall_line = {
-	#complete = syscall_line_complete |
-	#start = syscall_line_start |
-	#end = syscall_line_end
+	syscall_line_complete |
+	syscall_line_start |
+	syscall_line_end
 }
 syscall_line_complete = { SOI ~ pid ~ " "+ ~ rel_ts ~ " " ~ name ~ "(" ~  arguments ~ ") " ~ " "* ~ "= " ~ ret_val ~ EOI }
 syscall_line_start = { SOI ~ pid ~ " "+ ~ rel_ts ~ " " ~ name ~ "(" ~  arguments ~ " <unfinished ...>" ~ EOI }
@@ -21,8 +21,8 @@ rel_ts = { ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ }
 name = { symbol_name }
 
 arguments = {
-	#named = named_arguments |
-	#unnamed = unnamed_arguments
+	named_arguments |
+	unnamed_arguments
 }
 
 ret_val = { int ~ (" " ~ ANY*)? }
@@ -35,8 +35,8 @@ named_arguments = { named_affectation ~ (", " ~ named_affectation)* }
 unnamed_arguments = { (argument ~ (", " ~ argument)*)? }
 
 argument = {
-	#in_out = in_out_argument |
-	#in = in_argument
+	in_out_argument |
+	in_argument
 }
 in_argument = { expression }
 in_out_argument = {
@@ -46,12 +46,12 @@ in_out_argument = {
 
 expression = {
 	(
-		#macro = macro |
-		#int = int |
-		#struct = struct |
-		#buf = buffer |
-		#set = set |
-		#array = array
+		macro |
+		int |
+		struct |
+		buffer |
+		set |
+		array
 	) ~
 	comment?
 }
@@ -60,16 +60,16 @@ symbol_name = { (ASCII_ALPHA | "_") ~ (ASCII_ALPHA | ASCII_DIGIT | "_")* }
 comment = { " /* " ~ (!" */" ~ ANY)+ ~ " */" }
 
 int = {
-	#or = or |
-	#mul = multiplication |
-	#lshift = left_bit_shift |
-	#lit = literal_int |
-	#named = named_constant
+	or |
+	multiplication |
+	left_bit_shift |
+	literal_int |
+	named_constant
 }
 literal_int = {
-	#oct = literal_int_oct |
-	#hex = literal_int_hex |
-	#dec = literal_int_dec
+	literal_int_oct |
+	literal_int_hex |
+	literal_int_dec
 }
 or = { named_constant ~ ("|" ~ int)+ }
 left_bit_shift = { literal_int ~ "<<" ~ int }
@@ -101,8 +101,8 @@ struct = {
 	"}"
 }
 struct_member = {
-	#member_named = named_affectation |
-	#macro_addr = macro
+	named_affectation |
+	macro
 }
 
 buffer = {
@@ -121,8 +121,8 @@ buffer_byte = { "\\x" ~ ASCII_HEX_DIGIT{2} }
 macro = { symbol_name ~ "(" ~  macro_arguments ~ ")" }
 macro_arguments = { (macro_argument ~ (", " ~ macro_argument)*)? }
 macro_argument = {
-	#addr = pseudo_addr |
-	#expr = expression
+	pseudo_addr |
+	expression
 }
 pseudo_addr = { "&" ~ symbol_name }
 
@@ -140,4 +140,3 @@ set = {
 	)? ~
 	"]"
 }
-
