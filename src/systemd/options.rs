@@ -1271,6 +1271,44 @@ pub fn build_options(
         }],
     });
 
+    // https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#CapabilityBoundingSet=
+    let cap_effects = [
+        (
+            "CAP_CHOWN",
+            OptionValueEffect::DenySyscalls(DenySyscalls::Class("chown".to_owned())),
+        ),
+        (
+            "CAP_SYS_BOOT",
+            OptionValueEffect::DenySyscalls(DenySyscalls::Class("reboot".to_owned())),
+        ),
+        (
+            "CAP_SYS_MODULE",
+            OptionValueEffect::DenySyscalls(DenySyscalls::Class("module".to_owned())),
+        ),
+        (
+            "CAP_SYS_NICE",
+            OptionValueEffect::DenySyscalls(DenySyscalls::Class("resources".to_owned())),
+        ),
+        (
+            "CAP_SYS_PACCT",
+            OptionValueEffect::DenySyscalls(DenySyscalls::Single("acct".to_owned())),
+        ),
+        // TODO more complex capabilities
+    ];
+    options.push(OptionDescription {
+        name: "CapabilityBoundingSet".to_owned(),
+        possible_values: vec![OptionValueDescription {
+            value: OptionValue::List {
+                values: cap_effects.iter().map(|(c, _e)| c.to_string()).collect(),
+                value_if_empty: None,
+                negation_prefix: true,
+                repeat_option: false,
+                mode: ListMode::BlackList,
+            },
+            desc: OptionEffect::Cumulative(cap_effects.into_iter().map(|(_c, e)| e).collect()),
+        }],
+    });
+
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#SystemCallFilter=
     //
     // Also change the default behavior when calling a denied syscall to return EPERM instead og killing
