@@ -47,7 +47,8 @@ impl OptionValueEffect {
             OptionValueEffect::DenySyscalls(denied) => {
                 if let ProgramAction::Syscalls(syscalls) = action {
                     let denied_syscalls = denied.syscalls();
-                    denied_syscalls.intersection(syscalls).next().is_none()
+                    let syscalls = syscalls.iter().map(String::as_str).collect();
+                    denied_syscalls.intersection(&syscalls).next().is_none()
                 } else {
                     true
                 }
@@ -85,7 +86,7 @@ pub fn resolve(
             match &opt_value_desc.desc {
                 OptionEffect::None => {
                     candidates.push(OptionWithValue {
-                        name: opt.name.clone(),
+                        name: opt.name.to_owned(),
                         value: opt_value_desc.value.clone(),
                     });
                     break;
@@ -93,7 +94,7 @@ pub fn resolve(
                 OptionEffect::Simple(effect) => {
                     if actions_compatible(effect, actions) {
                         candidates.push(OptionWithValue {
-                            name: opt.name.clone(),
+                            name: opt.name.to_owned(),
                             value: opt_value_desc.value.clone(),
                         });
                         break;
@@ -122,7 +123,7 @@ pub fn resolve(
                             }
                             if !compatible_opts.is_empty() || value_if_empty.is_some() {
                                 candidates.push(OptionWithValue {
-                                    name: opt.name.clone(),
+                                    name: opt.name.to_owned(),
                                     value: OptionValue::List {
                                         values: compatible_opts,
                                         value_if_empty: value_if_empty.clone(),
@@ -157,7 +158,7 @@ mod tests {
         let kernel_version = KernelVersion::new(6, 4, 0);
         build_options(&sd_version, &kernel_version, &HardeningMode::Safe)
             .into_iter()
-            .filter(|o| names.contains(&o.name.as_str()))
+            .filter(|o| names.contains(&o.name))
             .collect()
     }
 
