@@ -14,6 +14,7 @@ use strum::IntoEnumIterator;
 
 use crate::{
     cl::HardeningMode,
+    summarize::{NetworkActivity, NetworkActivityKind, ProgramAction, SetSpecifier},
     systemd::{KernelVersion, SystemdVersion},
 };
 
@@ -103,23 +104,14 @@ impl PathDescription {
 
 #[derive(Debug, Clone)]
 pub enum OptionValueEffect {
+    /// Deny an action
+    DenyAction(ProgramAction),
     /// Mount path as read only
     DenyWrite(PathDescription),
     /// Mount an empty tmpfs under given directory
     Hide(PathDescription),
     /// Deny syscall(s)
     DenySyscalls(DenySyscalls),
-    /// Deny a socket family
-    DenySocketFamily(String),
-    /// Deny a write execute memory mapping
-    DenyWriteExecuteMemoryMapping,
-    /// Deny real time scheduling
-    DenyRealtimeScheduler,
-    /// Deny a socket family and protocol socket bind
-    DenySocketBind {
-        af: SocketFamily,
-        proto: SocketProtocol,
-    },
     /// Union of multiple effects
     Multiple(Vec<OptionValueEffect>),
 }
@@ -128,11 +120,11 @@ pub enum OptionValueEffect {
 pub enum DenySyscalls {
     /// See https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L306
     /// for the content of each class
+    // TODO &'static str
     Class(String),
     Single(String),
 }
 
-// Not a complete enumeration, only used with SocketBindDeny
 #[derive(
     Debug,
     Clone,
@@ -147,19 +139,21 @@ pub enum DenySyscalls {
 pub enum SocketFamily {
     Ipv4,
     Ipv6,
+    Other(String),
 }
 
-impl SocketFamily {
-    pub fn from_syscall_arg(s: &str) -> Option<Self> {
+impl FromStr for SocketFamily {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "AF_INET" => Some(Self::Ipv4),
-            "AF_INET6" => Some(Self::Ipv6),
-            _ => None,
+            "AF_INET" => Ok(Self::Ipv4),
+            "AF_INET6" => Ok(Self::Ipv6),
+            _ => Ok(Self::Other(s.to_owned())),
         }
     }
 }
 
-// Not a complete enumeration, only used with SocketBindDeny
 #[derive(
     Debug,
     Clone,
@@ -174,15 +168,17 @@ impl SocketFamily {
 pub enum SocketProtocol {
     Tcp,
     Udp,
+    Other(String),
 }
 
-impl SocketProtocol {
-    pub fn from_syscall_arg(s: &str) -> Option<Self> {
-        // Only makes sense for IP addresses
+impl FromStr for SocketProtocol {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "SOCK_STREAM" => Some(Self::Tcp),
-            "SOCK_DGRAM" => Some(Self::Udp),
-            _ => None,
+            "SOCK_STREAM" => Ok(Self::Tcp),
+            "SOCK_DGRAM" => Ok(Self::Udp),
+            _ => Ok(Self::Other(s.to_owned())),
         }
     }
 }
@@ -1119,7 +1115,9 @@ pub fn build_options(
         name: "MemoryDenyWriteExecute".to_owned(),
         possible_values: vec![OptionValueDescription {
             value: OptionValue::Boolean(true),
-            desc: OptionEffect::Simple(OptionValueEffect::DenyWriteExecuteMemoryMapping),
+            desc: OptionEffect::Simple(OptionValueEffect::DenyAction(
+                ProgramAction::WriteExecuteMemoryMapping,
+            )),
         }],
     });
 
@@ -1182,7 +1180,15 @@ pub fn build_options(
             },
             desc: OptionEffect::Cumulative(
                 afs.into_iter()
-                    .map(|af| OptionValueEffect::DenySocketFamily(af.to_owned()))
+                    .map(|af| {
+                        OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(
+                            NetworkActivity {
+                                af: SetSpecifier::One(af.parse().unwrap()),
+                                proto: SetSpecifier::All,
+                                kind: SetSpecifier::All,
+                            },
+                        ))
+                    })
                     .collect(),
             ),
         }],
@@ -1198,10 +1204,12 @@ pub fn build_options(
             name: "PrivateNetwork".to_owned(),
             possible_values: vec![OptionValueDescription {
                 value: OptionValue::Boolean(true),
-                desc: OptionEffect::Simple(OptionValueEffect::Multiple(
-                    afs.into_iter()
-                        .map(|af| OptionValueEffect::DenySocketFamily(af.to_owned()))
-                        .collect(),
+                desc: OptionEffect::Simple(OptionValueEffect::DenyAction(
+                    ProgramAction::NetworkActivity(NetworkActivity {
+                        af: SetSpecifier::All,
+                        proto: SetSpecifier::All,
+                        kind: SetSpecifier::All,
+                    }),
                 )),
             }],
         });
@@ -1212,7 +1220,8 @@ pub fn build_options(
     // We don't go as far as allowing/denying individual ports, as that would easily break for example if a port is changed
     // in a server configuration
     let deny_binds: Vec<_> = SocketFamily::iter()
-        .cartesian_product(SocketProtocol::iter())
+        .take(2)
+        .cartesian_product(SocketProtocol::iter().take(2))
         .collect();
     options.push(OptionDescription {
         name: "SocketBindDeny".to_owned(),
@@ -1230,7 +1239,15 @@ pub fn build_options(
             desc: OptionEffect::Cumulative(
                 deny_binds
                     .into_iter()
-                    .map(|(af, proto)| OptionValueEffect::DenySocketBind { af, proto })
+                    .map(|(af, proto)| {
+                        OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(
+                            NetworkActivity {
+                                af: SetSpecifier::One(af),
+                                proto: SetSpecifier::One(proto),
+                                kind: SetSpecifier::One(NetworkActivityKind::Bind),
+                            },
+                        ))
+                    })
                     .collect(),
             ),
         }],
@@ -1255,7 +1272,9 @@ pub fn build_options(
         name: "RestrictRealtime".to_owned(),
         possible_values: vec![OptionValueDescription {
             value: OptionValue::Boolean(true),
-            desc: OptionEffect::Simple(OptionValueEffect::DenyRealtimeScheduler),
+            desc: OptionEffect::Simple(OptionValueEffect::DenyAction(
+                ProgramAction::SetRealtimeScheduler,
+            )),
         }],
     });
 

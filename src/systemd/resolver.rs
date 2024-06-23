@@ -1,7 +1,7 @@
 //! Resolver code that finds options compatible with program actions
 
 use crate::{
-    summarize::ProgramAction,
+    summarize::{NetworkActivity, ProgramAction},
     systemd::options::{
         ListMode, OptionDescription, OptionEffect, OptionValue, OptionValueEffect, OptionWithValue,
     },
@@ -10,6 +10,26 @@ use crate::{
 impl OptionValueEffect {
     fn compatible(&self, action: &ProgramAction, prev_actions: &[ProgramAction]) -> bool {
         match self {
+            OptionValueEffect::DenyAction(denied) => match denied {
+                ProgramAction::NetworkActivity(denied) => {
+                    if let ProgramAction::NetworkActivity(NetworkActivity { af, proto, kind }) =
+                        action
+                    {
+                        !denied.af.intersects(af)
+                            || !denied.proto.intersects(proto)
+                            || !denied.kind.intersects(kind)
+                    } else {
+                        true
+                    }
+                }
+                ProgramAction::WriteExecuteMemoryMapping | ProgramAction::SetRealtimeScheduler => {
+                    action != denied
+                }
+                ProgramAction::Syscalls(_) => unreachable!(),
+                ProgramAction::Read(_) => unreachable!(),
+                ProgramAction::Write(_) => unreachable!(),
+                ProgramAction::Create(_) => unreachable!(),
+            },
             OptionValueEffect::DenyWrite(ro_paths) => match action {
                 ProgramAction::Write(path_action) | ProgramAction::Create(path_action) => {
                     !ro_paths.matches(path_action)
@@ -31,30 +51,6 @@ impl OptionValueEffect {
                 } else {
                     true
                 }
-            }
-            OptionValueEffect::DenySocketFamily(denied_af) => {
-                if let ProgramAction::NetworkActivity { af } = action {
-                    af != denied_af
-                } else {
-                    true
-                }
-            }
-            OptionValueEffect::DenyWriteExecuteMemoryMapping => {
-                !matches!(action, ProgramAction::WriteExecuteMemoryMapping)
-            }
-            OptionValueEffect::DenyRealtimeScheduler => {
-                !matches!(action, ProgramAction::SetRealtimeScheduler)
-            }
-            OptionValueEffect::DenySocketBind {
-                af: denied_af,
-                proto: denied_proto,
-            } => {
-                if let ProgramAction::SocketBind { af, proto } = action {
-                    if (denied_af == af) && (denied_proto == proto) {
-                        return false;
-                    }
-                }
-                true
             }
             OptionValueEffect::Multiple(effects) => {
                 effects.iter().all(|e| e.compatible(action, prev_actions))

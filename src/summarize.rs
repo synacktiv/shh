@@ -19,7 +19,7 @@ use crate::{
 
 /// A high level program runtime action
 /// This does *not* map 1-1 with a syscall, and does *not* necessarily respect chronology
-#[derive(Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ProgramAction {
     /// Path was accessed (open, stat'ed, read...)
     Read(PathBuf),
@@ -27,19 +27,62 @@ pub enum ProgramAction {
     Write(PathBuf),
     /// Path was created
     Create(PathBuf),
-    /// Generic network (socket) activity
-    NetworkActivity { af: String },
+    /// Network (socket) activity
+    NetworkActivity(NetworkActivity),
     /// Memory mapping with write and execute bits
     WriteExecuteMemoryMapping,
     /// Set scheduler to a real time one
     SetRealtimeScheduler,
-    /// Bind socket
-    SocketBind {
-        af: SocketFamily,
-        proto: SocketProtocol,
-    },
     /// Names of the syscalls made by the program
     Syscalls(HashSet<String>),
+}
+
+/// Network (socket) activity
+#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct NetworkActivity {
+    pub af: SetSpecifier<SocketFamily>,
+    pub proto: SetSpecifier<SocketProtocol>,
+    pub kind: SetSpecifier<NetworkActivityKind>,
+}
+
+/// Quantify something that is done or denied
+#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum SetSpecifier<T> {
+    None,
+    One(T),
+    Some(Vec<T>),
+    All,
+}
+
+impl<T: Eq> SetSpecifier<T> {
+    fn contains_one(&self, needle: &T) -> bool {
+        match self {
+            SetSpecifier::None => false,
+            SetSpecifier::One(e) => e == needle,
+            SetSpecifier::Some(es) => es.contains(needle),
+            SetSpecifier::All => true,
+        }
+    }
+
+    pub fn intersects(&self, other: &Self) -> bool {
+        match self {
+            SetSpecifier::None => false,
+            SetSpecifier::One(e) => other.contains_one(e),
+            SetSpecifier::Some(es) => es.iter().any(|e| other.contains_one(e)),
+            SetSpecifier::All => !matches!(other, SetSpecifier::None),
+        }
+    }
+}
+
+/// Socket activity
+#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum NetworkActivityKind {
+    SocketCreation,
+    Bind,
+    // TODO
+    // Connect,
+    // Send,
+    // Recv,
 }
 
 /// Meta structure to group syscalls that have similar summary handling
@@ -403,14 +446,15 @@ where
                     } else {
                         anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
                     };
-                    if let (Some(af), Some(proto)) = (
-                        SocketFamily::from_syscall_arg(af),
-                        known_sockets_proto.get(&(syscall.pid, *fd)),
-                    ) {
-                        actions.push(ProgramAction::SocketBind {
-                            af,
-                            proto: proto.clone(),
-                        });
+                    let af = af
+                        .parse()
+                        .map_err(|_| anyhow::anyhow!("Unable to parse socket family {af:?}"))?;
+                    if let Some(proto) = known_sockets_proto.get(&(syscall.pid, *fd)) {
+                        actions.push(ProgramAction::NetworkActivity(NetworkActivity {
+                            af: SetSpecifier::One(af),
+                            proto: SetSpecifier::One(proto.to_owned()),
+                            kind: SetSpecifier::One(NetworkActivityKind::Bind),
+                        }));
                     }
                 }
             }
@@ -432,26 +476,36 @@ where
                     ..
                 })) = syscall.args.first()
                 {
-                    af.to_owned()
+                    af.parse()
+                        .map_err(|_| anyhow::anyhow!("Unable to parse socket family {af:?}"))?
                 } else {
                     anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
                 };
-                actions.push(ProgramAction::NetworkActivity { af });
 
-                let proto_flags =
-                    if let Some(Expression::Integer(IntegerExpression { value, .. })) =
-                        syscall.args.get(1)
-                    {
-                        value.flags()
-                    } else {
-                        anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
-                    };
-                for proto in proto_flags {
-                    if let Some(known_proto) = SocketProtocol::from_syscall_arg(&proto) {
-                        known_sockets_proto.insert((syscall.pid, syscall.ret_val), known_proto);
-                        break;
-                    }
-                }
+                let flags = if let Some(Expression::Integer(IntegerExpression { value, .. })) =
+                    syscall.args.get(1)
+                {
+                    value.flags()
+                } else {
+                    anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
+                };
+                let proto_flag =
+                    flags
+                        .iter()
+                        .find(|f| f.starts_with("SOCK_"))
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("Unable to parse socket protocol from flags {flags:?}")
+                        })?;
+                let proto = proto_flag.parse::<SocketProtocol>().map_err(|_e| {
+                    anyhow::anyhow!("Unable to parse socket protocol {proto_flag:?}")
+                })?;
+                known_sockets_proto.insert((syscall.pid, syscall.ret_val), proto.clone());
+
+                actions.push(ProgramAction::NetworkActivity(NetworkActivity {
+                    af: SetSpecifier::One(af),
+                    proto: SetSpecifier::One(proto),
+                    kind: SetSpecifier::One(NetworkActivityKind::SocketCreation),
+                }));
             }
             Some(SyscallInfo::Mmap { prot_idx }) => {
                 let prot =
