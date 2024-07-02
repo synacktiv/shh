@@ -1329,7 +1329,7 @@ pub fn build_options(
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#SystemCallFilter=
     //
-    // Also change the default behavior when calling a denied syscall to return EPERM instead og killing
+    // Also change the default behavior when calling a denied syscall to return EPERM instead of killing
     // the program.
     // Rationale:
     // Some programs call chown as non root even though it always fails, and ignore the error. Since the call
