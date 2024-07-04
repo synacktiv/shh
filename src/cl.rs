@@ -6,6 +6,7 @@ use clap::Parser;
 
 /// Command line arguments
 #[derive(Parser, Debug)]
+#[command(version, about)]
 pub struct Args {
     #[command(subcommand)]
     pub action: Action,
