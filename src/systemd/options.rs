@@ -1261,14 +1261,49 @@ pub fn build_options(
 
     // https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#CapabilityBoundingSet=
     let cap_effects = [
+        // TODO CAP_AUDIT_CONTROL
+        // TODO CAP_AUDIT_READ
+        // TODO CAP_AUDIT_WRITE
+        // TODO CAP_BLOCK_SUSPEND
+        // TODO CAP_BPF
+        // TODO CAP_CHECKPOINT_RESTORE
         (
             "CAP_CHOWN",
             OptionValueEffect::DenySyscalls(DenySyscalls::Class("chown")),
         ),
+        // TODO CAP_DAC_OVER
+        // TODO CAP_DAC_OVERRIDE
+        // TODO CAP_DAC_READ_SEARCH
+        // TODO CAP_FOWNER
+        // TODO CAP_FSETID
+        // TODO CAP_INIT_EFF_SET
+        // TODO CAP_IPC_LOCK
+        // TODO CAP_IPC_OWNER
+        // TODO CAP_KILL
+        // TODO CAP_LAST_CAP
+        // TODO CAP_LEASE
+        // TODO CAP_LINUX_IMMUTABLE
+        // TODO CAP_MAC_ADMIN
+        // TODO CAP_MAC_OVERRIDE
+        // TODO CAP_MKNOD
+        // TODO CAP_NET_ADMIN
+        // CAP_NET_BIND_SERVICE would be too complex/unreliable to handle:
+        // - for IPv4 sockets, either PROT_SOCK or net.ipv4.ip_unprivileged_port_start sysctl control the provileged port threshold
+        // - for other socket families, rules are different
+        // TODO CAP_NET_BROADCAST
+        // TODO CAP_NET_RAW
+        // TODO CAP_PERFMON
+        // TODO CAP_SETFCAP
+        // TODO CAP_SETGID
+        // TODO CAP_SETPCAP
+        // TODO CAP_SETUID
+        // TODO CAP_SYS_ADMIN
         (
             "CAP_SYS_BOOT",
             OptionValueEffect::DenySyscalls(DenySyscalls::Class("reboot")),
         ),
+        // TODO CAP_SYS_CHROOT
+        // TODO CAP_SYSLOG
         (
             "CAP_SYS_MODULE",
             OptionValueEffect::DenySyscalls(DenySyscalls::Class("module")),
@@ -1281,7 +1316,12 @@ pub fn build_options(
             "CAP_SYS_PACCT",
             OptionValueEffect::DenySyscalls(DenySyscalls::Single("acct")),
         ),
-        // TODO more complex capabilities
+        // TODO CAP_SYS_PTRACE
+        // TODO CAP_SYS_RAWIO
+        // TODO CAP_SYS_RESOURCE
+        // TODO CAP_SYS_TIME
+        // TODO CAP_SYS_TTY_CONFIG
+        // TODO CAP_WAKE_ALARM
     ];
     options.push(OptionDescription {
         name: "CapabilityBoundingSet",

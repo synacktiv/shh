@@ -14,6 +14,8 @@ use predicates::prelude::*;
 // tests.
 //
 
+// TODO test CapabilityBoundingSet
+
 #[test]
 fn run_true() {
     Command::cargo_bin(env!("CARGO_PKG_NAME"))
