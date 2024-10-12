@@ -5,9 +5,8 @@ use std::{
     ffi::OsStr,
     os::unix::ffi::OsStrExt,
     path::{Path, PathBuf},
+    sync::LazyLock,
 };
-
-use lazy_static::lazy_static;
 
 use crate::{
     strace::{
@@ -117,21 +116,20 @@ enum SyscallInfo {
     },
 }
 
-lazy_static! {
-    //
-    // For some reference on syscalls, see:
-    // - https://man7.org/linux/man-pages/man2/syscalls.2.html
-    // - https://filippo.io/linux-syscall-table/
-    // - https://linasm.sourceforge.net/docs/syscalls/filesystem.php
-    //
-    static ref SYSCALL_MAP: HashMap<&'static str, SyscallInfo> = HashMap::from([
+//
+// For some reference on syscalls, see:
+// - https://man7.org/linux/man-pages/man2/syscalls.2.html
+// - https://filippo.io/linux-syscall-table/
+// - https://linasm.sourceforge.net/docs/syscalls/filesystem.php
+//
+static SYSCALL_MAP: LazyLock<HashMap<&'static str, SyscallInfo>> = LazyLock::new(|| {
+    HashMap::from([
         // mmap
         ("mmap", SyscallInfo::Mmap { prot_idx: 2 }),
         ("mmap2", SyscallInfo::Mmap { prot_idx: 2 }),
         ("shmat", SyscallInfo::Mmap { prot_idx: 2 }),
         ("mprotect", SyscallInfo::Mmap { prot_idx: 2 }),
         ("pkey_mprotect", SyscallInfo::Mmap { prot_idx: 2 }),
-
         // network
         ("connect", SyscallInfo::Network { sockaddr_idx: 1 }),
         ("bind", SyscallInfo::Network { sockaddr_idx: 1 }),
@@ -156,7 +154,6 @@ lazy_static! {
                 flags_idx: 2,
             },
         ),
-
         // rename
         (
             "rename",
@@ -188,23 +185,37 @@ lazy_static! {
                 flags_idx: Some(4),
             },
         ),
-
         // set scheduler
         ("sched_setscheduler", SyscallInfo::SetScheduler),
-
         // socket
         ("socket", SyscallInfo::Socket),
-
         // stat fd
         ("fstat", SyscallInfo::StatFd { fd_idx: 0 }),
         ("getdents", SyscallInfo::StatFd { fd_idx: 0 }),
-
         // stat path
-        ("stat", SyscallInfo::StatPath { relfd_idx: None, path_idx: 0 }),
-        ("lstat", SyscallInfo::StatPath { relfd_idx: None, path_idx: 0 }),
-        ("newfstatat", SyscallInfo::StatPath { relfd_idx: Some(0), path_idx: 1 }),
-    ]);
-}
+        (
+            "stat",
+            SyscallInfo::StatPath {
+                relfd_idx: None,
+                path_idx: 0,
+            },
+        ),
+        (
+            "lstat",
+            SyscallInfo::StatPath {
+                relfd_idx: None,
+                path_idx: 0,
+            },
+        ),
+        (
+            "newfstatat",
+            SyscallInfo::StatPath {
+                relfd_idx: Some(0),
+                path_idx: 1,
+            },
+        ),
+    ])
+});
 
 /// Resolve relative path if possible, and normalize it
 fn resolve_path(path: &Path, relfd_idx: Option<usize>, syscall: &Syscall) -> Option<PathBuf> {
@@ -230,10 +241,8 @@ fn resolve_path(path: &Path, relfd_idx: Option<usize>, syscall: &Syscall) -> Opt
     Some(path.canonicalize().unwrap_or(path))
 }
 
-lazy_static! {
-    static ref FD_PSEUDO_PATH_REGEX: regex::bytes::Regex =
-        regex::bytes::Regex::new(r"^[a-z]+:\[[0-9a-z]+\]/?$").unwrap();
-}
+static FD_PSEUDO_PATH_REGEX: LazyLock<regex::bytes::Regex> =
+    LazyLock::new(|| regex::bytes::Regex::new(r"^[a-z]+:\[[0-9a-z]+\]/?$").unwrap());
 
 fn is_fd_pseudo_path(path: &[u8]) -> bool {
     FD_PSEUDO_PATH_REGEX.is_match(path)

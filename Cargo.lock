@@ -675,7 +675,6 @@ dependencies = [
  "fastrand",
  "function_name",
  "itertools",
- "lazy_static",
  "log",
  "nix",
  "nom",
