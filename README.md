@@ -25,7 +25,7 @@ cargo build --release
 install -Dm 755 -t /usr/local/bin target/release/shh
 ```
 
-### Debian
+### Debian (or Debian based distribution)
 
 See [GitHub releases](https://github.com/desbma/shh/releases) for Debian packages built for each tagged version.
 
