@@ -1,14 +1,20 @@
 #!/bin/bash -eu
 
-readonly VERSION="${1-$(date +%-Y.%-m.%-d)}"
+set -o pipefail
+
+readonly VERSION="${1:?}"
+
+cd "$(git rev-parse --show-toplevel)"
 
 cargo set-version "${VERSION}"
 
+cargo upgrade
 cargo update
 
+cargo check
 cargo test --bins
 
 git add Cargo.{toml,lock}
-git commit -m "chore: version ${VERSION}"
 
-git tag "v${VERSION}"
+git commit -m "chore: version ${VERSION}"
+git tag -f -m "Version ${VERSION}" "${VERSION}"
