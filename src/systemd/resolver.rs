@@ -22,13 +22,13 @@ impl OptionValueEffect {
                         true
                     }
                 }
-                ProgramAction::WriteExecuteMemoryMapping | ProgramAction::SetRealtimeScheduler => {
-                    action != denied
-                }
-                ProgramAction::Syscalls(_) => unreachable!(),
-                ProgramAction::Read(_) => unreachable!(),
-                ProgramAction::Write(_) => unreachable!(),
-                ProgramAction::Create(_) => unreachable!(),
+                ProgramAction::WriteExecuteMemoryMapping
+                | ProgramAction::SetRealtimeScheduler
+                | ProgramAction::Wakeup => action != denied,
+                ProgramAction::Syscalls(_)
+                | ProgramAction::Read(_)
+                | ProgramAction::Write(_)
+                | ProgramAction::Create(_) => unreachable!(),
             },
             OptionValueEffect::DenyWrite(ro_paths) => match action {
                 ProgramAction::Write(path_action) | ProgramAction::Create(path_action) => {

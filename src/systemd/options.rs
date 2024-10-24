@@ -1261,10 +1261,17 @@ pub fn build_options(
 
     // https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#CapabilityBoundingSet=
     let cap_effects = [
-        // TODO CAP_AUDIT_CONTROL
-        // TODO CAP_AUDIT_READ
-        // TODO CAP_AUDIT_WRITE
-        // TODO CAP_BLOCK_SUSPEND
+        // CAP_AUDIT_CONTROL, CAP_AUDIT_READ, CAP_AUDIT_WRITE: requires netlink socket message handling
+        (
+            "CAP_BLOCK_SUSPEND",
+            OptionValueEffect::Multiple(vec![
+                OptionValueEffect::DenyWrite(PathDescription::Base {
+                    base: "/proc/sys/wake_lock".into(),
+                    exceptions: vec![],
+                }),
+                OptionValueEffect::DenyAction(ProgramAction::Wakeup),
+            ]),
+        ),
         // TODO CAP_BPF
         // TODO CAP_CHECKPOINT_RESTORE
         (

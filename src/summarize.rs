@@ -32,6 +32,8 @@ pub enum ProgramAction {
     WriteExecuteMemoryMapping,
     /// Set scheduler to a real time one
     SetRealtimeScheduler,
+    /// Inhibit suspend
+    Wakeup,
     /// Names of the syscalls made by the program
     Syscalls(HashSet<String>),
 }
@@ -529,7 +531,39 @@ where
                     actions.push(ProgramAction::WriteExecuteMemoryMapping);
                 }
             }
-            None => (),
+            #[expect(clippy::single_match)]
+            None => match name {
+                "epoll_ctl" => {
+                    if syscall.args.get(1).is_some_and(|op| {
+                        matches!(op, Expression::Integer(IntegerExpression {
+                            value: IntegerExpressionValue::NamedConst(op_name),
+                            ..
+                        }) if op_name == "EPOLL_CTL_ADD")
+                    }) {
+                        // Get the event
+                        let evt_arg = syscall
+                            .args
+                            .get(3)
+                            .ok_or_else(|| anyhow::anyhow!("Missing epoll event argument"))?;
+                        let evt_flags = if let Expression::Struct(evt_struct) = evt_arg {
+                            let evt_member = evt_struct.get("events").ok_or_else(|| {
+                                anyhow::anyhow!("Missing epoll events struct member")
+                            })?;
+                            if let Expression::Integer(ie) = evt_member {
+                                ie
+                            } else {
+                                anyhow::bail!("Invalid epoll struct member");
+                            }
+                        } else {
+                            anyhow::bail!("Invalid epoll event argument");
+                        };
+                        if evt_flags.value.is_flag_set("EPOLLWAKEUP") {
+                            actions.push(ProgramAction::Wakeup);
+                        }
+                    }
+                }
+                _ => {}
+            },
         }
     }
 
