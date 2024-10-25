@@ -811,6 +811,10 @@ pub fn build_options(
     // Warning: options values must be ordered from less to most restrictive
     //
 
+    // Options model does not aim to accurately define the option's effects, it is often an oversimplification.
+    // However the model should always tend to make options *more* (or equally as) restrictive than what they really are,
+    // as to avoid suggesting options that might break execution.
+
     // TODO APPROXIMATION
     // Some options implicitly force NoNewPrivileges=true which has some effects in itself,
     // which we need to model
