@@ -1276,7 +1276,10 @@ pub fn build_options(
                 OptionValueEffect::DenyAction(ProgramAction::Wakeup),
             ]),
         ),
-        // TODO CAP_BPF
+        (
+            "CAP_BPF",
+            OptionValueEffect::DenySyscalls(DenySyscalls::Single("bpf")),
+        ),
         // TODO CAP_CHECKPOINT_RESTORE
         (
             "CAP_CHOWN",
