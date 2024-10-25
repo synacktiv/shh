@@ -1285,7 +1285,6 @@ pub fn build_options(
             "CAP_CHOWN",
             OptionValueEffect::DenySyscalls(DenySyscalls::Class("chown")),
         ),
-        // TODO CAP_DAC_OVER
         // TODO CAP_DAC_OVERRIDE
         // TODO CAP_DAC_READ_SEARCH
         // TODO CAP_FOWNER
@@ -1316,7 +1315,13 @@ pub fn build_options(
             "CAP_SYS_BOOT",
             OptionValueEffect::DenySyscalls(DenySyscalls::Class("reboot")),
         ),
-        // TODO CAP_SYS_CHROOT
+        (
+            "CAP_SYS_CHROOT",
+            OptionValueEffect::Multiple(vec![
+                OptionValueEffect::DenySyscalls(DenySyscalls::Single("chroot")),
+                OptionValueEffect::DenySyscalls(DenySyscalls::Single("setns")),
+            ]),
+        ),
         // TODO CAP_SYSLOG
         (
             "CAP_SYS_MODULE",
