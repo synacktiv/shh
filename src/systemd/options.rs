@@ -1363,7 +1363,13 @@ pub fn build_options(
         // TODO CAP_SYS_PTRACE
         // TODO CAP_SYS_RAWIO
         // TODO CAP_SYS_RESOURCE
-        // TODO CAP_SYS_TIME
+        (
+            "CAP_SYS_TIME",
+            OptionValueEffect::Multiple(vec![
+                OptionValueEffect::DenySyscalls(DenySyscalls::Class("clock")),
+                OptionValueEffect::DenySyscalls(DenySyscalls::Single("stime")),
+            ]),
+        ),
         // TODO CAP_SYS_TTY_CONFIG
         // TODO CAP_WAKE_ALARM
     ];
