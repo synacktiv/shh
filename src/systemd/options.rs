@@ -1353,7 +1353,6 @@ pub fn build_options(
                 OptionValueEffect::DenySyscalls(DenySyscalls::Single("setns")),
             ]),
         ),
-        // TODO CAP_SYSLOG
         (
             "CAP_SYS_MODULE",
             OptionValueEffect::DenySyscalls(DenySyscalls::Class("module")),
@@ -1387,6 +1386,10 @@ pub fn build_options(
             ]),
         ),
         // TODO CAP_SYS_TTY_CONFIG
+        (
+            "CAP_SYSLOG",
+            OptionValueEffect::DenySyscalls(DenySyscalls::Single("syslog")),
+        ),
         // TODO CAP_WAKE_ALARM
     ];
     options.push(OptionDescription {
