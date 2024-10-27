@@ -1330,7 +1330,13 @@ pub fn build_options(
                 // TODO non local bind
             ),
         ),
-        // TODO CAP_PERFMON
+        (
+            "CAP_PERFMON",
+            OptionValueEffect::Multiple(vec![
+                OptionValueEffect::DenySyscalls(DenySyscalls::Single("perf_event_open")),
+                OptionValueEffect::DenySyscalls(DenySyscalls::Single("bpf")),
+            ]),
+        ),
         // TODO CAP_SETFCAP
         // TODO CAP_SETGID
         // TODO CAP_SETPCAP
