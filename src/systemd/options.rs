@@ -1304,7 +1304,32 @@ pub fn build_options(
         // - for IPv4 sockets, either PROT_SOCK or net.ipv4.ip_unprivileged_port_start sysctl control the provileged port threshold
         // - for other socket families, rules are different
         // TODO CAP_NET_BROADCAST
-        // TODO CAP_NET_RAW
+        (
+            "CAP_NET_RAW",
+            OptionValueEffect::Multiple(
+                iter::once(OptionValueEffect::DenyAction(
+                    ProgramAction::NetworkActivity(NetworkActivity {
+                        af: SetSpecifier::One(SocketFamily::Other("AF_PACKET".into())),
+                        proto: SetSpecifier::All,
+                        kind: SetSpecifier::All,
+                    }),
+                ))
+                .chain(
+                    // AF_NETLINK sockets use SOCK_RAW, but dot not require CAP_NET_RAW
+                    afs.iter().filter(|af| **af != "AF_NETLINK").map(|af| {
+                        OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(
+                            NetworkActivity {
+                                af: SetSpecifier::One(af.parse().unwrap()),
+                                proto: SetSpecifier::One(SocketProtocol::Other("SOCK_RAW".into())),
+                                kind: SetSpecifier::All,
+                            },
+                        ))
+                    }),
+                )
+                .collect(),
+                // TODO non local bind
+            ),
+        ),
         // TODO CAP_PERFMON
         // TODO CAP_SETFCAP
         // TODO CAP_SETGID
