@@ -1366,7 +1366,17 @@ pub fn build_options(
             "CAP_SYS_PACCT",
             OptionValueEffect::DenySyscalls(DenySyscalls::Single("acct")),
         ),
-        // TODO CAP_SYS_PTRACE
+        (
+            "CAP_SYS_PTRACE",
+            OptionValueEffect::Multiple(vec![
+                // TODO distinguish other processes
+                OptionValueEffect::DenySyscalls(DenySyscalls::Single("ptrace)")),
+                OptionValueEffect::DenySyscalls(DenySyscalls::Single("get_robust_list")),
+                OptionValueEffect::DenySyscalls(DenySyscalls::Single("process_vm_readv")),
+                OptionValueEffect::DenySyscalls(DenySyscalls::Single("process_vm_writev")),
+                OptionValueEffect::DenySyscalls(DenySyscalls::Single("kcmp")),
+            ]),
+        ),
         // TODO CAP_SYS_RAWIO
         // TODO CAP_SYS_RESOURCE
         (
