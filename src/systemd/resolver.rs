@@ -24,7 +24,8 @@ impl OptionValueEffect {
                 }
                 ProgramAction::WriteExecuteMemoryMapping
                 | ProgramAction::SetRealtimeScheduler
-                | ProgramAction::Wakeup => action != denied,
+                | ProgramAction::Wakeup
+                | ProgramAction::MknodSpecial => action != denied,
                 ProgramAction::Syscalls(_)
                 | ProgramAction::Read(_)
                 | ProgramAction::Write(_)

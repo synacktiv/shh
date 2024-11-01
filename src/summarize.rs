@@ -34,6 +34,8 @@ pub enum ProgramAction {
     SetRealtimeScheduler,
     /// Inhibit suspend
     Wakeup,
+    /// Create special files
+    MknodSpecial,
     /// Names of the syscalls made by the program
     Syscalls(HashSet<String>),
 }
@@ -89,6 +91,9 @@ pub enum NetworkActivityKind {
 /// Meta structure to group syscalls that have similar summary handling
 /// and store argument indexes
 enum SyscallInfo {
+    Mknod {
+        mode_idx: usize,
+    },
     Mmap {
         prot_idx: usize,
     },
@@ -126,6 +131,9 @@ enum SyscallInfo {
 //
 static SYSCALL_MAP: LazyLock<HashMap<&'static str, SyscallInfo>> = LazyLock::new(|| {
     HashMap::from([
+        // mknod
+        ("mknod", SyscallInfo::Mknod { mode_idx: 1 }),
+        ("mknodat", SyscallInfo::Mknod { mode_idx: 2 }),
         // mmap
         ("mmap", SyscallInfo::Mmap { prot_idx: 2 }),
         ("mmap2", SyscallInfo::Mmap { prot_idx: 2 }),
@@ -517,6 +525,19 @@ where
                     proto: SetSpecifier::One(proto),
                     kind: SetSpecifier::One(NetworkActivityKind::SocketCreation),
                 }));
+            }
+            Some(SyscallInfo::Mknod { mode_idx }) => {
+                const PRIVILEGED_ST_MODES: [&str; 2] = ["S_IFBLK", "S_IFCHR"];
+                if let Some(Expression::Integer(mode)) = syscall.args.get(*mode_idx) {
+                    if PRIVILEGED_ST_MODES
+                        .iter()
+                        .any(|pm| mode.value.is_flag_set(pm))
+                    {
+                        actions.push(ProgramAction::MknodSpecial);
+                    }
+                } else {
+                    anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
+                }
             }
             Some(SyscallInfo::Mmap { prot_idx }) => {
                 let prot =

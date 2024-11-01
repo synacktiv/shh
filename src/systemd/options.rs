@@ -1298,7 +1298,10 @@ pub fn build_options(
         // TODO CAP_LINUX_IMMUTABLE
         // TODO CAP_MAC_ADMIN
         // TODO CAP_MAC_OVERRIDE
-        // TODO CAP_MKNOD
+        (
+            "CAP_MKNOD",
+            OptionValueEffect::DenyAction(ProgramAction::MknodSpecial),
+        ),
         // TODO CAP_NET_ADMIN
         // CAP_NET_BIND_SERVICE would be too complex/unreliable to handle:
         // - for IPv4 sockets, either PROT_SOCK or net.ipv4.ip_unprivileged_port_start sysctl control the provileged port threshold
