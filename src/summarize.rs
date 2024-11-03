@@ -36,6 +36,8 @@ pub enum ProgramAction {
     Wakeup,
     /// Create special files
     MknodSpecial,
+    /// Set privileged timer alarm
+    SetAlarm,
     /// Names of the syscalls made by the program
     Syscalls(HashSet<String>),
 }
@@ -552,7 +554,6 @@ where
                     actions.push(ProgramAction::WriteExecuteMemoryMapping);
                 }
             }
-            #[expect(clippy::single_match)]
             None => match name {
                 "epoll_ctl" => {
                     if syscall.args.get(1).is_some_and(|op| {
@@ -581,6 +582,22 @@ where
                         if evt_flags.value.is_flag_set("EPOLLWAKEUP") {
                             actions.push(ProgramAction::Wakeup);
                         }
+                    }
+                }
+                "timer_create" => {
+                    const PRIVILEGED_CLOCK_NAMES: [&str; 2] =
+                        ["CLOCK_REALTIME_ALARM", "CLOCK_BOOTTIME_ALARM"];
+                    let clock_name = if let Some(Expression::Integer(IntegerExpression {
+                        value: IntegerExpressionValue::NamedConst(clock_name),
+                        ..
+                    })) = syscall.args.first()
+                    {
+                        clock_name
+                    } else {
+                        anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
+                    };
+                    if PRIVILEGED_CLOCK_NAMES.contains(&clock_name.as_str()) {
+                        actions.push(ProgramAction::SetAlarm);
                     }
                 }
                 _ => {}

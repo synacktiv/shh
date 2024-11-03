@@ -1399,7 +1399,10 @@ pub fn build_options(
             "CAP_SYSLOG",
             OptionValueEffect::DenySyscalls(DenySyscalls::Single("syslog")),
         ),
-        // TODO CAP_WAKE_ALARM
+        (
+            "CAP_WAKE_ALARM",
+            OptionValueEffect::DenyAction(ProgramAction::SetAlarm),
+        ),
     ];
     options.push(OptionDescription {
         name: "CapabilityBoundingSet",
