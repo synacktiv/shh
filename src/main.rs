@@ -173,6 +173,28 @@ fn main() -> anyhow::Result<()> {
             service.reload_unit_config()?;
             service.action("try-restart", false)?;
         }
+        cl::Action::ListSystemdOptions => {
+            println!("# Supported systemd options");
+            let mut sd_opts =
+                sd_options(&sd_version, &kernel_version, &cl::HardeningMode::Aggressive);
+            sd_opts.sort_unstable_by_key(|o| o.name);
+            for sd_opt in sd_opts {
+                println!("- [`{sd_opt}`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#{sd_opt}=)");
+                for opt_val in sd_opt.possible_values {
+                    match opt_val.value {
+                        systemd::OptionValue::Boolean(v) => {
+                            println!("    - `{}`", if v { "true" } else { "false" });
+                        }
+                        systemd::OptionValue::String(v) => println!("    - `{v}`"),
+                        systemd::OptionValue::List { values, .. } => {
+                            for val in values {
+                                println!("    - `{val}`");
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     Ok(())

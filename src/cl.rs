@@ -54,6 +54,8 @@ pub(crate) enum Action {
     /// Act on a systemd service unit
     #[clap(subcommand)]
     Service(ServiceAction),
+    /// Dump markdown formatted list of supported systemd options
+    ListSystemdOptions,
 }
 
 #[derive(Debug, clap::Subcommand)]
