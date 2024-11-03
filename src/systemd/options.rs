@@ -1264,6 +1264,9 @@ pub fn build_options(
     });
 
     // https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#CapabilityBoundingSet=
+    // Note: we don't want to duplicate the kernel permission checking logic here, which would be
+    // a maintenance nightmare, so in most case we over (never under!) simplify the capability's effect
+    // or we don't implement it at all if too complex because the risk of breakage is too high
     let cap_effects = [
         // CAP_AUDIT_CONTROL, CAP_AUDIT_READ, CAP_AUDIT_WRITE: requires netlink socket message handling
         (
@@ -1280,33 +1283,31 @@ pub fn build_options(
             "CAP_BPF",
             OptionValueEffect::DenySyscalls(DenySyscalls::Single("bpf")),
         ),
-        // TODO CAP_CHECKPOINT_RESTORE
+        // CAP_CHECKPOINT_RESTORE: too complex?
         (
             "CAP_CHOWN",
             OptionValueEffect::DenySyscalls(DenySyscalls::Class("chown")),
         ),
-        // TODO CAP_DAC_OVERRIDE
-        // TODO CAP_DAC_READ_SEARCH
-        // TODO CAP_FOWNER
-        // TODO CAP_FSETID
-        // TODO CAP_INIT_EFF_SET
+        // CAP_DAC_OVERRIDE: too complex?
+        // CAP_DAC_READ_SEARCH: too complex?
+        // CAP_FOWNER: too complex?
+        // CAP_FSETID: too complex?
         // TODO CAP_IPC_LOCK
-        // TODO CAP_IPC_OWNER
+        // CAP_IPC_OWNER: too complex?
         // TODO CAP_KILL
-        // TODO CAP_LAST_CAP
         // TODO CAP_LEASE
         // TODO CAP_LINUX_IMMUTABLE
-        // TODO CAP_MAC_ADMIN
-        // TODO CAP_MAC_OVERRIDE
+        // CAP_MAC_ADMIN: too complex?
+        // CAP_MAC_OVERRIDE: too complex?
         (
             "CAP_MKNOD",
             OptionValueEffect::DenyAction(ProgramAction::MknodSpecial),
         ),
-        // TODO CAP_NET_ADMIN
+        // CAP_NET_ADMIN: too complex?
         // CAP_NET_BIND_SERVICE would be too complex/unreliable to handle:
         // - for IPv4 sockets, either PROT_SOCK or net.ipv4.ip_unprivileged_port_start sysctl control the provileged port threshold
         // - for other socket families, rules are different
-        // TODO CAP_NET_BROADCAST
+        // CAP_NET_BROADCAST: unused
         (
             "CAP_NET_RAW",
             OptionValueEffect::Multiple(
@@ -1340,11 +1341,11 @@ pub fn build_options(
                 OptionValueEffect::DenySyscalls(DenySyscalls::Single("bpf")),
             ]),
         ),
-        // TODO CAP_SETFCAP
+        // CAP_SETFCAP: too complex?
         // TODO CAP_SETGID
         // TODO CAP_SETPCAP
         // TODO CAP_SETUID
-        // TODO CAP_SYS_ADMIN
+        // CAP_SYS_ADMIN: definitely too complex
         (
             "CAP_SYS_BOOT",
             OptionValueEffect::DenySyscalls(DenySyscalls::Class("reboot")),
@@ -1379,8 +1380,8 @@ pub fn build_options(
                 OptionValueEffect::DenySyscalls(DenySyscalls::Single("kcmp")),
             ]),
         ),
-        // TODO CAP_SYS_RAWIO
-        // TODO CAP_SYS_RESOURCE
+        // CAP_SYS_RAWIO: too complex?
+        // CAP_SYS_RESOURCE: too complex?
         (
             "CAP_SYS_TIME",
             OptionValueEffect::Multiple(vec![
