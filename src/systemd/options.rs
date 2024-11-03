@@ -1388,7 +1388,13 @@ pub fn build_options(
                 OptionValueEffect::DenySyscalls(DenySyscalls::Single("stime")),
             ]),
         ),
-        // TODO CAP_SYS_TTY_CONFIG
+        (
+            "CAP_SYS_TTY_CONFIG",
+            OptionValueEffect::Multiple(vec![
+                OptionValueEffect::DenySyscalls(DenySyscalls::Single("vhangup")),
+                OptionValueEffect::DenySyscalls(DenySyscalls::Single("ioctl")), // TODO only consider tty related ioctl?
+            ]),
+        ),
         (
             "CAP_SYSLOG",
             OptionValueEffect::DenySyscalls(DenySyscalls::Single("syslog")),
