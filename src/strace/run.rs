@@ -11,7 +11,7 @@ use anyhow::Context as _;
 
 use crate::strace::parser::LogParser;
 
-pub struct Strace {
+pub(crate) struct Strace {
     /// Strace process
     process: Child,
     /// Temp dir for pipe location
@@ -21,10 +21,11 @@ pub struct Strace {
 }
 
 impl Strace {
-    pub fn run(command: &[&str], log_path: Option<PathBuf>) -> anyhow::Result<Self> {
+    pub(crate) fn run(command: &[&str], log_path: Option<PathBuf>) -> anyhow::Result<Self> {
         // Create named pipe
         let pipe_dir = tempfile::tempdir()?;
         let pipe_path = Self::pipe_path(&pipe_dir);
+        #[expect(clippy::unwrap_used)]
         nix::unistd::mkfifo(&pipe_path, nix::sys::stat::Mode::from_bits(0o600).unwrap())?;
 
         // Start process
@@ -49,6 +50,7 @@ impl Strace {
                 "decode-fds=path",
                 "--output-append-mode",
                 "-o",
+                #[expect(clippy::unwrap_used)]
                 pipe_path.to_str().unwrap(),
                 "--",
             ])
@@ -69,7 +71,7 @@ impl Strace {
         dir.path().join("strace.pipe")
     }
 
-    pub fn log_lines(&self) -> anyhow::Result<LogParser> {
+    pub(crate) fn log_lines(&self) -> anyhow::Result<LogParser> {
         let pipe_path = Self::pipe_path(&self.pipe_dir);
         let reader = BufReader::new(File::open(pipe_path)?);
         LogParser::new(Box::new(reader), self.log_path.as_deref())

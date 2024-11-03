@@ -28,9 +28,9 @@ macro_rules! dbg_parser {
     };
 }
 
-pub fn parse_line(line: &str) -> anyhow::Result<ParseResult> {
+pub(crate) fn parse_line(line: &str) -> anyhow::Result<ParseResult> {
     match parse_syscall_line(line).map(|s| s.1) {
-        Err(nom::Err::Incomplete(_)) | Err(nom::Err::Error(_)) => Ok(ParseResult::IgnoredLine),
+        Err(nom::Err::Incomplete(_) | nom::Err::Error(_)) => Ok(ParseResult::IgnoredLine),
         Err(nom::Err::Failure(e)) => Err(anyhow::anyhow!("{e}")),
         Ok(res) => Ok(res),
     }
@@ -131,10 +131,10 @@ fn parse_args_incomplete(i: &str) -> IResult<&str, Vec<Expression>> {
 fn parse_args_inner(i: &str) -> IResult<&str, Vec<Expression>> {
     dbg_parser!(i);
     alt((
-        map(separated_list1(tag(", "), parse_struct_member), |e| {
+        map(separated_list1(tag(", "), parse_struct_member), |ne| {
             // Named arguments are stuffed in a single struct
             vec![Expression::Struct(
-                e.into_iter().map(|(n, e)| (n.to_owned(), e)).collect(),
+                ne.into_iter().map(|(n, e)| (n.to_owned(), e)).collect(),
             )]
         }),
         separated_list0(tag(", "), alt((parse_in_out_argument, parse_expression))),
@@ -153,7 +153,7 @@ fn parse_in_out_argument(i: &str) -> IResult<&str, Expression> {
                 char(']'),
             ),
         )),
-        |(i, _o)| i,
+        |(ia, _oa)| ia,
     )(i)
 }
 
@@ -260,7 +260,7 @@ fn parse_expression_struct(i: &str) -> IResult<&str, Expression> {
                         if let Expression::Macro { args, .. } = &e {
                             args.iter().find_map(|a| {
                                 if let Expression::DestinationAddress(n) = a {
-                                    Some((n.to_owned(), e.to_owned()))
+                                    Some((n.to_owned(), e.clone()))
                                 } else {
                                     None
                                 }
@@ -341,10 +341,10 @@ fn parse_int_bit_or(i: &str) -> IResult<&str, IntegerExpression> {
             char('|'),
             separated_list1(char('|'), parse_int),
         ),
-        |(f, r)| IntegerExpression {
+        |(f, rs)| IntegerExpression {
             value: IntegerExpressionValue::BinaryOr(
                 iter::once(f.value)
-                    .chain(r.into_iter().map(|r| r.value).flat_map(|e| {
+                    .chain(rs.into_iter().map(|r| r.value).flat_map(|e| {
                         // Flatten child expressions
                         if let IntegerExpressionValue::BinaryOr(es) = e {
                             es.into_iter()
@@ -368,10 +368,10 @@ fn parse_int_multiplication(i: &str) -> IResult<&str, IntegerExpression> {
             char('*'),
             separated_list1(char('*'), parse_int),
         ),
-        |(f, r)| IntegerExpression {
+        |(f, rs)| IntegerExpression {
             value: IntegerExpressionValue::Multiplication(
                 iter::once(f.value)
-                    .chain(r.into_iter().map(|r| r.value).flat_map(|e| {
+                    .chain(rs.into_iter().map(|r| r.value).flat_map(|e| {
                         // Flatten child expressions
                         if let IntegerExpressionValue::Multiplication(es) = e {
                             es.into_iter()

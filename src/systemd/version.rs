@@ -3,17 +3,17 @@
 use std::{fmt, io::BufRead, process::Command, str};
 
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq)]
-pub struct SystemdVersion {
+pub(crate) struct SystemdVersion {
     pub major: u16,
     pub minor: u16,
 }
 
 impl SystemdVersion {
-    pub fn new(major: u16, minor: u16) -> Self {
+    pub(crate) fn new(major: u16, minor: u16) -> Self {
         Self { major, minor }
     }
 
-    pub fn local_system() -> anyhow::Result<Self> {
+    pub(crate) fn local_system() -> anyhow::Result<Self> {
         let output = Command::new("systemctl").arg("--version").output()?;
         if !output.status.success() {
             anyhow::bail!("systemctl invocation failed with code {:?}", output.status);
@@ -36,7 +36,7 @@ impl SystemdVersion {
             .0;
         let major_str = version
             .chars()
-            .take_while(|c| c.is_ascii_digit())
+            .take_while(char::is_ascii_digit)
             .collect::<String>();
         let major = major_str.parse()?;
         let minor = if let Some('.') = version.chars().nth(major_str.len()) {
@@ -44,7 +44,7 @@ impl SystemdVersion {
             version
                 .chars()
                 .skip(major_str.len() + 1)
-                .take_while(|c| c.is_ascii_digit())
+                .take_while(char::is_ascii_digit)
                 .collect::<String>()
                 .parse()?
         } else {
@@ -62,14 +62,14 @@ impl fmt::Display for SystemdVersion {
 }
 
 #[derive(Ord, PartialOrd, Eq, PartialEq)]
-pub struct KernelVersion {
+pub(crate) struct KernelVersion {
     major: u16,
     minor: u16,
     release: u16,
 }
 
 impl KernelVersion {
-    pub fn new(major: u16, minor: u16, release: u16) -> Self {
+    pub(crate) fn new(major: u16, minor: u16, release: u16) -> Self {
         Self {
             major,
             minor,
@@ -77,7 +77,7 @@ impl KernelVersion {
         }
     }
 
-    pub fn local_system() -> anyhow::Result<Self> {
+    pub(crate) fn local_system() -> anyhow::Result<Self> {
         let output = Command::new("uname").arg("-r").output()?;
         if !output.status.success() {
             anyhow::bail!("uname invocation failed with code {:?}", output.status);
@@ -87,7 +87,7 @@ impl KernelVersion {
             .get(2)
             .ok_or_else(|| anyhow::anyhow!("Unable to get kernel release version"))?
             .chars()
-            .take_while(|c| c.is_ascii_digit())
+            .take_while(char::is_ascii_digit)
             .collect::<String>();
         Ok(Self {
             major: tokens

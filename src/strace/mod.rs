@@ -5,10 +5,10 @@ use std::{collections::HashMap, fmt, io::BufRead, process::Command, str};
 mod parser;
 mod run;
 
-pub use run::Strace;
+pub(crate) use run::Strace;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Syscall {
+pub(crate) struct Syscall {
     pub pid: u32,
     pub rel_ts: f64,
     pub name: String,
@@ -17,25 +17,25 @@ pub struct Syscall {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum BufferType {
+pub(crate) enum BufferType {
     AbstractPath,
     Unknown,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct IntegerExpression {
+pub(crate) struct IntegerExpression {
     pub value: IntegerExpressionValue,
     pub metadata: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct BufferExpression {
+pub(crate) struct BufferExpression {
     pub value: Vec<u8>,
     pub type_: BufferType,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Expression {
+pub(crate) enum Expression {
     Buffer(BufferExpression),
     Integer(IntegerExpression),
     Struct(HashMap<String, Expression>),
@@ -54,7 +54,7 @@ pub enum Expression {
 }
 
 impl Expression {
-    pub fn metadata(&self) -> Option<&[u8]> {
+    pub(crate) fn metadata(&self) -> Option<&[u8]> {
         match self {
             Self::Integer(IntegerExpression { metadata, .. }) => metadata.as_deref(),
             _ => None,
@@ -63,7 +63,7 @@ impl Expression {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum IntegerExpressionValue {
+pub(crate) enum IntegerExpressionValue {
     BinaryOr(Vec<IntegerExpressionValue>),
     Multiplication(Vec<IntegerExpressionValue>),
     LeftBitShift {
@@ -75,7 +75,7 @@ pub enum IntegerExpressionValue {
 }
 
 impl IntegerExpressionValue {
-    pub fn is_flag_set(&self, flag: &str) -> bool {
+    pub(crate) fn is_flag_set(&self, flag: &str) -> bool {
         match self {
             IntegerExpressionValue::NamedConst(v) => flag == v,
             IntegerExpressionValue::BinaryOr(ces) => ces.iter().any(|ce| ce.is_flag_set(flag)),
@@ -83,29 +83,31 @@ impl IntegerExpressionValue {
         }
     }
 
-    pub fn flags(&self) -> Vec<String> {
+    pub(crate) fn flags(&self) -> Vec<String> {
         match self {
             IntegerExpressionValue::NamedConst(v) => vec![v.clone()],
-            IntegerExpressionValue::BinaryOr(vs) => vs.iter().flat_map(|v| v.flags()).collect(),
+            IntegerExpressionValue::BinaryOr(vs) => {
+                vs.iter().flat_map(IntegerExpressionValue::flags).collect()
+            }
             _ => vec![],
         }
     }
 }
 
-pub type SyscallRetVal = i128; // allows holding both signed and unsigned 64 bit integers
+pub(crate) type SyscallRetVal = i128; // allows holding both signed and unsigned 64 bit integers
 
 #[derive(Ord, PartialOrd, Eq, PartialEq)]
-pub struct StraceVersion {
+pub(crate) struct StraceVersion {
     pub major: u16,
     pub minor: u16,
 }
 
 impl StraceVersion {
-    pub fn new(major: u16, minor: u16) -> Self {
+    pub(crate) fn new(major: u16, minor: u16) -> Self {
         Self { major, minor }
     }
 
-    pub fn local_system() -> anyhow::Result<Self> {
+    pub(crate) fn local_system() -> anyhow::Result<Self> {
         let output = Command::new("strace").arg("--version").output()?;
         if !output.status.success() {
             anyhow::bail!("strace invocation failed with code {:?}", output.status);

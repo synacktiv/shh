@@ -16,19 +16,19 @@ use crate::{
     systemd::{options::OptionWithValue, END_OPTION_OUTPUT_SNIPPET, START_OPTION_OUTPUT_SNIPPET},
 };
 
-pub struct Service {
+pub(crate) struct Service {
     name: String,
     arg: Option<String>,
 }
 
 const PROFILING_FRAGMENT_NAME: &str = "profile";
 const HARDENING_FRAGMENT_NAME: &str = "harden";
-/// Command line prefix for ExecStartXxx= that bypasses all hardening options
-/// See https://www.freedesktop.org/software/systemd/man/255/systemd.service.html#Command%20lines
+/// Command line prefix for `ExecStartXxx`= that bypasses all hardening options
+/// See <https://www.freedesktop.org/software/systemd/man/255/systemd.service.html#Command%20lines>
 const PRIVILEGED_PREFIX: &str = "+";
 
 impl Service {
-    pub fn new(unit: &str) -> Self {
+    pub(crate) fn new(unit: &str) -> Self {
         if let Some((name, arg)) = unit.split_once('@') {
             Self {
                 name: name.to_owned(),
@@ -49,12 +49,12 @@ impl Service {
             if let Some(arg) = self.arg.as_ref() {
                 format!("@{arg}")
             } else {
-                "".to_owned()
+                String::new()
             }
         )
     }
 
-    pub fn add_profile_fragment(&self, mode: &HardeningMode) -> anyhow::Result<()> {
+    pub(crate) fn add_profile_fragment(&self, mode: &HardeningMode) -> anyhow::Result<()> {
         // Check first if our fragment does not yet exist
         let fragment_path = self.fragment_path(PROFILING_FRAGMENT_NAME, false);
         anyhow::ensure!(
@@ -70,11 +70,12 @@ impl Service {
         let config_paths_bufs = self.config_paths()?;
         let config_paths = config_paths_bufs
             .iter()
-            .map(|p| p.as_path())
+            .map(PathBuf::as_path)
             .collect::<Vec<_>>();
         log::info!("Located unit config file(s): {config_paths:?}");
 
         // Write new fragment
+        #[expect(clippy::unwrap_used)] // fragment_path guarantees by construction we have a parent
         fs::create_dir_all(fragment_path.parent().unwrap())?;
         let mut fragment_file = BufWriter::new(File::create(&fragment_path)?);
         writeln!(
@@ -103,6 +104,7 @@ impl Service {
             env!("CARGO_PKG_NAME"),
             rng.gen::<u32>()
         ));
+        #[expect(clippy::unwrap_used)]
         writeln!(
             fragment_file,
             "RuntimeDirectory={}",
@@ -120,16 +122,17 @@ impl Service {
         for exec_start_opt in ["ExecStartPre", "ExecStart", "ExecStartPost"] {
             let exec_start_cmds = Self::config_vals(exec_start_opt, &config_paths)?;
             if !exec_start_cmds.is_empty() {
-                writeln!(fragment_file, "{}=", exec_start_opt)?;
+                writeln!(fragment_file, "{exec_start_opt}=")?;
             }
             for cmd in exec_start_cmds {
                 if cmd.starts_with(PRIVILEGED_PREFIX) {
                     // TODO handle other special prefixes?
                     // Write command unchanged
-                    writeln!(fragment_file, "{}={}", exec_start_opt, cmd)?;
+                    writeln!(fragment_file, "{exec_start_opt}={cmd}")?;
                 } else {
-                    let profile_data_path = profile_data_dir.join(format!("{:03}", exec_start_idx));
+                    let profile_data_path = profile_data_dir.join(format!("{exec_start_idx:03}"));
                     exec_start_idx += 1;
+                    #[expect(clippy::unwrap_used)]
                     writeln!(
                         fragment_file,
                         "{}={} run -m {} -p {} -- {}",
@@ -145,6 +148,7 @@ impl Service {
         }
 
         // Add invocation that merges previous profiles
+        #[expect(clippy::unwrap_used)]
         writeln!(
             fragment_file,
             "ExecStopPost={} merge-profile-data -m {} {}",
@@ -160,7 +164,7 @@ impl Service {
         Ok(())
     }
 
-    pub fn remove_profile_fragment(&self) -> anyhow::Result<()> {
+    pub(crate) fn remove_profile_fragment(&self) -> anyhow::Result<()> {
         let fragment_path = self.fragment_path(PROFILING_FRAGMENT_NAME, false);
         fs::remove_file(&fragment_path)?;
         log::info!("{fragment_path:?} removed");
@@ -175,15 +179,16 @@ impl Service {
         Ok(())
     }
 
-    pub fn remove_hardening_fragment(&self) -> anyhow::Result<()> {
+    pub(crate) fn remove_hardening_fragment(&self) -> anyhow::Result<()> {
         let fragment_path = self.fragment_path(HARDENING_FRAGMENT_NAME, true);
         fs::remove_file(&fragment_path)?;
         log::info!("{fragment_path:?} removed");
         Ok(())
     }
 
-    pub fn add_hardening_fragment(&self, opts: Vec<OptionWithValue>) -> anyhow::Result<()> {
+    pub(crate) fn add_hardening_fragment(&self, opts: Vec<OptionWithValue>) -> anyhow::Result<()> {
         let fragment_path = self.fragment_path(HARDENING_FRAGMENT_NAME, true);
+        #[expect(clippy::unwrap_used)]
         fs::create_dir_all(fragment_path.parent().unwrap())?;
 
         let mut fragment_file = BufWriter::new(File::create(&fragment_path)?);
@@ -201,7 +206,8 @@ impl Service {
         Ok(())
     }
 
-    pub fn reload_unit_config(&self) -> anyhow::Result<()> {
+    #[expect(clippy::unused_self)]
+    pub(crate) fn reload_unit_config(&self) -> anyhow::Result<()> {
         let status = Command::new("systemctl").arg("daemon-reload").status()?;
         if !status.success() {
             anyhow::bail!("systemctl failed: {status}");
@@ -209,7 +215,7 @@ impl Service {
         Ok(())
     }
 
-    pub fn action(&self, verb: &str, block: bool) -> anyhow::Result<()> {
+    pub(crate) fn action(&self, verb: &str, block: bool) -> anyhow::Result<()> {
         let unit_name = self.unit_name();
         log::info!("{} {}", verb, unit_name);
         let mut cmd = vec![verb];
@@ -224,7 +230,7 @@ impl Service {
         Ok(())
     }
 
-    pub fn profiling_result(&self) -> anyhow::Result<Vec<OptionWithValue>> {
+    pub(crate) fn profiling_result(&self) -> anyhow::Result<Vec<OptionWithValue>> {
         // Start journalctl process
         let mut child = Command::new("journalctl")
             .args([
@@ -243,6 +249,7 @@ impl Service {
             .spawn()?;
 
         // Parse its output
+        #[expect(clippy::unwrap_used)]
         let reader = BufReader::new(child.stdout.take().unwrap());
         let snippet_lines: Vec<_> = reader
             .lines()
@@ -259,7 +266,10 @@ impl Service {
             })
             .collect::<Result<_, _>>()?;
         if (snippet_lines.len() < 2)
-            || (snippet_lines.last().unwrap() != START_OPTION_OUTPUT_SNIPPET)
+            || (snippet_lines
+                .last()
+                .ok_or_else(|| anyhow::anyhow!("Unable to get profiling result lines"))?
+                != START_OPTION_OUTPUT_SNIPPET)
         {
             anyhow::bail!("Unable to get profiling result snippet");
         }
@@ -292,7 +302,12 @@ impl Service {
                 let line = line?;
                 if line.starts_with(&prefix) {
                     let val = if line.ends_with('\\') {
-                        let mut val = line.split_once('=').unwrap().1.trim().to_owned();
+                        let mut val = line
+                            .split_once('=')
+                            .ok_or_else(|| anyhow::anyhow!("Unable to parse service option line"))?
+                            .1
+                            .trim()
+                            .to_owned();
                         // Remove trailing '\'
                         val.pop();
                         // Append next lines
@@ -310,12 +325,16 @@ impl Service {
                         }
                         val
                     } else {
-                        line.split_once('=').unwrap().1.trim().to_owned()
+                        line.split_once('=')
+                            .ok_or_else(|| anyhow::anyhow!("Unable to parse service option line"))?
+                            .1
+                            .trim()
+                            .to_owned()
                     };
                     file_vals.push(val);
                 }
             }
-            while let Some(clear_idx) = file_vals.iter().position(|v| v.is_empty()) {
+            while let Some(clear_idx) = file_vals.iter().position(String::is_empty) {
                 file_vals = file_vals[clear_idx + 1..].to_vec();
                 vals.clear();
             }

@@ -19,7 +19,7 @@ use crate::{
 /// A high level program runtime action
 /// This does *not* map 1-1 with a syscall, and does *not* necessarily respect chronology
 #[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum ProgramAction {
+pub(crate) enum ProgramAction {
     /// Path was accessed (open, stat'ed, read...)
     Read(PathBuf),
     /// Path was written to (data, metadata, path removal...)
@@ -44,7 +44,7 @@ pub enum ProgramAction {
 
 /// Network (socket) activity
 #[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct NetworkActivity {
+pub(crate) struct NetworkActivity {
     pub af: SetSpecifier<SocketFamily>,
     pub proto: SetSpecifier<SocketProtocol>,
     pub kind: SetSpecifier<NetworkActivityKind>,
@@ -52,7 +52,7 @@ pub struct NetworkActivity {
 
 /// Quantify something that is done or denied
 #[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum SetSpecifier<T> {
+pub(crate) enum SetSpecifier<T> {
     None,
     One(T),
     Some(Vec<T>),
@@ -69,7 +69,7 @@ impl<T: Eq> SetSpecifier<T> {
         }
     }
 
-    pub fn intersects(&self, other: &Self) -> bool {
+    pub(crate) fn intersects(&self, other: &Self) -> bool {
         match self {
             SetSpecifier::None => false,
             SetSpecifier::One(e) => other.contains_one(e),
@@ -81,7 +81,7 @@ impl<T: Eq> SetSpecifier<T> {
 
 /// Socket activity
 #[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum NetworkActivityKind {
+pub(crate) enum NetworkActivityKind {
     SocketCreation,
     Bind,
     // TODO
@@ -253,6 +253,7 @@ fn resolve_path(path: &Path, relfd_idx: Option<usize>, syscall: &Syscall) -> Opt
     Some(path.canonicalize().unwrap_or(path))
 }
 
+#[expect(clippy::unwrap_used)]
 static FD_PSEUDO_PATH_REGEX: LazyLock<regex::bytes::Regex> =
     LazyLock::new(|| regex::bytes::Regex::new(r"^[a-z]+:\[[0-9a-z]+\]/?$").unwrap());
 
@@ -276,7 +277,8 @@ fn socket_address_uds_path(
     }
 }
 
-pub fn summarize<I>(syscalls: I) -> anyhow::Result<Vec<ProgramAction>>
+#[expect(clippy::too_many_lines)]
+pub(crate) fn summarize<I>(syscalls: I) -> anyhow::Result<Vec<ProgramAction>>
 where
     I: IntoIterator<Item = anyhow::Result<Syscall>>,
 {
@@ -340,7 +342,7 @@ where
                 path_dst_idx,
                 flags_idx,
             }) => {
-                let (mut path_src, mut path_dst) = if let (
+                let (path_src, path_dst) = if let (
                     Some(Expression::Buffer(BufferExpression {
                         value: b1,
                         type_: BufferType::Unknown,
@@ -361,23 +363,17 @@ where
                     anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
                 };
 
-                (path_src, path_dst) = if let (Some(path_src), Some(path_dst)) = (
+                let (Some(path_src), Some(path_dst)) = (
                     resolve_path(&path_src, *relfd_src_idx, &syscall),
                     resolve_path(&path_dst, *relfd_dst_idx, &syscall),
-                ) {
-                    (path_src, path_dst)
-                } else {
+                ) else {
                     continue;
                 };
 
                 let exchange = if let Some(flags_idx) = flags_idx {
-                    let flags = if let Some(Expression::Integer(IntegerExpression {
-                        value: flags,
-                        ..
-                    })) = syscall.args.get(*flags_idx)
-                    {
-                        flags
-                    } else {
+                    let Some(Expression::Integer(IntegerExpression { value: flags, .. })) =
+                        syscall.args.get(*flags_idx)
+                    else {
                         anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
                     };
 
@@ -432,13 +428,11 @@ where
             Some(SyscallInfo::Network { sockaddr_idx }) => {
                 let (af, addr) =
                     if let Some(Expression::Struct(members)) = syscall.args.get(*sockaddr_idx) {
-                        let af = if let Some(Expression::Integer(IntegerExpression {
+                        let Some(Expression::Integer(IntegerExpression {
                             value: IntegerExpressionValue::NamedConst(af),
                             ..
                         })) = members.get("sa_family")
-                        {
-                            af
-                        } else {
+                        else {
                             anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
                         };
                         (af.as_str(), members)
@@ -447,7 +441,7 @@ where
                         continue;
                     };
 
-                #[allow(clippy::single_match)]
+                #[expect(clippy::single_match)]
                 match af {
                     "AF_UNIX" => {
                         if let Some(path) = socket_address_uds_path(addr, &syscall) {
@@ -458,18 +452,16 @@ where
                 }
 
                 if name == "bind" {
-                    let fd = if let Some(Expression::Integer(IntegerExpression {
+                    let Some(Expression::Integer(IntegerExpression {
                         value: IntegerExpressionValue::Literal(fd),
                         ..
                     })) = syscall.args.first()
-                    {
-                        fd
-                    } else {
+                    else {
                         anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
                     };
                     let af = af
                         .parse()
-                        .map_err(|_| anyhow::anyhow!("Unable to parse socket family {af:?}"))?;
+                        .map_err(|()| anyhow::anyhow!("Unable to parse socket family {af:?}"))?;
                     if let Some(proto) = known_sockets_proto.get(&(syscall.pid, *fd)) {
                         actions.push(ProgramAction::NetworkActivity(NetworkActivity {
                             af: SetSpecifier::One(af),
@@ -480,11 +472,9 @@ where
                 }
             }
             Some(SyscallInfo::SetScheduler) => {
-                let policy = if let Some(Expression::Integer(IntegerExpression { value, .. })) =
+                let Some(Expression::Integer(IntegerExpression { value: policy, .. })) =
                     syscall.args.get(1)
-                {
-                    value
-                } else {
+                else {
                     anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
                 };
                 if policy.is_flag_set("SCHED_FIFO") | policy.is_flag_set("SCHED_RR") {
@@ -498,7 +488,7 @@ where
                 })) = syscall.args.first()
                 {
                     af.parse()
-                        .map_err(|_| anyhow::anyhow!("Unable to parse socket family {af:?}"))?
+                        .map_err(|()| anyhow::anyhow!("Unable to parse socket family {af:?}"))?
                 } else {
                     anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
                 };
@@ -542,14 +532,11 @@ where
                 }
             }
             Some(SyscallInfo::Mmap { prot_idx }) => {
-                let prot =
-                    if let Some(Expression::Integer(IntegerExpression { value: prot, .. })) =
-                        syscall.args.get(*prot_idx)
-                    {
-                        prot
-                    } else {
-                        anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
-                    };
+                let Some(Expression::Integer(IntegerExpression { value: prot, .. })) =
+                    syscall.args.get(*prot_idx)
+                else {
+                    anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
+                };
                 if prot.is_flag_set("PROT_WRITE") && prot.is_flag_set("PROT_EXEC") {
                     actions.push(ProgramAction::WriteExecuteMemoryMapping);
                 }
@@ -587,13 +574,11 @@ where
                 "timer_create" => {
                     const PRIVILEGED_CLOCK_NAMES: [&str; 2] =
                         ["CLOCK_REALTIME_ALARM", "CLOCK_BOOTTIME_ALARM"];
-                    let clock_name = if let Some(Expression::Integer(IntegerExpression {
+                    let Some(Expression::Integer(IntegerExpression {
                         value: IntegerExpressionValue::NamedConst(clock_name),
                         ..
                     })) = syscall.args.first()
-                    {
-                        clock_name
-                    } else {
+                    else {
                         anyhow::bail!("Unexpected args for {}: {:?}", name, syscall.args);
                     };
                     if PRIVILEGED_CLOCK_NAMES.contains(&clock_name.as_str()) {
@@ -615,6 +600,7 @@ where
     let mut syscall_names = stats.keys().collect::<Vec<_>>();
     syscall_names.sort();
     for syscall_name in syscall_names {
+        #[expect(clippy::unwrap_used)]
         let count = stats.get(syscall_name).unwrap();
         log::debug!("{:24} {: >12}", format!("{syscall_name}:"), count);
     }
@@ -622,6 +608,7 @@ where
     Ok(actions)
 }
 
+#[expect(clippy::unreadable_literal)]
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -19,17 +19,17 @@ fn sd_options(
     sd_version: &systemd::SystemdVersion,
     kernel_version: &systemd::KernelVersion,
     mode: &cl::HardeningMode,
-) -> anyhow::Result<Vec<systemd::OptionDescription>> {
+) -> Vec<systemd::OptionDescription> {
     let sd_opts = systemd::build_options(sd_version, kernel_version, mode);
     log::info!(
         "Enabled support for systemd options: {}",
         sd_opts
             .iter()
-            .map(|o| o.to_string())
+            .map(ToString::to_string)
             .collect::<Vec<_>>()
             .join(", ")
     );
-    Ok(sd_opts)
+    sd_opts
 }
 
 fn main() -> anyhow::Result<()> {
@@ -65,7 +65,7 @@ fn main() -> anyhow::Result<()> {
             strace_log_path,
         } => {
             // Build supported systemd options
-            let sd_opts = sd_options(&sd_version, &kernel_version, &mode)?;
+            let sd_opts = sd_options(&sd_version, &kernel_version, &mode);
 
             // Run strace
             let cmd = command.iter().map(|a| &**a).collect::<Vec<&str>>();
@@ -96,7 +96,7 @@ fn main() -> anyhow::Result<()> {
                 bincode::serialize_into(file, &actions)?;
             } else {
                 // Resolve
-                let resolved_opts = systemd::resolve(&sd_opts, &actions)?;
+                let resolved_opts = systemd::resolve(&sd_opts, &actions);
 
                 // Report
                 systemd::report_options(resolved_opts);
@@ -104,7 +104,7 @@ fn main() -> anyhow::Result<()> {
         }
         cl::Action::MergeProfileData { mode, paths } => {
             // Build supported systemd options
-            let sd_opts = sd_options(&sd_version, &kernel_version, &mode)?;
+            let sd_opts = sd_options(&sd_version, &kernel_version, &mode);
 
             // Load and merge profile data
             let mut actions: Vec<summarize::ProgramAction> = Vec::new();
@@ -117,7 +117,7 @@ fn main() -> anyhow::Result<()> {
             log::debug!("{actions:?}");
 
             // Resolve
-            let resolved_opts = systemd::resolve(&sd_opts, &actions)?;
+            let resolved_opts = systemd::resolve(&sd_opts, &actions);
 
             // Report
             systemd::report_options(resolved_opts);
@@ -134,11 +134,11 @@ fn main() -> anyhow::Result<()> {
         }) => {
             let service = systemd::Service::new(&service);
             service.add_profile_fragment(&mode)?;
-            if !no_restart {
+            if no_restart {
+                log::warn!("Profiling config will only be applied when systemd config is reloaded, and service restarted");
+            } else {
                 service.reload_unit_config()?;
                 service.action("restart", false)?;
-            } else {
-                log::warn!("Profiling config will only be applied when systemd config is reloaded, and service restarted");
             }
         }
         cl::Action::Service(cl::ServiceAction::FinishProfile {

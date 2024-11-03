@@ -13,9 +13,10 @@ use super::{ParseResult, SyscallEnd, SyscallStart};
 #[grammar = "strace/parser/peg.pest"]
 struct PegParser;
 
-pub fn parse_line(line: &str) -> anyhow::Result<ParseResult> {
+pub(crate) fn parse_line(line: &str) -> anyhow::Result<ParseResult> {
     let pair = match PegParser::parse(Rule::syscall_line, line) {
         Err(_) => return Ok(ParseResult::IgnoredLine),
+        #[expect(clippy::unwrap_used)]
         Ok(mut p) => pair_descend(p.next().unwrap(), 1).unwrap(),
     };
     log::trace!("{:#?}", pair);
@@ -166,6 +167,7 @@ fn lit_pair(pair: Pair<Rule>) -> anyhow::Result<IntegerExpression> {
     let (val, metadata) = match pair.as_rule() {
         Rule::literal_int_oct => (i128::from_str_radix(pair.as_str(), 8)?, None),
         Rule::literal_int_hex => (
+            #[expect(clippy::unwrap_used)]
             pair.as_str()
                 .strip_prefix("0x")
                 .map(|s| i128::from_str_radix(s, 16))
@@ -340,11 +342,11 @@ impl TryFrom<Pair<'_, Rule>> for Syscall {
                     args_pair
                         .into_inner()
                         .map(|p| -> anyhow::Result<_> {
-                            let (name, val) = p
+                            let (n, v) = p
                                 .into_inner()
                                 .next_tuple()
                                 .ok_or_else(|| anyhow::anyhow!("Missing name arguments nodes"))?;
-                            Ok((name.as_str().to_owned(), pair_descend(val, 1)?.try_into()?))
+                            Ok((n.as_str().to_owned(), pair_descend(v, 1)?.try_into()?))
                         })
                         .collect::<Result<_, _>>()?,
                 )]
@@ -358,11 +360,9 @@ impl TryFrom<Pair<'_, Rule>> for Syscall {
                 .ok_or_else(|| anyhow::anyhow!("Missing return value node"))?,
             2,
         )?;
-        let ret_val = if let IntegerExpressionValue::Literal(val) =
+        let IntegerExpressionValue::Literal(ret_val) =
             IntegerExpression::try_from(ret_val_pair)?.value
-        {
-            val
-        } else {
+        else {
             anyhow::bail!("Return value is not a literal int");
         };
 
@@ -422,11 +422,11 @@ impl TryFrom<Pair<'_, Rule>> for SyscallStart {
                     args_pair
                         .into_inner()
                         .map(|p| -> anyhow::Result<_> {
-                            let (name, val) = p
+                            let (n, v) = p
                                 .into_inner()
                                 .next_tuple()
                                 .ok_or_else(|| anyhow::anyhow!("Missing name arguments nodes"))?;
-                            Ok((name.as_str().to_owned(), pair_descend(val, 1)?.try_into()?))
+                            Ok((n.as_str().to_owned(), pair_descend(v, 1)?.try_into()?))
                         })
                         .collect::<Result<_, _>>()?,
                 )]
@@ -471,11 +471,9 @@ impl TryFrom<Pair<'_, Rule>> for SyscallEnd {
                 .ok_or_else(|| anyhow::anyhow!("Missing return value node"))?,
             2,
         )?;
-        let ret_val = if let IntegerExpressionValue::Literal(val) =
+        let IntegerExpressionValue::Literal(ret_val) =
             IntegerExpression::try_from(ret_val_pair)?.value
-        {
-            val
-        } else {
+        else {
             anyhow::bail!("Return value is not a literal int");
         };
 

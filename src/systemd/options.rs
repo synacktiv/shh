@@ -20,7 +20,7 @@ use crate::{
 
 /// Systemd option with its possibles values, and their effect
 #[derive(Debug)]
-pub struct OptionDescription {
+pub(crate) struct OptionDescription {
     pub name: &'static str,
     pub possible_values: Vec<OptionValueDescription>,
 }
@@ -32,14 +32,14 @@ impl fmt::Display for OptionDescription {
 }
 
 #[derive(Debug, Clone)]
-pub enum ListMode {
+pub(crate) enum ListMode {
     WhiteList,
     BlackList,
 }
 
 /// Systemd option value
 #[derive(Debug, Clone)]
-pub enum OptionValue {
+pub(crate) enum OptionValue {
     Boolean(bool), // In most case we only model the 'true' value, because false is no-op and the default
     String(String), // enum-like, or free string
     List {
@@ -65,14 +65,14 @@ impl FromStr for OptionValue {
 
 /// A systemd option value and its effects
 #[derive(Debug)]
-pub struct OptionValueDescription {
+pub(crate) struct OptionValueDescription {
     pub value: OptionValue,
     pub desc: OptionEffect,
 }
 
 /// The effects a systemd option has if enabled
 #[derive(Debug, Clone)]
-pub enum OptionEffect {
+pub(crate) enum OptionEffect {
     /// Option has no modeled effect (it will be unconditionally enabled)
     None,
     /// Option has several mutually exclusive possible values
@@ -82,7 +82,7 @@ pub enum OptionEffect {
 }
 
 #[derive(Debug, Clone)]
-pub enum PathDescription {
+pub(crate) enum PathDescription {
     Base {
         base: PathBuf,
         exceptions: Vec<PathBuf>,
@@ -91,7 +91,7 @@ pub enum PathDescription {
 }
 
 impl PathDescription {
-    pub fn matches(&self, path: &Path) -> bool {
+    pub(crate) fn matches(&self, path: &Path) -> bool {
         assert!(path.is_absolute(), "{path:?}");
         match self {
             PathDescription::Base { base, exceptions } => {
@@ -103,7 +103,7 @@ impl PathDescription {
 }
 
 #[derive(Debug, Clone)]
-pub enum OptionValueEffect {
+pub(crate) enum OptionValueEffect {
     /// Deny an action
     DenyAction(ProgramAction),
     /// Mount path as read only
@@ -117,8 +117,8 @@ pub enum OptionValueEffect {
 }
 
 #[derive(Debug, Clone)]
-pub enum DenySyscalls {
-    /// See https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L306
+pub(crate) enum DenySyscalls {
+    /// See <https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L306>
     /// for the content of each class
     Class(&'static str),
     Single(&'static str),
@@ -135,7 +135,7 @@ pub enum DenySyscalls {
     serde::Deserialize,
 )]
 #[strum(serialize_all = "snake_case")]
-pub enum SocketFamily {
+pub(crate) enum SocketFamily {
     Ipv4,
     Ipv6,
     Other(String),
@@ -164,7 +164,7 @@ impl FromStr for SocketFamily {
     serde::Deserialize,
 )]
 #[strum(serialize_all = "snake_case")]
-pub enum SocketProtocol {
+pub(crate) enum SocketProtocol {
     Tcp,
     Udp,
     Other(String),
@@ -184,20 +184,22 @@ impl FromStr for SocketProtocol {
 
 impl DenySyscalls {
     /// Get denied syscall names
-    pub fn syscalls(&self) -> HashSet<&'static str> {
+    pub(crate) fn syscalls(&self) -> HashSet<&'static str> {
         match self {
             Self::Class(class) => {
+                #[expect(clippy::unwrap_used)]
                 let mut content = SYSCALL_CLASSES.get(class).unwrap().clone();
                 while content.iter().any(|e| e.starts_with('@')) {
                     content = content
                         .iter()
-                        .flat_map(|c| {
+                        .filter_map(|c| {
+                            #[expect(clippy::unwrap_used)]
                             c.strip_prefix('@')
-                                .map(|class| SYSCALL_CLASSES.get(class).unwrap())
+                                .map(|cn| SYSCALL_CLASSES.get(cn).unwrap())
                         })
                         .flatten()
                         .chain(content.iter().filter(|e| !e.starts_with('@')))
-                        .cloned()
+                        .copied()
                         .collect();
                 }
                 content
@@ -208,7 +210,7 @@ impl DenySyscalls {
 }
 
 /// A systemd option with a value, as would be present in a config file
-pub struct OptionWithValue {
+pub(crate) struct OptionWithValue {
     pub name: String,
     pub value: OptionValue,
 }
@@ -223,7 +225,8 @@ impl FromStr for OptionWithValue {
 
         Ok(Self {
             name: name.to_owned(),
-            value: value.parse().unwrap(), // never fails
+            #[expect(clippy::unwrap_used)] // never fails
+            value: value.parse().unwrap(),
         })
     }
 }
@@ -271,7 +274,7 @@ impl fmt::Display for OptionWithValue {
                         "{}",
                         values
                             .iter()
-                            .map(|v| v.to_owned())
+                            .map(ToOwned::to_owned)
                             .collect::<Vec<_>>()
                             .join(" ")
                     )
@@ -799,8 +802,8 @@ static SYSCALL_CLASSES: LazyLock<HashMap<&'static str, HashSet<&'static str>>> =
         ])
     });
 
-#[allow(clippy::vec_init_then_push)]
-pub fn build_options(
+#[expect(clippy::too_many_lines)]
+pub(crate) fn build_options(
     systemd_version: &SystemdVersion,
     kernel_version: &KernelVersion,
     mode: &HardeningMode,
@@ -1076,6 +1079,7 @@ pub fn build_options(
             possible_values: vec![OptionValueDescription {
                 value: OptionValue::String("ptraceable".to_owned()),
                 desc: OptionEffect::Simple(OptionValueEffect::Hide(PathDescription::Pattern(
+                    #[expect(clippy::unwrap_used)]
                     regex::bytes::Regex::new("^/proc/[0-9]+(/|$)").unwrap(),
                 ))),
             }],
@@ -1145,7 +1149,7 @@ pub fn build_options(
         name: "RestrictAddressFamilies",
         possible_values: vec![OptionValueDescription {
             value: OptionValue::List {
-                values: afs.iter().map(|s| s.to_string()).collect(),
+                values: afs.iter().map(|s| (*s).to_owned()).collect(),
                 value_if_empty: Some("none".to_owned()),
                 negation_prefix: false,
                 repeat_option: false,
@@ -1156,6 +1160,7 @@ pub fn build_options(
                     .map(|af| {
                         OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(
                             NetworkActivity {
+                                #[expect(clippy::unwrap_used)]
                                 af: SetSpecifier::One(af.parse().unwrap()),
                                 proto: SetSpecifier::All,
                                 kind: SetSpecifier::All,
@@ -1323,6 +1328,7 @@ pub fn build_options(
                     afs.iter().filter(|af| **af != "AF_NETLINK").map(|af| {
                         OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(
                             NetworkActivity {
+                                #[expect(clippy::unwrap_used)]
                                 af: SetSpecifier::One(af.parse().unwrap()),
                                 proto: SetSpecifier::One(SocketProtocol::Other("SOCK_RAW".into())),
                                 kind: SetSpecifier::All,
@@ -1409,7 +1415,7 @@ pub fn build_options(
         name: "CapabilityBoundingSet",
         possible_values: vec![OptionValueDescription {
             value: OptionValue::List {
-                values: cap_effects.iter().map(|(c, _e)| c.to_string()).collect(),
+                values: cap_effects.iter().map(|(c, _e)| (*c).to_owned()).collect(),
                 value_if_empty: None,
                 negation_prefix: true,
                 repeat_option: false,
@@ -1429,8 +1435,8 @@ pub fn build_options(
     // signal when it makes the call, so change the default to just return EPERM.
     // Real world example: https://github.com/tjko/jpegoptim/blob/v1.5.5/jpegoptim.c#L1097-L1099
     //
-    let mut syscall_classes: Vec<_> = SYSCALL_CLASSES.keys().cloned().collect();
-    syscall_classes.sort();
+    let mut syscall_classes: Vec<_> = SYSCALL_CLASSES.keys().copied().collect();
+    syscall_classes.sort_unstable();
     options.push(OptionDescription {
         name: "SystemCallFilter",
         possible_values: vec![OptionValueDescription {

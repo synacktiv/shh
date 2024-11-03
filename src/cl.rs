@@ -7,7 +7,7 @@ use clap::Parser;
 /// Command line arguments
 #[derive(Parser, Debug)]
 #[command(version, about)]
-pub struct Args {
+pub(crate) struct Args {
     #[command(subcommand)]
     pub action: Action,
 }
@@ -15,7 +15,7 @@ pub struct Args {
 /// How hard we should harden
 #[derive(Debug, Clone, Default, clap::ValueEnum, strum::Display)]
 #[strum(serialize_all = "snake_case")]
-pub enum HardeningMode {
+pub(crate) enum HardeningMode {
     /// Only generate hardening options if they have a very low risk of breaking things
     #[default]
     Safe,
@@ -25,7 +25,7 @@ pub enum HardeningMode {
 }
 
 #[derive(Debug, clap::Subcommand)]
-pub enum Action {
+pub(crate) enum Action {
     /// Run a program to profile its behavior
     Run {
         /// The command line to run
@@ -57,7 +57,7 @@ pub enum Action {
 }
 
 #[derive(Debug, clap::Subcommand)]
-pub enum ServiceAction {
+pub(crate) enum ServiceAction {
     /// Add fragment config to service to profile its behavior
     StartProfile {
         /// Service unit name

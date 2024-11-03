@@ -20,7 +20,7 @@ use peg::parse_line;
 
 use super::{Expression, SyscallRetVal};
 
-pub struct LogParser {
+pub(crate) struct LogParser {
     reader: Box<dyn BufRead>,
     log: Option<BufWriter<File>>,
     buf: String,
@@ -28,7 +28,7 @@ pub struct LogParser {
 }
 
 impl LogParser {
-    pub fn new(reader: Box<dyn BufRead>, log_path: Option<&Path>) -> anyhow::Result<Self> {
+    pub(crate) fn new(reader: Box<dyn BufRead>, log_path: Option<&Path>) -> anyhow::Result<Self> {
         let log = log_path
             .map(|p| -> io::Result<_> {
                 let file = File::options().create(true).append(true).open(p)?;
@@ -59,7 +59,7 @@ enum ParseResult {
 
 /// A syscall started that did not yet return
 #[derive(Debug, Clone, PartialEq)]
-pub struct SyscallStart {
+pub(crate) struct SyscallStart {
     pub pid: u32,
     pub rel_ts: f64,
     pub name: String,
@@ -68,7 +68,7 @@ pub struct SyscallStart {
 
 impl SyscallStart {
     /// Merge syscall start and end to build a complete syscall invocation description
-    pub fn end(self, end: SyscallEnd) -> Syscall {
+    pub(crate) fn end(self, end: &SyscallEnd) -> Syscall {
         debug_assert_eq!(self.pid, end.pid);
         debug_assert_eq!(self.name, end.name);
         Syscall {
@@ -83,7 +83,7 @@ impl SyscallStart {
 
 /// A syscall that ended
 #[derive(Debug, Clone, PartialEq)]
-pub struct SyscallEnd {
+pub(crate) struct SyscallEnd {
     pub pid: u32,
     pub rel_ts: f64,
     pub name: String,
@@ -125,18 +125,16 @@ impl Iterator for LogParser {
                     continue;
                 }
                 Ok(ParseResult::SyscallEnd(sc_end)) => {
-                    let unfinished_index = if let Some(index) = self
+                    let Some(unfinished_index) = self
                         .unfinished_syscalls
                         .iter()
                         .position(|sc| (sc.name == sc_end.name) && (sc.pid == sc_end.pid))
-                    {
-                        index
-                    } else {
+                    else {
                         log::warn!("Unable to find first part of syscall");
                         continue;
                     };
                     let sc_start = self.unfinished_syscalls.swap_remove(unfinished_index); // I fucking love Rust <3
-                    break sc_start.end(sc_end);
+                    break sc_start.end(&sc_end);
                 }
                 Ok(ParseResult::IgnoredLine) => {
                     log::warn!("Ignored line: {line:?}");
@@ -157,6 +155,7 @@ impl Iterator for LogParser {
     }
 }
 
+#[expect(clippy::unreadable_literal, clippy::shadow_unrelated)]
 #[cfg(test)]
 mod tests {
     use std::{collections::HashMap, io::Cursor};

@@ -1,5 +1,7 @@
 //! Command line tests
 
+#![expect(clippy::tests_outside_test_module)]
+
 use std::env;
 
 use nix::unistd::Uid;

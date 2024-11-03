@@ -62,7 +62,7 @@ impl OptionValueEffect {
     }
 }
 
-pub fn actions_compatible(eff: &OptionValueEffect, actions: &[ProgramAction]) -> bool {
+pub(crate) fn actions_compatible(eff: &OptionValueEffect, actions: &[ProgramAction]) -> bool {
     for i in 0..actions.len() {
         if !eff.compatible(&actions[i], &actions[..i]) {
             log::debug!(
@@ -76,10 +76,10 @@ pub fn actions_compatible(eff: &OptionValueEffect, actions: &[ProgramAction]) ->
     true
 }
 
-pub fn resolve(
+pub(crate) fn resolve(
     opts: &Vec<OptionDescription>,
     actions: &[ProgramAction],
-) -> anyhow::Result<Vec<OptionWithValue>> {
+) -> Vec<OptionWithValue> {
     let mut candidates = Vec::new();
     for opt in opts {
         // Options are in the less to most restrictive order,
@@ -143,9 +143,10 @@ pub fn resolve(
             }
         }
     }
-    Ok(candidates)
+    candidates
 }
 
+#[expect(clippy::shadow_unrelated)]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,27 +172,27 @@ mod tests {
         let opts = test_options(&["ProtectSystem"]);
 
         let actions = vec![];
-        let candidates = resolve(&opts, &actions).unwrap();
+        let candidates = resolve(&opts, &actions);
         assert_eq!(candidates.len(), 1);
         assert_eq!(format!("{}", candidates[0]), "ProtectSystem=strict");
 
         let actions = vec![ProgramAction::Write("/sys/whatever".into())];
-        let candidates = resolve(&opts, &actions).unwrap();
+        let candidates = resolve(&opts, &actions);
         assert_eq!(candidates.len(), 1);
         assert_eq!(format!("{}", candidates[0]), "ProtectSystem=strict");
 
         let actions = vec![ProgramAction::Write("/var/cache/whatever".into())];
-        let candidates = resolve(&opts, &actions).unwrap();
+        let candidates = resolve(&opts, &actions);
         assert_eq!(candidates.len(), 1);
         assert_eq!(format!("{}", candidates[0]), "ProtectSystem=full");
 
         let actions = vec![ProgramAction::Write("/etc/plop.conf".into())];
-        let candidates = resolve(&opts, &actions).unwrap();
+        let candidates = resolve(&opts, &actions);
         assert_eq!(candidates.len(), 1);
         assert_eq!(format!("{}", candidates[0]), "ProtectSystem=true");
 
         let actions = vec![ProgramAction::Write("/usr/bin/false".into())];
-        let candidates = resolve(&opts, &actions).unwrap();
+        let candidates = resolve(&opts, &actions);
         assert_eq!(candidates.len(), 0);
     }
 
@@ -202,17 +203,17 @@ mod tests {
         let opts = test_options(&["ProtectHome"]);
 
         let actions = vec![];
-        let candidates = resolve(&opts, &actions).unwrap();
+        let candidates = resolve(&opts, &actions);
         assert_eq!(candidates.len(), 1);
         assert_eq!(format!("{}", candidates[0]), "ProtectHome=tmpfs");
 
         let actions = vec![ProgramAction::Write("/home/user/data".into())];
-        let candidates = resolve(&opts, &actions).unwrap();
+        let candidates = resolve(&opts, &actions);
         assert_eq!(candidates.len(), 1);
         assert_eq!(format!("{}", candidates[0]), "ProtectHome=true");
 
         let actions = vec![ProgramAction::Read("/home/user/data".into())];
-        let candidates = resolve(&opts, &actions).unwrap();
+        let candidates = resolve(&opts, &actions);
         assert_eq!(candidates.len(), 1);
         assert_eq!(format!("{}", candidates[0]), "ProtectHome=read-only");
 
@@ -220,7 +221,7 @@ mod tests {
             ProgramAction::Create("/home/user/data".into()),
             ProgramAction::Read("/home/user/data".into()),
         ];
-        let candidates = resolve(&opts, &actions).unwrap();
+        let candidates = resolve(&opts, &actions);
         assert_eq!(candidates.len(), 1);
         assert_eq!(format!("{}", candidates[0]), "ProtectHome=true");
     }
@@ -232,24 +233,24 @@ mod tests {
         let opts = test_options(&["PrivateTmp"]);
 
         let actions = vec![];
-        let candidates = resolve(&opts, &actions).unwrap();
+        let candidates = resolve(&opts, &actions);
         assert_eq!(candidates.len(), 1);
         assert_eq!(format!("{}", candidates[0]), "PrivateTmp=true");
 
         let actions = vec![ProgramAction::Write("/tmp/data".into())];
-        let candidates = resolve(&opts, &actions).unwrap();
+        let candidates = resolve(&opts, &actions);
         assert_eq!(candidates.len(), 1);
         assert_eq!(format!("{}", candidates[0]), "PrivateTmp=true");
 
         let actions = vec![ProgramAction::Read("/tmp/data".into())];
-        let candidates = resolve(&opts, &actions).unwrap();
+        let candidates = resolve(&opts, &actions);
         assert_eq!(candidates.len(), 0);
 
         let actions = vec![
             ProgramAction::Create("/tmp/data".into()),
             ProgramAction::Read("/tmp/data".into()),
         ];
-        let candidates = resolve(&opts, &actions).unwrap();
+        let candidates = resolve(&opts, &actions);
         assert_eq!(candidates.len(), 1);
         assert_eq!(format!("{}", candidates[0]), "PrivateTmp=true");
     }
