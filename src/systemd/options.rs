@@ -14,7 +14,9 @@ use strum::IntoEnumIterator;
 
 use crate::{
     cl::HardeningMode,
-    summarize::{NetworkActivity, NetworkActivityKind, ProgramAction, SetSpecifier},
+    summarize::{
+        CountableSetSpecifier, NetworkActivity, NetworkActivityKind, ProgramAction, SetSpecifier,
+    },
     systemd::{KernelVersion, SystemdVersion},
 };
 
@@ -1164,6 +1166,7 @@ pub(crate) fn build_options(
                                 af: SetSpecifier::One(af.parse().unwrap()),
                                 proto: SetSpecifier::All,
                                 kind: SetSpecifier::All,
+                                local_port: CountableSetSpecifier::All,
                             },
                         ))
                     })
@@ -1187,6 +1190,7 @@ pub(crate) fn build_options(
                         af: SetSpecifier::All,
                         proto: SetSpecifier::All,
                         kind: SetSpecifier::All,
+                        local_port: CountableSetSpecifier::All,
                     }),
                 )),
             }],
@@ -1223,6 +1227,7 @@ pub(crate) fn build_options(
                                 af: SetSpecifier::One(af),
                                 proto: SetSpecifier::One(proto),
                                 kind: SetSpecifier::One(NetworkActivityKind::Bind),
+                                local_port: CountableSetSpecifier::All,
                             },
                         ))
                     })
@@ -1321,6 +1326,7 @@ pub(crate) fn build_options(
                         af: SetSpecifier::One(SocketFamily::Other("AF_PACKET".into())),
                         proto: SetSpecifier::All,
                         kind: SetSpecifier::All,
+                        local_port: CountableSetSpecifier::All,
                     }),
                 ))
                 .chain(
@@ -1332,6 +1338,7 @@ pub(crate) fn build_options(
                                 af: SetSpecifier::One(af.parse().unwrap()),
                                 proto: SetSpecifier::One(SocketProtocol::Other("SOCK_RAW".into())),
                                 kind: SetSpecifier::All,
+                                local_port: CountableSetSpecifier::All,
                             },
                         ))
                     }),

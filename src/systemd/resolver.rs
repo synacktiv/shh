@@ -12,12 +12,17 @@ impl OptionValueEffect {
         match self {
             OptionValueEffect::DenyAction(denied) => match denied {
                 ProgramAction::NetworkActivity(denied) => {
-                    if let ProgramAction::NetworkActivity(NetworkActivity { af, proto, kind }) =
-                        action
+                    if let ProgramAction::NetworkActivity(NetworkActivity {
+                        af,
+                        proto,
+                        kind,
+                        local_port,
+                    }) = action
                     {
                         !denied.af.intersects(af)
                             || !denied.proto.intersects(proto)
                             || !denied.kind.intersects(kind)
+                            || !denied.local_port.intersects(local_port)
                     } else {
                         true
                     }

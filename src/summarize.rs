@@ -48,6 +48,7 @@ pub(crate) struct NetworkActivity {
     pub af: SetSpecifier<SocketFamily>,
     pub proto: SetSpecifier<SocketProtocol>,
     pub kind: SetSpecifier<NetworkActivityKind>,
+    pub local_port: CountableSetSpecifier<u16>,
 }
 
 /// Quantify something that is done or denied
@@ -62,21 +63,69 @@ pub(crate) enum SetSpecifier<T> {
 impl<T: Eq> SetSpecifier<T> {
     fn contains_one(&self, needle: &T) -> bool {
         match self {
-            SetSpecifier::None => false,
-            SetSpecifier::One(e) => e == needle,
-            SetSpecifier::Some(es) => es.contains(needle),
-            SetSpecifier::All => true,
+            Self::None => false,
+            Self::One(e) => e == needle,
+            Self::Some(es) => es.contains(needle),
+            Self::All => true,
         }
     }
 
     pub(crate) fn intersects(&self, other: &Self) -> bool {
         match self {
-            SetSpecifier::None => false,
-            SetSpecifier::One(e) => other.contains_one(e),
-            SetSpecifier::Some(es) => es.iter().any(|e| other.contains_one(e)),
-            SetSpecifier::All => !matches!(other, SetSpecifier::None),
+            Self::None => false,
+            Self::One(e) => other.contains_one(e),
+            Self::Some(es) => es.iter().any(|e| other.contains_one(e)),
+            Self::All => !matches!(other, Self::None),
         }
     }
+}
+
+pub(crate) trait ValueCounted {
+    fn value_count() -> usize;
+}
+
+impl ValueCounted for u16 {
+    fn value_count() -> usize {
+        Self::MAX as usize - Self::MIN as usize + 1
+    }
+}
+
+impl<T: Eq + ValueCounted> CountableSetSpecifier<T> {
+    fn contains_one(&self, needle: &T) -> bool {
+        match self {
+            Self::None => false,
+            Self::One(e) => e == needle,
+            Self::Some(es) => es.contains(needle),
+            Self::AllExcept(es) => !es.contains(needle),
+            Self::All => true,
+        }
+    }
+
+    pub(crate) fn intersects(&self, other: &Self) -> bool {
+        match self {
+            Self::None => false,
+            Self::One(e) => other.contains_one(e),
+            Self::Some(es) => es.iter().any(|e| other.contains_one(e)),
+            Self::AllExcept(excs) => match other {
+                Self::None => false,
+                Self::One(e) => !excs.contains(e),
+                Self::Some(es) => es.iter().any(|e| !excs.contains(e)),
+                Self::AllExcept(other_excs) => excs != other_excs,
+                Self::All => excs.len() < T::value_count(),
+            },
+            Self::All => !matches!(other, Self::None),
+        }
+    }
+}
+
+/// Quantify something that is done or denied
+#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(crate) enum CountableSetSpecifier<T> {
+    None,
+    One(T),
+    Some(Vec<T>),
+    AllExcept(Vec<T>),
+    All,
 }
 
 /// Socket activity
@@ -462,11 +511,32 @@ where
                     let af = af
                         .parse()
                         .map_err(|()| anyhow::anyhow!("Unable to parse socket family {af:?}"))?;
+                    let local_port = match addr
+                        .iter()
+                        .find_map(|(k, v)| k.ends_with("_port").then_some(v))
+                    {
+                        Some(Expression::Macro {
+                            name: macro_name,
+                            args,
+                        }) if macro_name == "htons" => match args.first() {
+                            Some(Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(port_val),
+                                ..
+                            })) =>
+                            {
+                                #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                                CountableSetSpecifier::One(*port_val as u16)
+                            }
+                            _ => todo!(),
+                        },
+                        _ => CountableSetSpecifier::None,
+                    };
                     if let Some(proto) = known_sockets_proto.get(&(syscall.pid, *fd)) {
                         actions.push(ProgramAction::NetworkActivity(NetworkActivity {
                             af: SetSpecifier::One(af),
                             proto: SetSpecifier::One(proto.to_owned()),
                             kind: SetSpecifier::One(NetworkActivityKind::Bind),
+                            local_port,
                         }));
                     }
                 }
@@ -516,6 +586,7 @@ where
                     af: SetSpecifier::One(af),
                     proto: SetSpecifier::One(proto),
                     kind: SetSpecifier::One(NetworkActivityKind::SocketCreation),
+                    local_port: CountableSetSpecifier::All,
                 }));
             }
             Some(SyscallInfo::Mknod { mode_idx }) => {
