@@ -1324,7 +1324,7 @@ pub(crate) fn build_options(
                     }),
                 ))
                 .chain(
-                    // AF_NETLINK sockets use SOCK_RAW, but dot not require CAP_NET_RAW
+                    // AF_NETLINK sockets use SOCK_RAW, but does not require CAP_NET_RAW
                     afs.iter().filter(|af| **af != "AF_NETLINK").map(|af| {
                         OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(
                             NetworkActivity {
