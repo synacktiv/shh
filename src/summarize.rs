@@ -3,8 +3,12 @@
 use std::{
     collections::{HashMap, HashSet},
     ffi::OsStr,
+    fmt::{self, Display},
+    num::NonZeroU16,
+    ops::{Add, RangeInclusive, Sub},
     os::unix::ffi::OsStrExt,
     path::{Path, PathBuf},
+    slice,
     sync::LazyLock,
 };
 
@@ -48,7 +52,7 @@ pub(crate) struct NetworkActivity {
     pub af: SetSpecifier<SocketFamily>,
     pub proto: SetSpecifier<SocketProtocol>,
     pub kind: SetSpecifier<NetworkActivityKind>,
-    pub local_port: CountableSetSpecifier<u16>,
+    pub local_port: CountableSetSpecifier<NetworkPort>,
 }
 
 /// Quantify something that is done or denied
@@ -60,7 +64,7 @@ pub(crate) enum SetSpecifier<T> {
     All,
 }
 
-impl<T: Eq> SetSpecifier<T> {
+impl<T: Eq + Clone> SetSpecifier<T> {
     fn contains_one(&self, needle: &T) -> bool {
         match self {
             Self::None => false,
@@ -78,19 +82,42 @@ impl<T: Eq> SetSpecifier<T> {
             Self::All => !matches!(other, Self::None),
         }
     }
+
+    pub(crate) fn elements(&self) -> &[T] {
+        match self {
+            SetSpecifier::None => &[],
+            SetSpecifier::One(e) => slice::from_ref(e),
+            SetSpecifier::Some(es) => es.as_slice(),
+            SetSpecifier::All => unimplemented!(),
+        }
+    }
 }
 
 pub(crate) trait ValueCounted {
     fn value_count() -> usize;
+
+    fn min_value() -> Self;
+
+    fn max_value() -> Self;
+
+    fn one() -> Self;
 }
 
-impl ValueCounted for u16 {
-    fn value_count() -> usize {
-        Self::MAX as usize - Self::MIN as usize + 1
-    }
+/// Quantify something that is done or denied
+#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(crate) enum CountableSetSpecifier<T> {
+    None,
+    One(T),
+    // Elements must be ordered
+    Some(Vec<T>),
+    // Elements must be ordered
+    AllExcept(Vec<T>),
+    All,
 }
 
-impl<T: Eq + ValueCounted> CountableSetSpecifier<T> {
+impl<T: Eq + Ord + Clone + Display + ValueCounted + Sub<Output = T> + Add<Output = T>>
+    CountableSetSpecifier<T>
+{
     fn contains_one(&self, needle: &T) -> bool {
         match self {
             Self::None => false,
@@ -116,16 +143,69 @@ impl<T: Eq + ValueCounted> CountableSetSpecifier<T> {
             Self::All => !matches!(other, Self::None),
         }
     }
-}
 
-/// Quantify something that is done or denied
-#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
-pub(crate) enum CountableSetSpecifier<T> {
-    None,
-    One(T),
-    Some(Vec<T>),
-    AllExcept(Vec<T>),
-    All,
+    /// Remove a single element from the set
+    /// The element to remove **must** be in the set, otherwise may panic
+    #[expect(clippy::unwrap_used)]
+    pub(crate) fn remove(&mut self, to_rm: &T) {
+        debug_assert!(self.contains_one(to_rm));
+        match self {
+            Self::None => unreachable!(),
+            Self::One(_) => {
+                *self = Self::None;
+            }
+            Self::Some(es) => {
+                let idx = es.iter().position(|e| e == to_rm).unwrap();
+                es.remove(idx);
+            }
+            Self::AllExcept(excs) => {
+                let idx = excs.binary_search(to_rm).unwrap_err();
+                excs.insert(idx, to_rm.to_owned());
+            }
+            Self::All => {
+                *self = Self::AllExcept(vec![to_rm.to_owned()]);
+            }
+        }
+    }
+
+    pub(crate) fn ranges(&self) -> Vec<RangeInclusive<T>> {
+        match self {
+            CountableSetSpecifier::None => vec![],
+            CountableSetSpecifier::One(e) => vec![e.to_owned()..=e.to_owned()],
+            CountableSetSpecifier::Some(es) => {
+                // Build single element ranges, we could merge adjacent elements, but
+                // the effort has very little upsides
+                es.iter().map(|e| e.to_owned()..=e.to_owned()).collect()
+            }
+            CountableSetSpecifier::AllExcept(excs) => {
+                let mut ranges = Vec::with_capacity(excs.len() + 1);
+                let mut start = None;
+                for exc in excs {
+                    if *exc != T::min_value() {
+                        let cur_start = start.unwrap_or_else(|| T::min_value());
+                        let cur_end = exc.to_owned() - T::one();
+                        let r = cur_start..=cur_end;
+                        if !r.is_empty() {
+                            ranges.push(r);
+                        }
+                    }
+                    if *exc == T::max_value() {
+                        start = None;
+                    } else {
+                        start = Some(exc.to_owned() + T::one());
+                    }
+                }
+                if let Some(start) = start {
+                    let r = start..=T::max_value();
+                    if !r.is_empty() {
+                        ranges.push(r);
+                    }
+                }
+                ranges
+            }
+            CountableSetSpecifier::All => vec![T::min_value()..=T::max_value()],
+        }
+    }
 }
 
 /// Socket activity
@@ -137,6 +217,55 @@ pub(crate) enum NetworkActivityKind {
     // Connect,
     // Send,
     // Recv,
+}
+
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct NetworkPort(NonZeroU16);
+
+impl ValueCounted for NetworkPort {
+    fn value_count() -> usize {
+        // 0 is excluded
+        u16::MAX as usize - u16::MIN as usize
+    }
+
+    fn one() -> Self {
+        #[expect(clippy::unwrap_used)]
+        Self(1_u16.try_into().unwrap())
+    }
+
+    fn min_value() -> Self {
+        #[expect(clippy::unwrap_used)]
+        Self(1_u16.try_into().unwrap())
+    }
+
+    fn max_value() -> Self {
+        #[expect(clippy::unwrap_used)]
+        Self(u16::MAX.try_into().unwrap())
+    }
+}
+
+impl Sub<NetworkPort> for NetworkPort {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        #[expect(clippy::unwrap_used)]
+        Self(self.0.get().sub(rhs.0.get()).try_into().unwrap())
+    }
+}
+
+impl Add<NetworkPort> for NetworkPort {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        #[expect(clippy::unwrap_used)]
+        Self(self.0.get().add(rhs.0.get()).try_into().unwrap())
+    }
+}
+
+impl Display for NetworkPort {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
 }
 
 /// Meta structure to group syscalls that have similar summary handling
@@ -524,8 +653,14 @@ where
                                 ..
                             })) =>
                             {
-                                #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                                CountableSetSpecifier::One(*port_val as u16)
+                                #[expect(
+                                    clippy::cast_possible_truncation,
+                                    clippy::cast_sign_loss,
+                                    clippy::unwrap_used
+                                )]
+                                CountableSetSpecifier::One(NetworkPort(
+                                    (*port_val as u16).try_into().unwrap(),
+                                ))
                             }
                             _ => todo!(),
                         },
@@ -679,7 +814,7 @@ where
     Ok(actions)
 }
 
-#[expect(clippy::unreadable_literal)]
+#[expect(clippy::unreadable_literal, clippy::shadow_unrelated)]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -781,5 +916,67 @@ mod tests {
                 ProgramAction::Syscalls(["connect".to_owned()].into())
             ]
         );
+    }
+
+    #[test]
+    fn test_set_ranges() {
+        let port = |p: u16| NetworkPort(p.try_into().unwrap());
+        let set: CountableSetSpecifier<NetworkPort> = CountableSetSpecifier::None;
+        assert_eq!(set.ranges(), vec![]);
+
+        for v in [1, 1234, u16::MAX] {
+            let set: CountableSetSpecifier<NetworkPort> = CountableSetSpecifier::One(port(v));
+            assert_eq!(set.ranges(), vec![port(v)..=port(v)]);
+        }
+
+        for v in [1, 1234, u16::MAX] {
+            let set: CountableSetSpecifier<NetworkPort> =
+                CountableSetSpecifier::Some(vec![port(v)]);
+            assert_eq!(set.ranges(), vec![port(v)..=port(v)]);
+        }
+
+        let set: CountableSetSpecifier<NetworkPort> =
+            CountableSetSpecifier::Some(vec![port(1234), port(5678)]);
+        assert_eq!(
+            set.ranges(),
+            vec![port(1234)..=port(1234), port(5678)..=port(5678)]
+        );
+
+        let set: CountableSetSpecifier<NetworkPort> =
+            CountableSetSpecifier::AllExcept(vec![port(1)]);
+        assert_eq!(set.ranges(), vec![port(2)..=port(u16::MAX)]);
+
+        let set: CountableSetSpecifier<NetworkPort> =
+            CountableSetSpecifier::AllExcept(vec![port(u16::MAX)]);
+        assert_eq!(set.ranges(), vec![port(1)..=port(u16::MAX - 1)]);
+
+        let set: CountableSetSpecifier<NetworkPort> =
+            CountableSetSpecifier::AllExcept(vec![port(1), port(u16::MAX)]);
+        assert_eq!(set.ranges(), vec![port(2)..=port(u16::MAX - 1)]);
+
+        let set: CountableSetSpecifier<NetworkPort> =
+            CountableSetSpecifier::AllExcept(vec![port(1234), port(5678)]);
+        assert_eq!(
+            set.ranges(),
+            vec![
+                port(1)..=port(1233),
+                port(1235)..=port(5677),
+                port(5679)..=port(65535)
+            ]
+        );
+
+        let set: CountableSetSpecifier<NetworkPort> =
+            CountableSetSpecifier::AllExcept(vec![port(1), port(1234), port(5678), port(u16::MAX)]);
+        assert_eq!(
+            set.ranges(),
+            vec![
+                port(2)..=port(1233),
+                port(1235)..=port(5677),
+                port(5679)..=port(65534)
+            ]
+        );
+
+        let set: CountableSetSpecifier<NetworkPort> = CountableSetSpecifier::All;
+        assert_eq!(set.ranges(), vec![port(1)..=port(u16::MAX)]);
     }
 }

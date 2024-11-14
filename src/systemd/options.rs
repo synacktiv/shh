@@ -20,11 +20,21 @@ use crate::{
     systemd::{KernelVersion, SystemdVersion},
 };
 
+/// Callbacks to dynamically update an option to make it compatible with an action
+#[derive(Debug)]
+pub(crate) struct OptionUpdater {
+    /// Generate a new option effect compatible with the previously incompatible action
+    pub effect: fn(&OptionValueEffect, &ProgramAction) -> Option<OptionValueEffect>,
+    /// Generate the option value from the new effect
+    pub value: fn(&OptionValueEffect) -> OptionValue,
+}
+
 /// Systemd option with its possibles values, and their effect
 #[derive(Debug)]
 pub(crate) struct OptionDescription {
     pub name: &'static str,
     pub possible_values: Vec<OptionValueDescription>,
+    pub updater: Option<OptionUpdater>,
 }
 
 impl fmt::Display for OptionDescription {
@@ -862,6 +872,7 @@ pub(crate) fn build_options(
                 })),
             },
         ],
+        updater: None,
     });
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectHome=
@@ -918,6 +929,7 @@ pub(crate) fn build_options(
                 )),
             },
         ],
+        updater: None,
     });
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateTmp=
@@ -936,6 +948,7 @@ pub(crate) fn build_options(
                 }),
             ])),
         }],
+        updater: None,
     });
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateDevices=
@@ -968,6 +981,7 @@ pub(crate) fn build_options(
                 OptionValueEffect::DenySyscalls(DenySyscalls::Class("raw-io")),
             ])),
         }],
+        updater: None,
     });
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelTunables=
@@ -1014,6 +1028,7 @@ pub(crate) fn build_options(
                 .collect(),
             )),
         }],
+        updater: None,
     });
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelModules=
@@ -1034,6 +1049,7 @@ pub(crate) fn build_options(
                 OptionValueEffect::DenySyscalls(DenySyscalls::Class("module")),
             ])),
         }],
+        updater: None,
     });
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelLogs=
@@ -1053,6 +1069,7 @@ pub(crate) fn build_options(
                 }),
             ])),
         }],
+        updater: None,
     });
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectControlGroups=
@@ -1065,6 +1082,7 @@ pub(crate) fn build_options(
                 exceptions: vec![],
             })),
         }],
+        updater: None,
     });
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectProc=
@@ -1085,6 +1103,7 @@ pub(crate) fn build_options(
                     regex::bytes::Regex::new("^/proc/[0-9]+(/|$)").unwrap(),
                 ))),
             }],
+            updater: None,
         });
     }
 
@@ -1098,6 +1117,7 @@ pub(crate) fn build_options(
                 ProgramAction::WriteExecuteMemoryMapping,
             )),
         }],
+        updater: None,
     });
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#RestrictAddressFamilies=
@@ -1173,6 +1193,7 @@ pub(crate) fn build_options(
                     .collect(),
             ),
         }],
+        updater: None,
     });
 
     if let HardeningMode::Aggressive = mode {
@@ -1194,6 +1215,7 @@ pub(crate) fn build_options(
                     }),
                 )),
             }],
+            updater: None,
         });
     }
 
@@ -1234,6 +1256,59 @@ pub(crate) fn build_options(
                     .collect(),
             ),
         }],
+        updater: Some(OptionUpdater {
+            effect: |e, a| {
+                let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(effect_na)) = e
+                else {
+                    unreachable!();
+                };
+                let ProgramAction::NetworkActivity(NetworkActivity {
+                    local_port: CountableSetSpecifier::One(local_port),
+                    ..
+                }) = a
+                else {
+                    unreachable!();
+                };
+                let mut new_eff_local_port = effect_na.local_port.clone();
+                new_eff_local_port.remove(local_port);
+                Some(OptionValueEffect::DenyAction(
+                    ProgramAction::NetworkActivity(NetworkActivity {
+                        af: effect_na.af.clone(),
+                        proto: effect_na.proto.clone(),
+                        kind: effect_na.kind.clone(),
+                        local_port: new_eff_local_port,
+                    }),
+                ))
+            },
+            value: |e| {
+                let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(denied_na)) = e
+                else {
+                    unreachable!();
+                };
+                OptionValue::List {
+                    values: denied_na
+                        .af
+                        .elements()
+                        .iter()
+                        .cartesian_product(denied_na.proto.elements())
+                        .cartesian_product(denied_na.local_port.ranges())
+                        .map(|((af, proto), port_range)| {
+                            format!(
+                                "{}:{}:{}-{}",
+                                af,
+                                proto,
+                                port_range.start(),
+                                port_range.end()
+                            )
+                        })
+                        .collect(),
+                    value_if_empty: None,
+                    negation_prefix: false,
+                    repeat_option: true,
+                    mode: ListMode::BlackList,
+                }
+            },
+        }),
     });
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#LockPersonality=
@@ -1248,6 +1323,7 @@ pub(crate) fn build_options(
                 "personality",
             ))),
         }],
+        updater: None,
     });
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#RestrictRealtime=
@@ -1259,6 +1335,7 @@ pub(crate) fn build_options(
                 ProgramAction::SetRealtimeScheduler,
             )),
         }],
+        updater: None,
     });
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectClock=
@@ -1271,6 +1348,7 @@ pub(crate) fn build_options(
                 "clock",
             ))),
         }],
+        updater: None,
     });
 
     // https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#CapabilityBoundingSet=
@@ -1430,6 +1508,7 @@ pub(crate) fn build_options(
             },
             desc: OptionEffect::Cumulative(cap_effects.into_iter().map(|(_c, e)| e).collect()),
         }],
+        updater: None,
     });
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#SystemCallFilter=
@@ -1464,6 +1543,7 @@ pub(crate) fn build_options(
                     .collect(),
             ),
         }],
+        updater: None,
     });
 
     if let HardeningMode::Aggressive = mode {
@@ -1477,6 +1557,7 @@ pub(crate) fn build_options(
                 value: OptionValue::String("native".to_owned()),
                 desc: OptionEffect::None,
             }],
+            updater: None,
         });
     }
 
