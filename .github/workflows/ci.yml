@@ -32,6 +32,18 @@ jobs:
           toolchain: stable
       - run: cargo test --bins --no-default-features --features strace-parser-${{matrix.strace-parser}} --verbose
 
+  integration-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+      - run: pwd
+      - run: which cargo
+      - run: ./test-all
+
   clippy:
     runs-on: ubuntu-latest
     strategy:
