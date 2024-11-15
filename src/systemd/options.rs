@@ -13,7 +13,7 @@ use itertools::Itertools;
 use strum::IntoEnumIterator;
 
 use crate::{
-    cl::HardeningMode,
+    cl::{HardeningMode, HardeningOptions},
     summarize::{
         CountableSetSpecifier, NetworkActivity, NetworkActivityKind, ProgramAction, SetSpecifier,
     },
@@ -818,7 +818,7 @@ static SYSCALL_CLASSES: LazyLock<HashMap<&'static str, HashSet<&'static str>>> =
 pub(crate) fn build_options(
     systemd_version: &SystemdVersion,
     kernel_version: &KernelVersion,
-    mode: &HardeningMode,
+    hardening_opts: &HardeningOptions,
 ) -> Vec<OptionDescription> {
     let mut options = Vec::new();
 
@@ -1196,7 +1196,7 @@ pub(crate) fn build_options(
         updater: None,
     });
 
-    if let HardeningMode::Aggressive = mode {
+    if let HardeningMode::Aggressive = hardening_opts.mode {
         // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateNetwork=
         //
         // For now we enable this option if no sockets are used at all, in theory this could break if
@@ -1256,7 +1256,7 @@ pub(crate) fn build_options(
                     .collect(),
             ),
         }],
-        updater: Some(OptionUpdater {
+        updater: hardening_opts.network_firewalling.then_some(OptionUpdater {
             effect: |e, a| {
                 let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(effect_na)) = e
                 else {
@@ -1546,7 +1546,7 @@ pub(crate) fn build_options(
         updater: None,
     });
 
-    if let HardeningMode::Aggressive = mode {
+    if let HardeningMode::Aggressive = hardening_opts.mode {
         // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#SystemCallArchitectures=
         //
         // This is actually very safe to enable, but since we don't currently support checking for its

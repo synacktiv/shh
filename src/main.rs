@@ -18,9 +18,9 @@ mod systemd;
 fn sd_options(
     sd_version: &systemd::SystemdVersion,
     kernel_version: &systemd::KernelVersion,
-    mode: &cl::HardeningMode,
+    hardening_opts: &cl::HardeningOptions,
 ) -> Vec<systemd::OptionDescription> {
-    let sd_opts = systemd::build_options(sd_version, kernel_version, mode);
+    let sd_opts = systemd::build_options(sd_version, kernel_version, hardening_opts);
     log::info!(
         "Enabled support for systemd options: {}",
         sd_opts
@@ -60,12 +60,12 @@ fn main() -> anyhow::Result<()> {
     match args.action {
         cl::Action::Run {
             command,
-            mode,
+            hardening_opts,
             profile_data_path,
             strace_log_path,
         } => {
             // Build supported systemd options
-            let sd_opts = sd_options(&sd_version, &kernel_version, &mode);
+            let sd_opts = sd_options(&sd_version, &kernel_version, &hardening_opts);
 
             // Run strace
             let cmd = command.iter().map(|a| &**a).collect::<Vec<&str>>();
@@ -102,9 +102,12 @@ fn main() -> anyhow::Result<()> {
                 systemd::report_options(resolved_opts);
             }
         }
-        cl::Action::MergeProfileData { mode, paths } => {
+        cl::Action::MergeProfileData {
+            hardening_opts,
+            paths,
+        } => {
             // Build supported systemd options
-            let sd_opts = sd_options(&sd_version, &kernel_version, &mode);
+            let sd_opts = sd_options(&sd_version, &kernel_version, &hardening_opts);
 
             // Load and merge profile data
             let mut actions: Vec<summarize::ProgramAction> = Vec::new();
@@ -129,11 +132,11 @@ fn main() -> anyhow::Result<()> {
         }
         cl::Action::Service(cl::ServiceAction::StartProfile {
             service,
-            mode,
+            hardening_opts,
             no_restart,
         }) => {
             let service = systemd::Service::new(&service);
-            service.add_profile_fragment(&mode)?;
+            service.add_profile_fragment(&hardening_opts)?;
             if no_restart {
                 log::warn!("Profiling config will only be applied when systemd config is reloaded, and service restarted");
             } else {
@@ -175,8 +178,11 @@ fn main() -> anyhow::Result<()> {
         }
         cl::Action::ListSystemdOptions => {
             println!("# Supported systemd options");
-            let mut sd_opts =
-                sd_options(&sd_version, &kernel_version, &cl::HardeningMode::Aggressive);
+            let mut sd_opts = sd_options(
+                &sd_version,
+                &kernel_version,
+                &cl::HardeningOptions::strict(),
+            );
             sd_opts.sort_unstable_by_key(|o| o.name);
             for sd_opt in sd_opts {
                 println!("- [`{sd_opt}`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#{sd_opt}=)");

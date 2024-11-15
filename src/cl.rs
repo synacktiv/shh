@@ -24,6 +24,43 @@ pub(crate) enum HardeningMode {
     Aggressive,
 }
 
+#[derive(Debug, clap::Parser)]
+pub(crate) struct HardeningOptions {
+    /// How hard we should harden
+    #[arg(short, long, default_value_t, value_enum)]
+    pub mode: HardeningMode,
+    /// Enable advanced network firewalling
+    #[arg(short = 'f', long, default_value_t)]
+    pub network_firewalling: bool,
+}
+
+impl HardeningOptions {
+    /// Build the most safe options
+    #[cfg_attr(not(test), expect(dead_code))]
+    pub(crate) fn safe() -> Self {
+        Self {
+            mode: HardeningMode::Safe,
+            network_firewalling: false,
+        }
+    }
+
+    /// Build the most strict options
+    pub(crate) fn strict() -> Self {
+        Self {
+            mode: HardeningMode::Aggressive,
+            network_firewalling: true,
+        }
+    }
+
+    pub(crate) fn to_cmdline(&self) -> String {
+        format!(
+            "-m {}{}",
+            self.mode,
+            if self.network_firewalling { " -n" } else { "" }
+        )
+    }
+}
+
 #[derive(Debug, clap::Subcommand)]
 pub(crate) enum Action {
     /// Run a program to profile its behavior
@@ -31,9 +68,8 @@ pub(crate) enum Action {
         /// The command line to run
         #[arg(num_args = 1.., required = true)]
         command: Vec<String>,
-        /// How hard we should harden
-        #[arg(short, long, default_value_t, value_enum)]
-        mode: HardeningMode,
+        #[command(flatten)]
+        hardening_opts: HardeningOptions,
         /// Generate profile data file to be merged with others instead of generating systemd options directly
         #[arg(short, long, default_value = None)]
         profile_data_path: Option<PathBuf>,
@@ -44,9 +80,8 @@ pub(crate) enum Action {
     },
     /// Merge profile data from previous runs to generate systemd options
     MergeProfileData {
-        /// How hard we should harden
-        #[arg(short, long, default_value_t, value_enum)]
-        mode: HardeningMode,
+        #[command(flatten)]
+        hardening_opts: HardeningOptions,
         /// Profile data paths
         #[arg(num_args = 1.., required = true)]
         paths: Vec<PathBuf>,
@@ -64,9 +99,8 @@ pub(crate) enum ServiceAction {
     StartProfile {
         /// Service unit name
         service: String,
-        /// How hard we should harden
-        #[arg(short, long, default_value_t, value_enum)]
-        mode: HardeningMode,
+        #[command(flatten)]
+        hardening_opts: HardeningOptions,
         /// Disable immediate service restart
         #[arg(short, long, default_value_t = false)]
         no_restart: bool,

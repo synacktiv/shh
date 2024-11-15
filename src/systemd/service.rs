@@ -12,7 +12,7 @@ use itertools::Itertools;
 use rand::Rng;
 
 use crate::{
-    cl::HardeningMode,
+    cl::HardeningOptions,
     systemd::{options::OptionWithValue, END_OPTION_OUTPUT_SNIPPET, START_OPTION_OUTPUT_SNIPPET},
 };
 
@@ -54,7 +54,10 @@ impl Service {
         )
     }
 
-    pub(crate) fn add_profile_fragment(&self, mode: &HardeningMode) -> anyhow::Result<()> {
+    pub(crate) fn add_profile_fragment(
+        &self,
+        hardening_opts: &HardeningOptions,
+    ) -> anyhow::Result<()> {
         // Check first if our fragment does not yet exist
         let fragment_path = self.fragment_path(PROFILING_FRAGMENT_NAME, false);
         anyhow::ensure!(
@@ -135,10 +138,10 @@ impl Service {
                     #[expect(clippy::unwrap_used)]
                     writeln!(
                         fragment_file,
-                        "{}={} run -m {} -p {} -- {}",
+                        "{}={} run {} -p {} -- {}",
                         exec_start_opt,
                         shh_bin,
-                        mode,
+                        hardening_opts.to_cmdline(),
                         profile_data_path.to_str().unwrap(),
                         cmd
                     )?;
@@ -151,9 +154,9 @@ impl Service {
         #[expect(clippy::unwrap_used)]
         writeln!(
             fragment_file,
-            "ExecStopPost={} merge-profile-data -m {} {}",
+            "ExecStopPost={} merge-profile-data {} {}",
             shh_bin,
-            mode,
+            hardening_opts.to_cmdline(),
             profile_data_paths
                 .iter()
                 .map(|p| p.to_str().unwrap())
