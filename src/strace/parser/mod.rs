@@ -34,7 +34,7 @@ impl LogParser {
                 let file = File::options().create(true).append(true).open(p)?;
                 Ok(BufWriter::with_capacity(64 * 1024, file))
             })
-            .map_or(Ok(None), |v| v.map(Some))?;
+            .transpose()?;
         Ok(Self {
             reader,
             log,

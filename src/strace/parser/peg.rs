@@ -191,7 +191,7 @@ fn lit_pair(pair: Pair<Rule>) -> anyhow::Result<IntegerExpression> {
                 val_pair.as_str().parse()?,
                 metadata_pair
                     .map(|p| BufferExpression::try_from(p).map(|e| e.value))
-                    .map_or(Ok(None), |v| v.map(Some))?,
+                    .transpose()?,
             )
         }
         _ => anyhow::bail!("Unhandled pair: {pair:?}"),
@@ -221,7 +221,7 @@ impl TryFrom<Pair<'_, Rule>> for IntegerExpression {
                     value: IntegerExpressionValue::NamedConst(val_pair.as_str().to_owned()),
                     metadata: metadata_pair
                         .map(|p| BufferExpression::try_from(p).map(|e| e.value))
-                        .map_or(Ok(None), |v| v.map(Some))?,
+                        .transpose()?,
                 })
             }
             Rule::or => {
