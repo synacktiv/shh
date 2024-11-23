@@ -1,6 +1,6 @@
 [package]
 name = "shh"
-version = "2024.6.4"
+version = "2024.11.23"
 authors = ["Maxime Desbrus <maxime.desbrus@synacktiv.com>"]
 description = "Automatic systemd service hardening guided by strace profiling"
 readme = "README.md"
@@ -14,7 +14,7 @@ strip = true
 [dependencies]
 anyhow = { version = "1.0.93", default-features = false, features = ["std", "backtrace"] }
 bincode = { version = "1.3.3", default-features = false }
-clap = { version = "4.5.20", default-features = false, features = ["std", "color", "help", "usage", "error-context", "suggestions", "derive"] }
+clap = { version = "4.5.21", default-features = false, features = ["std", "color", "help", "usage", "error-context", "suggestions", "derive"] }
 function_name = { version = "0.3.0", default-features = false, optional = true }
 itertools = { version = "0.13.0", default-features = false, features = ["use_std"] }
 log = { version = "0.4.22", default-features = false, features = ["max_level_trace", "release_max_level_info"] }
@@ -24,7 +24,7 @@ pest = { version = "2.7.14", default-features = false, features = ["std", "memch
 pest_derive = { version = "2.7.14", default-features = false, features = ["std"], optional = true}
 rand = { version = "0.8.5", default-features = false, features = ["std", "std_rng"] }
 regex = { version = "1.11.1", default-features = false, features = ["std", "perf"] }
-serde = { version = "1.0.214", default-features = false, features = ["std", "derive"] }
+serde = { version = "1.0.215", default-features = false, features = ["std", "derive"] }
 signal-hook = { version = "0.3.17", default-features = false, features = ["iterator"] }
 simple_logger = { version = "5.0.0", default-features = false, features = ["colors", "stderr"] }
 strum = { version = "0.26.3", default-features = false, features = ["std", "derive"] }

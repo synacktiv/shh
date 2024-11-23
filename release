@@ -19,4 +19,4 @@ RUST_LOG=warn cargo run -- list-systemd-options > systemd_options.md
 git add Cargo.{toml,lock} systemd_options.md
 
 git commit -m "chore: version ${VERSION}"
-git tag -f -m "Version ${VERSION}" "${VERSION}"
+git tag -f -m "Version ${VERSION}" "v${VERSION}"
