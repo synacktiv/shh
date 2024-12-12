@@ -1,5 +1,7 @@
 //! Systemd option model
 
+// Last updated for systemd v257
+
 use std::{
     collections::{HashMap, HashSet},
     fmt, iter,
@@ -936,7 +938,11 @@ pub(crate) fn build_options(
     options.push(OptionDescription {
         name: "PrivateTmp",
         possible_values: vec![OptionValueDescription {
-            value: OptionValue::Boolean(true),
+            value: if *systemd_version >= SystemdVersion::new(257, 0) {
+                OptionValue::String("disconnected".into())
+            } else {
+                OptionValue::Boolean(true)
+            },
             desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
                 OptionValueEffect::Hide(PathDescription::Base {
                     base: "/tmp/".into(),
@@ -1073,6 +1079,7 @@ pub(crate) fn build_options(
     });
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectControlGroups=
+    // TODO private/strip
     options.push(OptionDescription {
         name: "ProtectControlGroups",
         possible_values: vec![OptionValueDescription {
