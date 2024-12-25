@@ -43,7 +43,8 @@ pub(crate) enum Expression {
     // so store both in this, and let the summary interpret
     Collection {
         complement: bool,
-        values: Vec<Expression>,
+        // First element of tuple is index if explicitly set
+        values: Vec<(Option<IntegerExpression>, Expression)>,
     },
     Macro {
         name: String,

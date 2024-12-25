@@ -313,17 +313,23 @@ mod tests {
                             Expression::Collection {
                                 complement: true,
                                 values: vec![
-                                    Expression::Integer(
-                                        IntegerExpression {
-                                            value: IntegerExpressionValue::NamedConst("RTMIN".to_owned()), 
-                                            metadata: None
-                                        }
+                                    (
+                                        None,
+                                        Expression::Integer(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::NamedConst("RTMIN".to_owned()), 
+                                                metadata: None
+                                            }
+                                        )
                                     ),
-                                    Expression::Integer(
-                                        IntegerExpression {
-                                            value: IntegerExpressionValue::NamedConst("RT_1".to_owned()), 
-                                            metadata: None
-                                        }
+                                    (
+                                        None,
+                                        Expression::Integer(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::NamedConst("RT_1".to_owned()), 
+                                                metadata: None
+                                            }
+                                        )
                                     ),
                                 ]
                             }
@@ -380,29 +386,41 @@ mod tests {
                     Expression::Collection {
                         complement: true,
                         values: vec![
-                            Expression::Integer(
-                                IntegerExpression {
-                                    value: IntegerExpressionValue::NamedConst("KILL".to_owned()),
-                                    metadata: None
-                                }
+                            (
+                                None,
+                                Expression::Integer(
+                                    IntegerExpression {
+                                        value: IntegerExpressionValue::NamedConst("KILL".to_owned()),
+                                        metadata: None
+                                    }
+                                )
                             ),
-                            Expression::Integer(
-                                IntegerExpression {
-                                    value: IntegerExpressionValue::NamedConst("STOP".to_owned()),
-                                    metadata: None
-                                }
+                            (
+                                None,
+                                Expression::Integer(
+                                    IntegerExpression {
+                                        value: IntegerExpressionValue::NamedConst("STOP".to_owned()),
+                                        metadata: None
+                                    }
+                                )
                             ),
-                            Expression::Integer(
-                                IntegerExpression {
-                                    value: IntegerExpressionValue::NamedConst("RTMIN".to_owned()),
-                                    metadata: None
-                                }
+                            (
+                                None,
+                                Expression::Integer(
+                                    IntegerExpression {
+                                        value: IntegerExpressionValue::NamedConst("RTMIN".to_owned()),
+                                        metadata: None
+                                    }
+                                )
                             ),
-                            Expression::Integer(
-                                IntegerExpression {
-                                    value: IntegerExpressionValue::NamedConst("RT_1".to_owned()),
-                                    metadata: None
-                                }
+                            (
+                                None,
+                                Expression::Integer(
+                                    IntegerExpression {
+                                        value: IntegerExpressionValue::NamedConst("RT_1".to_owned()),
+                                        metadata: None
+                                    }
+                                )
                             ),
                         ],
                     },
@@ -674,14 +692,20 @@ mod tests {
                                     Expression::Collection {
                                         complement: false,
                                         values: vec![
-                                            Expression::Integer(IntegerExpression {
-                                                value: IntegerExpressionValue::Literal(1360496552),
-                                                metadata: None
-                                            }),
-                                            Expression::Integer(IntegerExpression {
-                                                value: IntegerExpressionValue::Literal(2460437074),
-                                                metadata: None
-                                            }),
+                                            (
+                                                None,
+                                                Expression::Integer(IntegerExpression {
+                                                    value: IntegerExpressionValue::Literal(1360496552),
+                                                    metadata: None
+                                                }),
+                                            ),
+                                            (
+                                                None,
+                                                Expression::Integer(IntegerExpression {
+                                                    value: IntegerExpressionValue::Literal(2460437074),
+                                                    metadata: None
+                                                }),
+                                            )
                                         ]
                                     }
                                 )
@@ -788,14 +812,20 @@ mod tests {
                                     Expression::Collection {
                                         complement: false,
                                         values: vec![
-                                            Expression::Integer(IntegerExpression {
-                                                value: IntegerExpressionValue::Literal(0),
-                                                metadata: None
-                                            }),
-                                            Expression::Integer(IntegerExpression {
-                                                value: IntegerExpressionValue::Literal(0),
-                                                metadata: None
-                                            }),
+                                            (
+                                                None,
+                                                Expression::Integer(IntegerExpression {
+                                                    value: IntegerExpressionValue::Literal(0),
+                                                    metadata: None
+                                                }),
+                                            ),
+                                            (
+                                                None,
+                                                Expression::Integer(IntegerExpression {
+                                                    value: IntegerExpressionValue::Literal(0),
+                                                    metadata: None
+                                                }),
+                                            )
                                         ]
                                     }
                                 )
@@ -891,55 +921,61 @@ mod tests {
                     Expression::Collection {
                         complement: false,
                         values: vec![
-                            Expression::Struct(HashMap::from([
-                                (
-                                    "nlmsg_len".to_owned(),
-                                    Expression::Integer(IntegerExpression {
-                                        value: IntegerExpressionValue::Literal(20),
-                                        metadata: None,
-                                    }),
-                                ),
-                                (
-                                    "nlmsg_type".to_owned(),
-                                    Expression::Integer(IntegerExpression {
-                                        value: IntegerExpressionValue::NamedConst("RTM_GETADDR".to_owned()),
-                                        metadata: None,
-                                    }),
-                                ),
-                                (
-                                    "nlmsg_flags".to_owned(),
-                                    Expression::Integer(IntegerExpression {
-                                        value: IntegerExpressionValue::BinaryOr(vec![
-                                            IntegerExpressionValue::NamedConst("NLM_F_REQUEST".to_owned()),
-                                            IntegerExpressionValue::NamedConst("NLM_F_DUMP".to_owned()),
-                                        ]),
-                                        metadata: None,
-                                    }),
-                                ),
-                                (
-                                    "nlmsg_seq".to_owned(),
-                                    Expression::Integer(IntegerExpression {
-                                        value: IntegerExpressionValue::Literal(1694010548),
-                                        metadata: None,
-                                    }),
-                                ),
-                                (
-                                    "nlmsg_pid".to_owned(),
-                                    Expression::Integer(IntegerExpression {
-                                        value: IntegerExpressionValue::Literal(0),
-                                        metadata: None,
-                                    }),
-                                ),
-                            ])),
-                            Expression::Struct(HashMap::from([
-                                (
-                                    "ifa_family".to_owned(),
-                                    Expression::Integer(IntegerExpression {
-                                        value: IntegerExpressionValue::NamedConst("AF_UNSPEC".to_owned()),
-                                        metadata: None,
-                                    }),
-                                ),
-                            ])),
+                            (
+                                None,
+                                Expression::Struct(HashMap::from([
+                                    (
+                                        "nlmsg_len".to_owned(),
+                                        Expression::Integer(IntegerExpression {
+                                            value: IntegerExpressionValue::Literal(20),
+                                            metadata: None,
+                                        }),
+                                    ),
+                                    (
+                                        "nlmsg_type".to_owned(),
+                                        Expression::Integer(IntegerExpression {
+                                            value: IntegerExpressionValue::NamedConst("RTM_GETADDR".to_owned()),
+                                            metadata: None,
+                                        }),
+                                    ),
+                                    (
+                                        "nlmsg_flags".to_owned(),
+                                        Expression::Integer(IntegerExpression {
+                                            value: IntegerExpressionValue::BinaryOr(vec![
+                                                IntegerExpressionValue::NamedConst("NLM_F_REQUEST".to_owned()),
+                                                IntegerExpressionValue::NamedConst("NLM_F_DUMP".to_owned()),
+                                            ]),
+                                            metadata: None,
+                                        }),
+                                    ),
+                                    (
+                                        "nlmsg_seq".to_owned(),
+                                        Expression::Integer(IntegerExpression {
+                                            value: IntegerExpressionValue::Literal(1694010548),
+                                            metadata: None,
+                                        }),
+                                    ),
+                                    (
+                                        "nlmsg_pid".to_owned(),
+                                        Expression::Integer(IntegerExpression {
+                                            value: IntegerExpressionValue::Literal(0),
+                                            metadata: None,
+                                        }),
+                                    ),
+                                ])),
+                            ),
+                            (
+                                None,
+                                Expression::Struct(HashMap::from([
+                                    (
+                                        "ifa_family".to_owned(),
+                                        Expression::Integer(IntegerExpression {
+                                            value: IntegerExpressionValue::NamedConst("AF_UNSPEC".to_owned()),
+                                            metadata: None,
+                                        }),
+                                    ),
+                                ])),
+                            )
                         ]
                     },
                     Expression::Integer(IntegerExpression {
@@ -1252,62 +1288,68 @@ mod tests {
                     Expression::Collection {
                         complement: false,
                             values: vec![
-                            Expression::Struct(HashMap::from([
-                                (
-                                    "events".to_owned(),
-                                    Expression::Integer(IntegerExpression {
-                                        value: IntegerExpressionValue::NamedConst("EPOLLOUT".to_owned()),
-                                        metadata: None,
-                                    }),
-                                ),
-                                (
-                                    "data".to_owned(),
-                                    Expression::Struct(HashMap::from([
-                                        (
-                                            "u32".to_owned(),
-                                            Expression::Integer(IntegerExpression {
-                                                value: IntegerExpressionValue::Literal(833093633),
-                                                metadata: None,
-                                            }),
-                                        ),
-                                        (
-                                            "u64".to_owned(),
-                                            Expression::Integer(IntegerExpression {
-                                                value: IntegerExpressionValue::Literal(9163493471957811201),
-                                                metadata: None,
-                                            }),
-                                        ),
-                                    ]))
-                                ),
-                            ])),
-                            Expression::Struct(HashMap::from([
-                                (
-                                    "events".to_owned(),
-                                    Expression::Integer(IntegerExpression {
-                                        value: IntegerExpressionValue::NamedConst("EPOLLOUT".to_owned()),
-                                        metadata: None,
-                                    }),
-                                ),
-                                (
-                                    "data".to_owned(),
-                                    Expression::Struct(HashMap::from([
-                                        (
-                                            "u32".to_owned(),
-                                            Expression::Integer(IntegerExpression {
-                                                value: IntegerExpressionValue::Literal(800587777),
-                                                metadata: None,
-                                            }),
-                                        ),
-                                        (
-                                            "u64".to_owned(),
-                                            Expression::Integer(IntegerExpression {
-                                                value: IntegerExpressionValue::Literal(9163493471925305345),
-                                                metadata: None,
-                                            }),
-                                        ),
-                                    ]))
-                                ),
-                            ])),
+                            (
+                                None,
+                                Expression::Struct(HashMap::from([
+                                    (
+                                        "events".to_owned(),
+                                        Expression::Integer(IntegerExpression {
+                                            value: IntegerExpressionValue::NamedConst("EPOLLOUT".to_owned()),
+                                            metadata: None,
+                                        }),
+                                    ),
+                                    (
+                                        "data".to_owned(),
+                                        Expression::Struct(HashMap::from([
+                                            (
+                                                "u32".to_owned(),
+                                                Expression::Integer(IntegerExpression {
+                                                    value: IntegerExpressionValue::Literal(833093633),
+                                                    metadata: None,
+                                                }),
+                                            ),
+                                            (
+                                                "u64".to_owned(),
+                                                Expression::Integer(IntegerExpression {
+                                                    value: IntegerExpressionValue::Literal(9163493471957811201),
+                                                    metadata: None,
+                                                }),
+                                            ),
+                                        ]))
+                                    ),
+                                ])),
+                            ),
+                            (
+                                None,
+                                Expression::Struct(HashMap::from([
+                                    (
+                                        "events".to_owned(),
+                                        Expression::Integer(IntegerExpression {
+                                            value: IntegerExpressionValue::NamedConst("EPOLLOUT".to_owned()),
+                                            metadata: None,
+                                        }),
+                                    ),
+                                    (
+                                        "data".to_owned(),
+                                        Expression::Struct(HashMap::from([
+                                            (
+                                                "u32".to_owned(),
+                                                Expression::Integer(IntegerExpression {
+                                                    value: IntegerExpressionValue::Literal(800587777),
+                                                    metadata: None,
+                                                }),
+                                            ),
+                                            (
+                                                "u64".to_owned(),
+                                                Expression::Integer(IntegerExpression {
+                                                    value: IntegerExpressionValue::Literal(9163493471925305345),
+                                                    metadata: None,
+                                                }),
+                                            ),
+                                        ]))
+                                    ),
+                                ])),
+                            )
                         ]
                     },
                     Expression::Integer(IntegerExpression {
@@ -1388,10 +1430,13 @@ mod tests {
                         }),
                         Expression::Collection {
                             complement: false,
-                            values: vec![Expression::Integer(IntegerExpression {
-                                value: IntegerExpressionValue::Literal(3),
-                                metadata: None,
-                            })]
+                            values: vec![(
+                                None,
+                                Expression::Integer(IntegerExpression {
+                                    value: IntegerExpressionValue::Literal(3),
+                                    metadata: None,
+                                })
+                            )]
                         },
                         Expression::Integer(IntegerExpression {
                             value: IntegerExpressionValue::NamedConst("NULL".to_owned()),
@@ -1472,38 +1517,62 @@ mod tests {
                     Expression::Collection {
                         complement: false,
                         values: vec![
-                            Expression::Integer(IntegerExpression {
-                                value: IntegerExpressionValue::Literal(0),
-                                metadata: None,
-                            }),
-                            Expression::Integer(IntegerExpression {
-                                value: IntegerExpressionValue::Literal(1),
-                                metadata: None,
-                            }),
-                            Expression::Integer(IntegerExpression {
-                                value: IntegerExpressionValue::Literal(2),
-                                metadata: None,
-                            }),
-                            Expression::Integer(IntegerExpression {
-                                value: IntegerExpressionValue::Literal(3),
-                                metadata: None,
-                            }),
-                            Expression::Integer(IntegerExpression {
-                                value: IntegerExpressionValue::Literal(4),
-                                metadata: None,
-                            }),
-                            Expression::Integer(IntegerExpression {
-                                value: IntegerExpressionValue::Literal(5),
-                                metadata: None,
-                            }),
-                            Expression::Integer(IntegerExpression {
-                                value: IntegerExpressionValue::Literal(6),
-                                metadata: None,
-                            }),
-                            Expression::Integer(IntegerExpression {
-                                value: IntegerExpressionValue::Literal(7),
-                                metadata: None,
-                            }),
+                            (
+                                None,
+                                Expression::Integer(IntegerExpression {
+                                    value: IntegerExpressionValue::Literal(0),
+                                    metadata: None,
+                                }),
+                            ),
+                            (
+                                None,
+                                Expression::Integer(IntegerExpression {
+                                    value: IntegerExpressionValue::Literal(1),
+                                    metadata: None,
+                                }),
+                            ),
+                            (
+                                None,
+                                Expression::Integer(IntegerExpression {
+                                    value: IntegerExpressionValue::Literal(2),
+                                    metadata: None,
+                                }),
+                            ),
+                            (
+                                None,
+                                Expression::Integer(IntegerExpression {
+                                    value: IntegerExpressionValue::Literal(3),
+                                    metadata: None,
+                                }),
+                            ),
+                            (
+                                None,
+                                Expression::Integer(IntegerExpression {
+                                    value: IntegerExpressionValue::Literal(4),
+                                    metadata: None,
+                                }),
+                            ),
+                            (
+                                None,
+                                Expression::Integer(IntegerExpression {
+                                    value: IntegerExpressionValue::Literal(5),
+                                    metadata: None,
+                                }),
+                            ),
+                            (
+                                None,
+                                Expression::Integer(IntegerExpression {
+                                    value: IntegerExpressionValue::Literal(6),
+                                    metadata: None,
+                                }),
+                            ),
+                            (
+                                None,
+                                Expression::Integer(IntegerExpression {
+                                    value: IntegerExpressionValue::Literal(7),
+                                    metadata: None,
+                                }),
+                            ),
                         ]
                     },
                 ],
@@ -1530,18 +1599,549 @@ mod tests {
                     }),
                     Expression::Collection {
                         complement: false,
-                        values: vec![Expression::Buffer(BufferExpression {
-                            value: vec![0x34],
-                            type_: BufferType::Unknown
-                        })]
+                        values: vec![(
+                            None,
+                            Expression::Buffer(BufferExpression {
+                                value: vec![0x34],
+                                type_: BufferType::Unknown
+                            })
+                        ),]
                     },
                     Expression::Collection {
                         complement: false,
-                        values: vec![Expression::Buffer(BufferExpression {
-                            value: vec![0x56],
-                            type_: BufferType::Unknown
-                        })]
+                        values: vec![(
+                            None,
+                            Expression::Buffer(BufferExpression {
+                                value: vec![0x56],
+                                type_: BufferType::Unknown
+                            })
+                        ),]
                     },
+                ],
+                ret_val: 0
+            })
+        );
+    }
+
+    #[expect(clippy::too_many_lines)]
+    #[test]
+    fn test_ioctl() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        assert_eq!(
+            parse_line("34274      0.000058 ioctl(1<\\x2f\\x64\\x65\\x76\\x2f\\x70\\x74\\x73\\x2f\\x30>, TCSETSW, {c_iflag=ICRNL|IXON|IUTF8, c_oflag=NL0|CR0|TAB0|BS0|VT0|FF0|OPOST|ONLCR, c_cflag=B38400|CS8|CREAD, c_lflag=ISIG|ICANON|ECHO|ECHOE|ECHOK|IEXTEN|ECHOCTL|ECHOKE, c_line=N_TTY, c_cc=[[VINTR]=0x3, [VQUIT]=0x1c, [VERASE]=0x7f, [VKILL]=0x15, [VEOF]=0x4, [VTIME]=0, [VMIN]=0x1, [VSWTC]=0, [VSTART]=0x11, [VSTOP]=0x13, [VSUSP]=0x1a, [VEOL]=0, [VREPRINT]=0x12, [VDISCARD]=0xf, [VWERASE]=0x17, [VLNEXT]=0x16, [VEOL2]=0, [17]=0, [18]=0]}) = 0",)
+                .unwrap(),
+            ParseResult::Syscall(Syscall {
+                pid: 34274,
+                rel_ts: 0.000058,
+                name: "ioctl".to_owned(),
+                args: vec![
+                    Expression::Integer(
+                        IntegerExpression {
+                            value: IntegerExpressionValue::Literal(
+                                1,
+                            ),
+                            metadata: Some(
+                                vec![
+                                    47,
+                                    100,
+                                    101,
+                                    118,
+                                    47,
+                                    112,
+                                    116,
+                                    115,
+                                    47,
+                                    48,
+                                ],
+                            ),
+                        },
+                    ),
+                    Expression::Integer(
+                        IntegerExpression {
+                            value: IntegerExpressionValue::NamedConst(
+                                "TCSETSW".to_owned(),
+                            ),
+                            metadata: None,
+                        },
+                    ),
+                    Expression::Struct(HashMap::from([
+                        (
+                            "c_cflag".to_owned(),
+                            Expression::Integer(
+                                IntegerExpression {
+                                    value: IntegerExpressionValue::BinaryOr(
+                                        vec![
+                                            IntegerExpressionValue::NamedConst(
+                                                "B38400".to_owned(),
+                                            ),
+                                            IntegerExpressionValue::NamedConst(
+                                                "CS8".to_owned(),
+                                            ),
+                                            IntegerExpressionValue::NamedConst(
+                                                "CREAD".to_owned(),
+                                            ),
+                                        ],
+                                    ),
+                                    metadata: None,
+                                },
+                            ),
+                        ),
+                        (
+                            "c_lflag".to_owned(),
+                            Expression::Integer(
+                                IntegerExpression {
+                                    value: IntegerExpressionValue::BinaryOr(
+                                        vec![
+                                            IntegerExpressionValue::NamedConst(
+                                                "ISIG".to_owned(),
+                                            ),
+                                            IntegerExpressionValue::NamedConst(
+                                                "ICANON".to_owned(),
+                                            ),
+                                            IntegerExpressionValue::NamedConst(
+                                                "ECHO".to_owned(),
+                                            ),
+                                            IntegerExpressionValue::NamedConst(
+                                                "ECHOE".to_owned(),
+                                            ),
+                                            IntegerExpressionValue::NamedConst(
+                                                "ECHOK".to_owned(),
+                                            ),
+                                            IntegerExpressionValue::NamedConst(
+                                                "IEXTEN".to_owned(),
+                                            ),
+                                            IntegerExpressionValue::NamedConst(
+                                                "ECHOCTL".to_owned(),
+                                            ),
+                                            IntegerExpressionValue::NamedConst(
+                                                "ECHOKE".to_owned(),
+                                            ),
+                                        ],
+                                    ),
+                                    metadata: None,
+                                },
+                            ),
+                        ),
+                        (
+                            "c_cc".to_owned(),
+                            Expression::Collection {
+                                complement: false,
+                                values: vec![
+                                    (
+                                        Some(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::NamedConst(
+                                                    "VINTR".to_owned(),
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                        Expression::Integer(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::Literal(
+                                                    3,
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                    ),
+                                    (
+                                        Some(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::NamedConst(
+                                                    "VQUIT".to_owned(),
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                        Expression::Integer(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::Literal(
+                                                    28,
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                    ),
+                                    (
+                                        Some(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::NamedConst(
+                                                    "VERASE".to_owned(),
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                        Expression::Integer(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::Literal(
+                                                    127,
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                    ),
+                                    (
+                                        Some(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::NamedConst(
+                                                    "VKILL".to_owned(),
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                        Expression::Integer(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::Literal(
+                                                    21,
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                    ),
+                                    (
+                                        Some(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::NamedConst(
+                                                    "VEOF".to_owned(),
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                        Expression::Integer(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::Literal(
+                                                    4,
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                    ),
+                                    (
+                                        Some(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::NamedConst(
+                                                    "VTIME".to_owned(),
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                        Expression::Integer(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::Literal(
+                                                    0,
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                    ),
+                                    (
+                                        Some(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::NamedConst(
+                                                    "VMIN".to_owned(),
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                        Expression::Integer(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::Literal(
+                                                    1,
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                    ),
+                                    (
+                                        Some(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::NamedConst(
+                                                    "VSWTC".to_owned(),
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                        Expression::Integer(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::Literal(
+                                                    0,
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                    ),
+                                    (
+                                        Some(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::NamedConst(
+                                                    "VSTART".to_owned(),
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                        Expression::Integer(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::Literal(
+                                                    17,
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                    ),
+                                    (
+                                        Some(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::NamedConst(
+                                                    "VSTOP".to_owned(),
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                        Expression::Integer(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::Literal(
+                                                    19,
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                    ),
+                                    (
+                                        Some(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::NamedConst(
+                                                    "VSUSP".to_owned(),
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                        Expression::Integer(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::Literal(
+                                                    26,
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                    ),
+                                    (
+                                        Some(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::NamedConst(
+                                                    "VEOL".to_owned(),
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                        Expression::Integer(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::Literal(
+                                                    0,
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                    ),
+                                    (
+                                        Some(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::NamedConst(
+                                                    "VREPRINT".to_owned(),
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                        Expression::Integer(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::Literal(
+                                                    18,
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                    ),
+                                    (
+                                        Some(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::NamedConst(
+                                                    "VDISCARD".to_owned(),
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                        Expression::Integer(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::Literal(
+                                                    15,
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                    ),
+                                    (
+                                        Some(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::NamedConst(
+                                                    "VWERASE".to_owned(),
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                        Expression::Integer(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::Literal(
+                                                    23,
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                    ),
+                                    (
+                                        Some(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::NamedConst(
+                                                    "VLNEXT".to_owned(),
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                        Expression::Integer(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::Literal(
+                                                    22,
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                    ),
+                                    (
+                                        Some(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::NamedConst(
+                                                    "VEOL2".to_owned(),
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                        Expression::Integer(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::Literal(
+                                                    0,
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                    ),
+                                    (
+                                        Some(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::Literal(
+                                                    17,
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                        Expression::Integer(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::Literal(
+                                                    0,
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                    ),
+                                    (
+                                        Some(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::Literal(
+                                                    18,
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                        Expression::Integer(
+                                            IntegerExpression {
+                                                value: IntegerExpressionValue::Literal(
+                                                    0,
+                                                ),
+                                                metadata: None,
+                                            },
+                                        ),
+                                    ),
+                                ],
+                            }
+                        ),
+                        (
+                            "c_line".to_owned(),
+                            Expression::Integer(
+                                IntegerExpression {
+                                    value: IntegerExpressionValue::NamedConst(
+                                        "N_TTY".to_owned(),
+                                    ),
+                                    metadata: None,
+                                },
+                            ),
+                        ),
+                        (
+                            "c_oflag".to_owned(),
+                            Expression::Integer(
+                                IntegerExpression {
+                                    value: IntegerExpressionValue::BinaryOr(
+                                        vec![
+                                            IntegerExpressionValue::NamedConst(
+                                                "NL0".to_owned(),
+                                            ),
+                                            IntegerExpressionValue::NamedConst(
+                                                "CR0".to_owned(),
+                                            ),
+                                            IntegerExpressionValue::NamedConst(
+                                                "TAB0".to_owned(),
+                                            ),
+                                            IntegerExpressionValue::NamedConst(
+                                                "BS0".to_owned(),
+                                            ),
+                                            IntegerExpressionValue::NamedConst(
+                                                "VT0".to_owned(),
+                                            ),
+                                            IntegerExpressionValue::NamedConst(
+                                                "FF0".to_owned(),
+                                            ),
+                                            IntegerExpressionValue::NamedConst(
+                                                "OPOST".to_owned(),
+                                            ),
+                                            IntegerExpressionValue::NamedConst(
+                                                "ONLCR".to_owned(),
+                                            ),
+                                        ],
+                                    ),
+                                    metadata: None,
+                                },
+                            ),
+                        ),
+                        (
+                            "c_iflag".to_owned(),
+                            Expression::Integer(
+                                IntegerExpression {
+                                    value: IntegerExpressionValue::BinaryOr(
+                                        vec![
+                                            IntegerExpressionValue::NamedConst(
+                                                "ICRNL".to_owned(),
+                                            ),
+                                            IntegerExpressionValue::NamedConst(
+                                                "IXON".to_owned(),
+                                            ),
+                                            IntegerExpressionValue::NamedConst(
+                                                "IUTF8".to_owned(),
+                                            ),
+                                        ],
+                                    ),
+                                    metadata: None,
+                                },
+                            ),
+                        ),
+                    ]))
                 ],
                 ret_val: 0
             })

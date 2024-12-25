@@ -297,7 +297,10 @@ fn parse_expression_set(i: &str) -> IResult<&str, Expression> {
         ),
         |(neg, values)| Expression::Collection {
             complement: neg.is_some(),
-            values: values.into_iter().map(Expression::Integer).collect(),
+            values: values
+                .into_iter()
+                .map(|ie| (None, Expression::Integer(ie)))
+                .collect(),
         },
     )(i)
 }
@@ -308,7 +311,16 @@ fn parse_expression_array(i: &str) -> IResult<&str, Expression> {
     map(
         delimited(
             char('['),
-            separated_list0(tag(", "), parse_expression),
+            separated_list0(
+                tag(", "),
+                tuple((
+                    opt(terminated(
+                        delimited(char('['), parse_int, char(']')),
+                        char('='),
+                    )),
+                    parse_expression,
+                )),
+            ),
             char(']'),
         ),
         |values| Expression::Collection {
