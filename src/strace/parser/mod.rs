@@ -8,15 +8,8 @@ use std::{
 
 use crate::strace::Syscall;
 
-#[cfg(feature = "strace-parser-combinator")]
 mod combinator;
-#[cfg(feature = "strace-parser-peg")]
-mod peg;
-
-#[cfg(feature = "strace-parser-combinator")]
 use combinator::parse_line;
-#[cfg(feature = "strace-parser-peg")]
-use peg::parse_line;
 
 use super::{Expression, SyscallRetVal};
 

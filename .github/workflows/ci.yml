@@ -8,35 +8,26 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        strace-parser: [combinator, peg]
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: stable
-      - run: cargo build --no-default-features --features strace-parser-${{matrix.strace-parser}} --verbose
+      - run: cargo build --verbose
 
   test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        strace-parser: [combinator, peg]
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: stable
-      - run: cargo test --bins --no-default-features --features strace-parser-${{matrix.strace-parser}} --verbose
+      - run: cargo test --verbose
 
   clippy:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        strace-parser: [combinator, peg]
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rs/toolchain@v1
@@ -44,7 +35,7 @@ jobs:
           profile: minimal
           toolchain: stable
           components: clippy
-      - run: cargo clippy --no-default-features --features strace-parser-${{matrix.strace-parser}} -- -D warnings
+      - run: cargo clippy -- -D warnings
 
   fmt:
     runs-on: ubuntu-latest

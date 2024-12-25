@@ -15,13 +15,11 @@ strip = true
 anyhow = { version = "1.0.93", default-features = false, features = ["std", "backtrace"] }
 bincode = { version = "1.3.3", default-features = false }
 clap = { version = "4.5.21", default-features = false, features = ["std", "color", "help", "usage", "error-context", "suggestions", "derive"] }
-function_name = { version = "0.3.0", default-features = false, optional = true }
+function_name = { version = "0.3.0", default-features = false }
 itertools = { version = "0.13.0", default-features = false, features = ["use_std"] }
 log = { version = "0.4.22", default-features = false, features = ["max_level_trace", "release_max_level_info"] }
 nix = { version = "0.29.0", default-features = false, features = ["fs"] }
-nom = { version = "7.1.3", default-features = false, features = ["std"], optional = true }
-pest = { version = "2.7.14", default-features = false, features = ["std", "memchr"], optional = true }
-pest_derive = { version = "2.7.14", default-features = false, features = ["std"], optional = true}
+nom = { version = "7.1.3", default-features = false, features = ["std"] }
 rand = { version = "0.8.5", default-features = false, features = ["std", "std_rng"] }
 regex = { version = "1.11.1", default-features = false, features = ["std", "perf"] }
 serde = { version = "1.0.215", default-features = false, features = ["std", "derive"] }
@@ -38,11 +36,9 @@ predicates = { version = "3.1.2", default-features = false, features = ["color"]
 pretty_assertions = { version = "1.4.1", default-features = false, features = ["std"] }
 
 [features]
-default = ["strace-parser-combinator"]
+default = []
 as-root = [] # for tests only
 nightly = [] # for benchmarks only
-strace-parser-combinator = ["dep:function_name", "dep:nom"]
-strace-parser-peg = ["dep:pest", "dep:pest_derive"]
 
 [lints.rust]
 # https://doc.rust-lang.org/rustc/lints/listing/allowed-by-default.html
