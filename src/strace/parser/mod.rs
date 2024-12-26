@@ -880,10 +880,10 @@ mod tests {
                 args: vec![
                     Expression::Integer(IntegerExpression {
                         value: IntegerExpressionValue::NamedConst("AT_FDCWD".to_owned()),
-                        metadata: Some(vec![0x2f, 0x68, 0x6f, 0x6d, 0x65, 0x2f, 0x6d, 0x64, 0x65, 0x2f, 0x73, 0x72, 0x63, 0x2f, 0x73, 0x68, 0x68]),
+                        metadata: Some("/home/mde/src/shh".as_bytes().to_vec()),
                     }),
                     Expression::Buffer(BufferExpression {
-                        value: vec![0x2e, 0x2e],
+                        value: "..".as_bytes().to_vec(),
                         type_: BufferType::Unknown,
                     }),
                     Expression::Integer(IntegerExpression {
@@ -916,7 +916,7 @@ mod tests {
                 args: vec![
                     Expression::Integer(IntegerExpression {
                         value: IntegerExpressionValue::Literal(15),
-                        metadata: Some(vec![115, 111, 99, 107, 101, 116, 58, 91, 53, 52, 49, 56, 50, 49, 51, 93])
+                        metadata: Some("socket:[5418213]".as_bytes().to_vec())
                     }),
                     Expression::Collection {
                         complement: false,
@@ -1052,15 +1052,7 @@ mod tests {
             parse_line(
                 "57652      0.000071 sendto(19<\\x73\\x6f\\x63\\x6b\\x65\\x74\\x3a\\x5b\\x38\\x34\\x38\\x36\\x39\\x32\\x5d>, {{len=20, type=0x16 /* NLMSG_??? */, flags=NLM_F_REQUEST|0x300, seq=1697715709, pid=0}, \"\\x00\\x00\\x00\\x00\"}, 20, 0, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 20",
             );
-        // Give some leeway to the parser behavior, as long at it does not return Ok
-        match res {
-            Err(err) => {
-                assert_eq!(&err.to_string(), "Unable to extract struct member name");
-            }
-            Ok(r) => {
-                assert_eq!(r, ParseResult::IgnoredLine);
-            }
-        }
+        assert_eq!(res.unwrap(), ParseResult::IgnoredLine);
     }
 
     #[test]
@@ -1116,7 +1108,7 @@ mod tests {
                 args: vec![
                     Expression::Integer(IntegerExpression {
                         value: IntegerExpressionValue::Literal(6),
-                        metadata: Some(vec![115, 111, 99, 107, 101, 116, 58, 91, 56, 49, 53, 54, 57, 51, 93]),
+                        metadata: Some("socket:[815693]".as_bytes().to_vec()),
                     }),
                     Expression::Struct(HashMap::from([
                         (
@@ -1144,7 +1136,7 @@ mod tests {
                                 name: "inet_addr".to_owned(),
                                 args: vec![
                                     Expression::Buffer(BufferExpression {
-                                        value: vec![49, 50, 55, 46, 48, 46, 48, 46, 49],
+                                        value: "127.0.0.1".as_bytes().to_vec(),
                                         type_: BufferType::Unknown,
                                     }),
                                 ],
@@ -1229,7 +1221,7 @@ mod tests {
                 args: vec![
                     Expression::Integer(IntegerExpression {
                         value: IntegerExpressionValue::Literal(3),
-                        metadata: Some(vec![97, 110, 111, 110, 95, 105, 110, 111, 100, 101, 58, 91, 101, 118, 101, 110, 116, 112, 111, 108, 108, 93]),
+                        metadata: Some("anon_inode:[eventpoll]".as_bytes().to_vec()),
                     }),
                     Expression::Integer(IntegerExpression {
                         value: IntegerExpressionValue::NamedConst("EPOLL_CTL_ADD".to_owned()),
@@ -1237,7 +1229,7 @@ mod tests {
                     }),
                     Expression::Integer(IntegerExpression {
                         value: IntegerExpressionValue::Literal(4),
-                        metadata: Some(vec![115, 111, 99, 107, 101, 116, 58, 91, 55, 51, 49, 53, 57, 56, 93]),
+                        metadata: Some("socket:[731598]".as_bytes().to_vec()),
                     }),
                     Expression::Struct(HashMap::from([
                         (
@@ -1283,7 +1275,7 @@ mod tests {
                 args: vec![
                     Expression::Integer(IntegerExpression {
                         value: IntegerExpressionValue::Literal(4),
-                        metadata: Some(vec![0x61, 0x6e, 0x6f, 0x6e, 0x5f, 0x69, 0x6e, 0x6f, 0x64, 0x65, 0x3a, 0x5b, 0x65, 0x76, 0x65, 0x6e, 0x74, 0x70, 0x6f, 0x6c, 0x6c, 0x5d]),
+                        metadata: Some("anon_inode:[eventpoll]".as_bytes().to_vec()),
                     }),
                     Expression::Collection {
                         complement: false,
@@ -1641,20 +1633,7 @@ mod tests {
                             value: IntegerExpressionValue::Literal(
                                 1,
                             ),
-                            metadata: Some(
-                                vec![
-                                    47,
-                                    100,
-                                    101,
-                                    118,
-                                    47,
-                                    112,
-                                    116,
-                                    115,
-                                    47,
-                                    48,
-                                ],
-                            ),
+                            metadata: Some("/dev/pts/0".as_bytes().to_vec()),
                         },
                     ),
                     Expression::Integer(
