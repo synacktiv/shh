@@ -15,6 +15,7 @@ strip = true
 anyhow = { version = "1.0.93", default-features = false, features = ["std", "backtrace"] }
 bincode = { version = "1.3.3", default-features = false }
 clap = { version = "4.5.21", default-features = false, features = ["std", "color", "help", "usage", "error-context", "suggestions", "derive"] }
+clap_mangen = { version = "0.2.24", default-features = false, optional = true }
 function_name = { version = "0.3.0", default-features = false }
 itertools = { version = "0.13.0", default-features = false, features = ["use_std"] }
 log = { version = "0.4.22", default-features = false, features = ["max_level_trace", "release_max_level_info"] }
@@ -39,6 +40,7 @@ pretty_assertions = { version = "1.4.1", default-features = false, features = ["
 [features]
 default = []
 as-root = [] # for tests only
+gen-man-pages = ["dep:clap_mangen"]
 nightly = [] # for benchmarks only
 
 [lints.rust]
@@ -102,3 +104,7 @@ verbose_file_reads = "warn"
 [package.metadata.deb]
 name = "shh"
 depends = "$auto, strace"
+assets = [
+  ["target/release/shh", "usr/bin/", "755"],
+  ["target/man/*.1.gz", "usr/share/man/man1/", "644"]
+]

@@ -1,6 +1,10 @@
 //! Systemd Hardening Helper
 
 #![cfg_attr(all(feature = "nightly", test), feature(test))]
+#![cfg_attr(
+    feature = "gen-man-pages",
+    expect(dead_code, unused_crate_dependencies, unused_imports)
+)]
 
 use std::{
     fs::{self, File},
@@ -32,6 +36,18 @@ fn sd_options(
     sd_opts
 }
 
+#[cfg(feature = "gen-man-pages")]
+fn main() -> anyhow::Result<()> {
+    use clap::CommandFactory as _;
+    let cmd = cl::Args::command();
+    let output = std::env::args_os()
+        .nth(1)
+        .ok_or_else(|| anyhow::anyhow!("Missing output dir argument"))?;
+    clap_mangen::generate_to(cmd, output)?;
+    Ok(())
+}
+
+#[cfg(not(feature = "gen-man-pages"))]
 fn main() -> anyhow::Result<()> {
     // Init logger
     simple_logger::SimpleLogger::new()
