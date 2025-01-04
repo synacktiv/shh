@@ -1,0 +1,55 @@
+# https://git-cliff.org/docs/configuration
+
+[changelog]
+# template for the changelog header
+header = "# Changelog"
+# template for the changelog body
+# https://keats.github.io/tera/docs/#introduction
+body = """
+
+{% if version %}\
+    ## {{ version }}
+{% else %}\
+    ## Unreleased
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+    ### {{ group | upper_first }}
+    {% for commit in commits %}
+        - {% if commit.scope %}{{ commit.scope }}: {% endif %}\
+          {{ commit.message | split(pat="\n") | first | upper_first | trim }} \
+          ([{{ commit.id | truncate(length=7, end="") }}](https://github.com/desbma/shh/commit/{{ commit.id }}) by {{ commit.author.name }})\
+    {% endfor %}
+{% endfor %}
+---
+
+"""
+# template for the changelog footer
+footer = ""
+# remove the leading and trailing whitespace from the templates
+trim = true
+
+[git]
+# parse the commits based on https://www.conventionalcommits.org
+conventional_commits = true
+# filter out the commits that are not conventional
+filter_unconventional = false
+# regex for parsing and grouping commits
+commit_parsers = [
+    { message = "^feat", group = "<!-- 1 -->🚀 Features" },
+    { message = "^fix", group = "<!-- 2 -->🐛 Bug fixes" },
+    { message = "^perf", group = "<!-- 3 -->⚡ Performance" },
+    { message = "^doc", group = "<!-- 4 -->📚 Documentation" },
+    { message = "^test", group = "<!-- 5 -->🧪 Testing" },
+    { message = "^refactor", group = "<!-- 6 -->🚜 Refactor" },
+    { message = "^style", group = "<!-- 7 -->🎨 Styling" },
+    { message = "^ci", group = "<!-- 8 -->⚙️ Continuous integration" },
+    { message = "^chore: version ", skip = true },
+    { message = "^chore", group = "<!-- 9 -->💼 Miscellaneous tasks" },
+    { body = ".*security", group = "<!-- 0 -->🛡️ Security" },
+]
+# filter out the commits that are not matched by commit parsers
+filter_commits = false
+# sort the tags topologically
+topo_order = false
+# sort the commits inside sections by oldest/newest order
+sort_commits = "oldest"

@@ -10,7 +10,7 @@ See [this article](https://www.synacktiv.com/publications/systemd-hardening-made
 
 [Official repository](https://github.com/desbma/shh) - [Mirror repository](https://github.com/synacktiv/shh)
 
-[Currently supported systemd options](systemd_options.md)
+[Changelog](CHANGELOG.md) - [Currently supported systemd options](systemd_options.md)
 
 ## Installation
 

@@ -20,3 +20,10 @@ git add Cargo.{toml,lock} systemd_options.md
 
 git commit -m "chore: version ${VERSION}"
 git tag -f -m "Version ${VERSION}" "v${VERSION}"
+
+git cliff | head -n -3 > CHANGELOG.md
+git add CHANGELOG.md
+git commit --amend --no-edit
+
+git tag -d "${VERSION}"
+git tag -f -m "Version ${VERSION}" "v${VERSION}"
