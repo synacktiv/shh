@@ -148,7 +148,7 @@ impl Iterator for LogParser {
     }
 }
 
-#[expect(clippy::unreadable_literal, clippy::shadow_unrelated)]
+#[expect(clippy::unreadable_literal)]
 #[cfg(test)]
 mod tests {
     use std::{collections::HashMap, io::Cursor};

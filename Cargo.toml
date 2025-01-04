@@ -27,6 +27,7 @@ signal-hook = { version = "0.3.17", default-features = false, features = ["itera
 simple_logger = { version = "5.0.0", default-features = false, features = ["colors", "stderr"] }
 strum = { version = "0.26.3", default-features = false, features = ["std", "derive"] }
 tempfile = { version = "3.14.0", default-features = false }
+thiserror = { version = "2.0.9", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 assert_cmd = { version = "2.0.16", default-features = false, features = ["color", "color-auto"] }
