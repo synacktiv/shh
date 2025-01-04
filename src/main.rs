@@ -11,8 +11,8 @@ use std::{
     thread,
 };
 
-use anyhow::Context;
-use clap::Parser;
+use anyhow::Context as _;
+use clap::Parser as _;
 
 mod cl;
 mod strace;

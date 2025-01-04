@@ -6,7 +6,7 @@ use std::env;
 
 use nix::unistd::Uid;
 
-use assert_cmd::{assert::OutputAssertExt, Command};
+use assert_cmd::{assert::OutputAssertExt as _, Command};
 use predicates::{prelude::*, BoxPredicate};
 
 //

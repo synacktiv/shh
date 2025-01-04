@@ -3,13 +3,13 @@
 use std::{
     env,
     fs::{self, File},
-    io::{BufRead, BufReader, BufWriter, Write},
+    io::{BufRead as _, BufReader, BufWriter, Write as _},
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
 
-use itertools::Itertools;
-use rand::Rng;
+use itertools::Itertools as _;
+use rand::Rng as _;
 
 use crate::{
     cl::HardeningOptions,

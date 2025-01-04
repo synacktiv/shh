@@ -1,6 +1,6 @@
 //! Strace related code
 
-use std::{collections::HashMap, fmt, io::BufRead, process::Command, str};
+use std::{collections::HashMap, fmt, io::BufRead as _, process::Command, str};
 
 mod parser;
 mod run;

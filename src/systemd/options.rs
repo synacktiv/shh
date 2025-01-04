@@ -5,14 +5,14 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt, iter,
-    os::unix::ffi::OsStrExt,
+    os::unix::ffi::OsStrExt as _,
     path::{Path, PathBuf},
     str::FromStr,
     sync::LazyLock,
 };
 
-use itertools::Itertools;
-use strum::IntoEnumIterator;
+use itertools::Itertools as _;
+use strum::IntoEnumIterator as _;
 
 use crate::{
     cl::{HardeningMode, HardeningOptions},

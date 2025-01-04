@@ -2,7 +2,7 @@
 
 use std::{
     fs::File,
-    io::{self, BufRead, BufWriter, Write},
+    io::{self, BufRead, BufWriter, Write as _},
     path::Path,
 };
 
