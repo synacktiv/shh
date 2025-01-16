@@ -268,9 +268,15 @@ impl Display for NetworkPort {
     }
 }
 
+enum FdOrPath<T> {
+    Fd(T),
+    Path(T),
+}
+
 /// Meta structure to group syscalls that have similar summary handling
 /// and store arguments
 enum SyscallArgsInfo<T> {
+    Chdir(FdOrPath<T>),
     EpollCtl {
         op: T,
         event: T,
@@ -330,6 +336,10 @@ impl SyscallArgsIndex {
     #[expect(clippy::shadow_unrelated)]
     fn extract_args<'a>(&self, sc: &'a Syscall) -> anyhow::Result<SyscallArgs<'a>> {
         let args = match self {
+            Self::Chdir(p) => SyscallArgsInfo::Chdir(match p {
+                FdOrPath::Fd(i) => FdOrPath::Fd(Self::extract_arg(sc, *i)?),
+                FdOrPath::Path(i) => FdOrPath::Path(Self::extract_arg(sc, *i)?),
+            }),
             Self::EpollCtl { op, event } => SyscallArgs::EpollCtl {
                 op: Self::extract_arg(sc, *op)?,
                 event: Self::extract_arg(sc, *event)?,
@@ -418,6 +428,9 @@ impl SyscallArgsIndex {
 //
 static SYSCALL_MAP: LazyLock<HashMap<&'static str, SyscallArgsIndex>> = LazyLock::new(|| {
     HashMap::from([
+        // chdir
+        ("chdir", SyscallArgsIndex::Chdir(FdOrPath::Path(0))),
+        ("fchdir", SyscallArgsIndex::Chdir(FdOrPath::Fd(0))),
         // epoll_ctl
         ("epoll_ctl", SyscallArgsIndex::EpollCtl { op: 1, event: 3 }),
         // mkdir
@@ -543,6 +556,8 @@ struct ProgramState {
     /// Keep known socket protocols (per process) for bind handling, we don't care for the socket closings
     /// because the fd will be reused or never bound again
     known_sockets_proto: HashMap<(u32, i32), SocketProtocol>,
+    /// Current working directory
+    cur_dir: Option<PathBuf>,
 }
 
 pub(crate) fn summarize<I>(syscalls: I) -> anyhow::Result<Vec<ProgramAction>>

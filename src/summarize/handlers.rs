@@ -10,7 +10,7 @@ use std::{
 };
 
 use super::{
-    BufferExpression, BufferType, CountableSetSpecifier, Expression, IntegerExpression,
+    BufferExpression, BufferType, CountableSetSpecifier, Expression, FdOrPath, IntegerExpression,
     IntegerExpressionValue, NetworkActivity, NetworkActivityKind, NetworkPort, ProgramAction,
     ProgramState, SetSpecifier, SocketFamily, SocketProtocol, Syscall, SyscallArgs,
     SyscallArgsInfo,
@@ -35,7 +35,6 @@ pub(crate) enum HandlerError {
     },
 }
 
-#[expect(clippy::needless_pass_by_value)]
 pub(crate) fn summarize_syscall(
     sc: &Syscall,
     args: SyscallArgs,
@@ -43,6 +42,7 @@ pub(crate) fn summarize_syscall(
     state: &mut ProgramState,
 ) -> Result<(), HandlerError> {
     match args {
+        SyscallArgsInfo::Chdir(p) => handle_chdir(&sc.name, p, state),
         SyscallArgsInfo::EpollCtl { op, event } => handle_epoll_ctl(&sc.name, op, event, actions),
         SyscallArgsInfo::Mkdir { relfd, path } => handle_mkdir(&sc.name, relfd, path, actions),
         SyscallArgsInfo::Mknod { mode } => handle_mknod(&sc.name, mode, actions),
@@ -72,6 +72,32 @@ pub(crate) fn summarize_syscall(
         }
         SyscallArgsInfo::TimerCreate { clockid } => handle_timer_create(&sc.name, clockid, actions),
     }
+}
+
+/// Handle chdir-like syscall
+#[expect(clippy::needless_pass_by_value)]
+fn handle_chdir(
+    name: &str,
+    path: FdOrPath<&Expression>,
+    state: &mut ProgramState,
+) -> Result<(), HandlerError> {
+    let dir = match path {
+        FdOrPath::Fd(fd) => resolve_path(Path::new(""), Some(fd)),
+        FdOrPath::Path(Expression::Buffer(BufferExpression {
+            value: b,
+            type_: BufferType::Unknown,
+        })) => Some(PathBuf::from(OsStr::from_bytes(b))),
+        FdOrPath::Path(e) => {
+            return Err(HandlerError::ArgTypeMismatch {
+                sc_name: name.to_owned(),
+                arg: e.to_owned(),
+            });
+        }
+    };
+    if let Some(dir) = dir {
+        state.cur_dir = Some(dir);
+    }
+    Ok(())
 }
 
 /// Handle `epoll_ctl` syscall
@@ -562,6 +588,7 @@ fn socket_address_uds_path(members: &HashMap<String, Expression>) -> Option<Path
 
 /// Resolve relative path if possible, and normalize it
 fn resolve_path(path: &Path, relfd: Option<&Expression>) -> Option<PathBuf> {
+    // TODO use current directory
     let path = if path.is_relative() {
         let metadata = relfd.and_then(|a| a.metadata());
         if let Some(metadata) = metadata {
