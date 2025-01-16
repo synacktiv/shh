@@ -1,10 +1,19 @@
 [package]
-name = "shh"
-version = "2025.1.16"
+name = "systemd-hardening-helper"
 authors = ["Maxime Desbrus <maxime.desbrus@synacktiv.com>"]
 description = "Automatic systemd service hardening guided by strace profiling"
 readme = "README.md"
+repository = "https://github.com/desbma/shh"
+keywords = ["systemd", "hardening", "strace", "system", "security"]
+categories = ["command-line-utilities"]
+license = "GPL-3.0-only"
+version = "2025.1.16"
+rust-version = "1.81"
 edition = "2021"
+
+[[bin]]
+name = "shh"
+path = "src/main.rs"
 
 [profile.release]
 lto = true

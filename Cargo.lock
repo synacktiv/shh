@@ -577,33 +577,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "shh"
-version = "2025.1.16"
-dependencies = [
- "anyhow",
- "assert_cmd",
- "bincode",
- "clap",
- "clap_mangen",
- "fastrand",
- "function_name",
- "itertools",
- "log",
- "nix",
- "nom",
- "predicates",
- "pretty_assertions",
- "rand",
- "regex",
- "serde",
- "signal-hook",
- "simple_logger",
- "strum",
- "tempfile",
- "thiserror",
-]
-
-[[package]]
 name = "signal-hook"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -670,6 +643,33 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "systemd-hardening-helper"
+version = "2025.1.16"
+dependencies = [
+ "anyhow",
+ "assert_cmd",
+ "bincode",
+ "clap",
+ "clap_mangen",
+ "fastrand",
+ "function_name",
+ "itertools",
+ "log",
+ "nix",
+ "nom",
+ "predicates",
+ "pretty_assertions",
+ "rand",
+ "regex",
+ "serde",
+ "signal-hook",
+ "simple_logger",
+ "strum",
+ "tempfile",
+ "thiserror",
 ]
 
 [[package]]
