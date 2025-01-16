@@ -1,10 +1,11 @@
 # Changelog
 
-## Unreleased
+## v2025.1.16
 
 ### <!-- 01 -->💡 Features
 
 - Update options for systemd v257 ([2ca1c42](https://github.com/desbma/shh/commit/2ca1c42bc64e15ac0a6a249879a6427142c3be7b) by desbma)
+- Add shh version in unit fragment header ([81bf6fd](https://github.com/desbma/shh/commit/81bf6fdbbde46556c18b3d329ad629db8f3d5487) by desbma)
 
 ### <!-- 02 -->🐛 Bug fixes
 
@@ -15,7 +16,7 @@
 - Add changelog ([01ca7a1](https://github.com/desbma/shh/commit/01ca7a1c246ef9b87c68a5e161744b2dc04046d6) by desbma)
 - Add man pages ([53ba284](https://github.com/desbma/shh/commit/53ba28462f53a3d4a785679594b6662bc8185148) by desbma)
 - README: Add portability warning ([a9439ae](https://github.com/desbma/shh/commit/a9439ae72af4039987de64e9a1e168598f9df766) by desbma)
-- Update changelog ([c1fac52](https://github.com/desbma/shh/commit/c1fac521ba012c7ff451a8f956fa11c527a63bc1) by desbma)
+- Update changelog template ([e666607](https://github.com/desbma/shh/commit/e6666075082198b23ec15e26468d45a0e196b73c) by desbma)
 
 ### <!-- 05 -->🧪 Testing
 
@@ -27,6 +28,12 @@
 
 - Drop peg strace parser ([5f1a98c](https://github.com/desbma/shh/commit/5f1a98cd46195a0781a2c81b0c2b6e79deccd787) by desbma)
 - summary: Split summary into per syscall group functions ([83fc818](https://github.com/desbma/shh/commit/83fc81824ee9565b9f222e3701e3769dc12ce28c) by desbma)
+- Factorize unit fragment header creation ([0687e63](https://github.com/desbma/shh/commit/0687e6313ce98bc865b8624e42fa11b99243bb34) by desbma)
+
+### <!-- 08 -->🏗  Build
+
+- Release script auto version ([6fbca7e](https://github.com/desbma/shh/commit/6fbca7e9e590064235218b9b97a47c9d43b59a78) by desbma)
+- Remove unmaintained prettier pre-commit hook ([9c8a960](https://github.com/desbma/shh/commit/9c8a96027392115a53b0afa45e15403d3acab196) by desbma)
 
 ### <!-- 10 -->🧰 Miscellaneous tasks
 

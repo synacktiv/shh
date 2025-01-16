@@ -1,6 +1,6 @@
 [package]
 name = "shh"
-version = "2024.11.23"
+version = "2025.1.16"
 authors = ["Maxime Desbrus <maxime.desbrus@synacktiv.com>"]
 description = "Automatic systemd service hardening guided by strace profiling"
 readme = "README.md"
@@ -12,29 +12,29 @@ codegen-units = 1
 strip = true
 
 [dependencies]
-anyhow = { version = "1.0.93", default-features = false, features = ["std", "backtrace"] }
+anyhow = { version = "1.0.95", default-features = false, features = ["std", "backtrace"] }
 bincode = { version = "1.3.3", default-features = false }
-clap = { version = "4.5.21", default-features = false, features = ["std", "color", "help", "usage", "error-context", "suggestions", "derive"] }
-clap_mangen = { version = "0.2.24", default-features = false, optional = true }
+clap = { version = "4.5.26", default-features = false, features = ["std", "color", "help", "usage", "error-context", "suggestions", "derive"] }
+clap_mangen = { version = "0.2.26", default-features = false, optional = true }
 function_name = { version = "0.3.0", default-features = false }
 itertools = { version = "0.13.0", default-features = false, features = ["use_std"] }
-log = { version = "0.4.22", default-features = false, features = ["max_level_trace", "release_max_level_info"] }
+log = { version = "0.4.25", default-features = false, features = ["max_level_trace", "release_max_level_info"] }
 nix = { version = "0.29.0", default-features = false, features = ["fs"] }
 nom = { version = "7.1.3", default-features = false, features = ["std"] }
 rand = { version = "0.8.5", default-features = false, features = ["std", "std_rng"] }
 regex = { version = "1.11.1", default-features = false, features = ["std", "perf"] }
-serde = { version = "1.0.215", default-features = false, features = ["std", "derive"] }
+serde = { version = "1.0.217", default-features = false, features = ["std", "derive"] }
 signal-hook = { version = "0.3.17", default-features = false, features = ["iterator"] }
 simple_logger = { version = "5.0.0", default-features = false, features = ["colors", "stderr"] }
 strum = { version = "0.26.3", default-features = false, features = ["std", "derive"] }
-tempfile = { version = "3.14.0", default-features = false }
-thiserror = { version = "2.0.9", default-features = false, features = ["std"] }
+tempfile = { version = "3.15.0", default-features = false }
+thiserror = { version = "2.0.11", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 assert_cmd = { version = "2.0.16", default-features = false, features = ["color", "color-auto"] }
-fastrand = { version = "2.2.0", default-features = false, features = ["std"] }
+fastrand = { version = "2.3.0", default-features = false, features = ["std"] }
 nix = { version = "0.29.0", default-features = false, features = ["user"] }
-predicates = { version = "3.1.2", default-features = false, features = ["color"] }
+predicates = { version = "3.1.3", default-features = false, features = ["color"] }
 pretty_assertions = { version = "1.4.1", default-features = false, features = ["std"] }
 
 [features]

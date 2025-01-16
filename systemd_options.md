@@ -26,7 +26,7 @@
 - [`PrivateNetwork`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#PrivateNetwork=)
   - `true`
 - [`PrivateTmp`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#PrivateTmp=)
-  - `true`
+  - `disconnected`
 - [`ProtectClock`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ProtectClock=)
   - `true`
 - [`ProtectControlGroups`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ProtectControlGroups=)
