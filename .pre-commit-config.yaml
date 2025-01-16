@@ -30,15 +30,6 @@ repos:
     hooks:
       - id: shellcheck
 
-  - repo: https://github.com/pre-commit/mirrors-prettier
-    rev: v3.0.2
-    hooks:
-      - id: prettier
-        args:
-          - --print-width=120
-          - --write
-        stages: [pre-commit]
-
   - repo: https://github.com/compilerla/conventional-pre-commit
     rev: v4.0.0
     hooks:
