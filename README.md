@@ -1,6 +1,7 @@
 # SHH (Systemd Hardening Helper)
 
-[![Build status](https://github.com/desbma/shh/actions/workflows/ci.yml/badge.svg)](https://github.com/desbma/shh/actions)
+[![CI status](https://github.com/desbma/shh/actions/workflows/ci.yml/badge.svg)](https://github.com/desbma/shh/actions)
+[![crates.io version](https://img.shields.io/crates/v/systemd-hardening-helper)](https://crates.io/crates/systemd-hardening-helper)
 [![AUR version](https://img.shields.io/aur/version/shh.svg?style=flat)](https://aur.archlinux.org/packages/shh/)
 [![License](https://img.shields.io/github/license/desbma/shh.svg?style=flat)](https://github.com/desbma/shh/blob/master/LICENSE)
 
@@ -22,9 +23,17 @@ Strace needs to be installed and available in the path. Strace version >=6.4 is 
 
 You need a Rust build environment for example from [rustup](https://rustup.rs/).
 
+Run in the current repository:
+
 ```
 cargo build --release
 install -Dm 755 -t /usr/local/bin target/release/shh
+```
+
+or from `crates.io`:
+
+```
+sudo cargo install --root /usr/local
 ```
 
 ### Debian (or Debian based distribution)
