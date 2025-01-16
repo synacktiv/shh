@@ -275,6 +275,10 @@ enum SyscallArgsInfo<T> {
         op: T,
         event: T,
     },
+    Mkdir {
+        relfd: Option<T>,
+        path: T,
+    },
     Mknod {
         mode: T,
     },
@@ -329,6 +333,12 @@ impl SyscallArgsIndex {
             Self::EpollCtl { op, event } => SyscallArgs::EpollCtl {
                 op: Self::extract_arg(sc, *op)?,
                 event: Self::extract_arg(sc, *event)?,
+            },
+            Self::Mkdir { relfd, path } => SyscallArgs::Mkdir {
+                relfd: relfd
+                    .map(|relfd| Self::extract_arg(sc, relfd))
+                    .transpose()?,
+                path: Self::extract_arg(sc, *path)?,
             },
             Self::Mknod { mode } => SyscallArgs::Mknod {
                 mode: Self::extract_arg(sc, *mode)?,
@@ -410,6 +420,21 @@ static SYSCALL_MAP: LazyLock<HashMap<&'static str, SyscallArgsIndex>> = LazyLock
     HashMap::from([
         // epoll_ctl
         ("epoll_ctl", SyscallArgsIndex::EpollCtl { op: 1, event: 3 }),
+        // mkdir
+        (
+            "mkdir",
+            SyscallArgsIndex::Mkdir {
+                path: 0,
+                relfd: None,
+            },
+        ),
+        (
+            "mkdirat",
+            SyscallArgsIndex::Mkdir {
+                path: 1,
+                relfd: Some(0),
+            },
+        ),
         // mknod
         ("mknod", SyscallArgsIndex::Mknod { mode: 1 }),
         ("mknodat", SyscallArgsIndex::Mknod { mode: 2 }),

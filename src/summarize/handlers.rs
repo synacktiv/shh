@@ -44,6 +44,7 @@ pub(crate) fn summarize_syscall(
 ) -> Result<(), HandlerError> {
     match args {
         SyscallArgsInfo::EpollCtl { op, event } => handle_epoll_ctl(&sc.name, op, event, actions),
+        SyscallArgsInfo::Mkdir { relfd, path } => handle_mkdir(&sc.name, relfd, path, actions),
         SyscallArgsInfo::Mknod { mode } => handle_mknod(&sc.name, mode, actions),
         SyscallArgsInfo::Mmap { prot } => handle_mmap(&sc.name, prot, actions),
         SyscallArgsInfo::Network { fd, sockaddr } => {
@@ -117,6 +118,31 @@ fn handle_epoll_ctl(
         if evt_flags.value.is_flag_set("EPOLLWAKEUP") {
             actions.push(ProgramAction::Wakeup);
         }
+    }
+    Ok(())
+}
+
+/// Handle mkdir-like syscalls
+fn handle_mkdir(
+    name: &str,
+    relfd: Option<&Expression>,
+    path: &Expression,
+    actions: &mut Vec<ProgramAction>,
+) -> Result<(), HandlerError> {
+    let path = if let Expression::Buffer(BufferExpression {
+        value: b,
+        type_: BufferType::Unknown,
+    }) = path
+    {
+        PathBuf::from(OsStr::from_bytes(b))
+    } else {
+        return Err(HandlerError::ArgTypeMismatch {
+            sc_name: name.to_owned(),
+            arg: path.to_owned(),
+        });
+    };
+    if let Some(path) = resolve_path(&path, relfd) {
+        actions.push(ProgramAction::Create(path));
     }
     Ok(())
 }
