@@ -193,7 +193,7 @@ fn main() -> anyhow::Result<()> {
             service.action("try-restart", false)?;
         }
         cl::Action::ListSystemdOptions => {
-            println!("# Supported systemd options");
+            println!("# Supported systemd options\n");
             let mut sd_opts = sd_options(
                 &sd_version,
                 &kernel_version,
@@ -205,12 +205,12 @@ fn main() -> anyhow::Result<()> {
                 for opt_val in sd_opt.possible_values {
                     match opt_val.value {
                         systemd::OptionValue::Boolean(v) => {
-                            println!("    - `{}`", if v { "true" } else { "false" });
+                            println!("  - `{}`", if v { "true" } else { "false" });
                         }
-                        systemd::OptionValue::String(v) => println!("    - `{v}`"),
+                        systemd::OptionValue::String(v) => println!("  - `{v}`"),
                         systemd::OptionValue::List { values, .. } => {
                             for val in values {
-                                println!("    - `{val}`");
+                                println!("  - `{val}`");
                             }
                         }
                     }
