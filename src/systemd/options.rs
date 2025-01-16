@@ -3,6 +3,7 @@
 // Last updated for systemd v257
 
 use std::{
+    borrow::ToOwned,
     collections::{HashMap, HashSet},
     fmt, iter,
     os::unix::ffi::OsStrExt as _,
@@ -27,8 +28,8 @@ use crate::{
 pub(crate) struct OptionUpdater {
     /// Generate a new option effect compatible with the previously incompatible action
     pub effect: fn(&OptionValueEffect, &ProgramAction) -> Option<OptionValueEffect>,
-    /// Generate the option value from the new effect
-    pub value: fn(&OptionValueEffect) -> OptionValue,
+    /// Generate new options from the new effect
+    pub options: fn(&OptionValueEffect) -> Vec<OptionWithValue>,
 }
 
 /// Systemd option with its possibles values, and their effect
@@ -224,6 +225,7 @@ impl DenySyscalls {
 }
 
 /// A systemd option with a value, as would be present in a config file
+#[derive(Debug)]
 pub(crate) struct OptionWithValue {
     pub name: String,
     pub value: OptionValue,
@@ -1108,6 +1110,76 @@ pub(crate) fn build_options(
         });
     }
 
+    if hardening_opts.filesystem_whitelisting {
+        options.push(OptionDescription {
+            name: "ReadOnlyPaths",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::String("/".into()),
+                desc: OptionEffect::Simple(OptionValueEffect::DenyWrite(PathDescription::Base {
+                    base: "/".into(),
+                    exceptions: vec![],
+                })),
+            }],
+            updater: Some(OptionUpdater {
+                effect: |effect, action| match effect {
+                    OptionValueEffect::DenyWrite(PathDescription::Base { base, exceptions }) => {
+                        let new_exception = match action {
+                            ProgramAction::Write(action_path) => Some(action_path.to_owned()),
+                            ProgramAction::Create(action_path) => {
+                                action_path.parent().map(Path::to_path_buf)
+                            }
+                            _ => None,
+                        };
+                        new_exception.map(|new_exception_path| {
+                            let mut new_exceptions = Vec::with_capacity(exceptions.len() + 1);
+                            new_exceptions.extend(exceptions.iter().cloned());
+                            new_exceptions.push(new_exception_path);
+                            OptionValueEffect::DenyWrite(PathDescription::Base {
+                                base: base.to_owned(),
+                                exceptions: new_exceptions,
+                            })
+                        })
+                    }
+                    OptionValueEffect::DenyWrite(PathDescription::Pattern(_)) => {
+                        unimplemented!()
+                    }
+                    _ => None,
+                },
+                options: |effect| match effect {
+                    OptionValueEffect::DenyWrite(PathDescription::Base { base, exceptions }) => {
+                        vec![
+                            OptionWithValue {
+                                name: "ReadOnlyPaths".to_owned(),
+                                #[expect(clippy::unwrap_used)] // path is from our option, so unicode safe
+                                value: OptionValue::String(base.to_str().unwrap().to_owned()),
+                            },
+                            OptionWithValue {
+                                name: "ReadWritePaths".to_owned(),
+                                value: OptionValue::List {
+                                    values: exceptions
+                                        .iter()
+                                        .filter_map(|p| p.to_str().map(ToOwned::to_owned))
+                                        .collect(),
+                                    value_if_empty: None,
+                                    prefix: "",
+                                    repeat_option: false,
+                                    mode: ListMode::WhiteList,
+                                },
+                            },
+                        ]
+                    }
+                    OptionValueEffect::DenyWrite(PathDescription::Pattern(_)) => {
+                        unimplemented!()
+                    }
+                    _ => unreachable!(),
+                },
+            }),
+        });
+
+        // TODO NoExecPaths + ExecPaths updater
+        // TODO InaccessiblePaths + ReadWritePaths/ReadOnlyPaths updater
+    }
+
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#MemoryDenyWriteExecute=
     // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L1721
     options.push(OptionDescription {
@@ -1281,33 +1353,36 @@ pub(crate) fn build_options(
                     }),
                 ))
             },
-            value: |e| {
+            options: |e| {
                 let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(denied_na)) = e
                 else {
                     unreachable!();
                 };
-                OptionValue::List {
-                    values: denied_na
-                        .af
-                        .elements()
-                        .iter()
-                        .cartesian_product(denied_na.proto.elements())
-                        .cartesian_product(denied_na.local_port.ranges())
-                        .map(|((af, proto), port_range)| {
-                            format!(
-                                "{}:{}:{}-{}",
-                                af,
-                                proto,
-                                port_range.start(),
-                                port_range.end()
-                            )
-                        })
-                        .collect(),
-                    value_if_empty: None,
-                    prefix: "",
-                    repeat_option: true,
-                    mode: ListMode::BlackList,
-                }
+                vec![OptionWithValue {
+                    name: "SocketBindDeny".to_owned(),
+                    value: OptionValue::List {
+                        values: denied_na
+                            .af
+                            .elements()
+                            .iter()
+                            .cartesian_product(denied_na.proto.elements())
+                            .cartesian_product(denied_na.local_port.ranges())
+                            .map(|((af, proto), port_range)| {
+                                format!(
+                                    "{}:{}:{}-{}",
+                                    af,
+                                    proto,
+                                    port_range.start(),
+                                    port_range.end()
+                                )
+                            })
+                            .collect(),
+                        value_if_empty: None,
+                        prefix: "",
+                        repeat_option: true,
+                        mode: ListMode::BlackList,
+                    },
+                }]
             },
         }),
     });

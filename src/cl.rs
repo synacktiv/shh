@@ -32,6 +32,9 @@ pub(crate) struct HardeningOptions {
     /// Enable advanced network firewalling
     #[arg(short = 'f', long, default_value_t)]
     pub network_firewalling: bool,
+    /// Enable whitelist-based filesystem hardening
+    #[arg(short = 'w', long, default_value_t)]
+    pub filesystem_whitelisting: bool,
 }
 
 impl HardeningOptions {
@@ -41,6 +44,7 @@ impl HardeningOptions {
         Self {
             mode: HardeningMode::Safe,
             network_firewalling: false,
+            filesystem_whitelisting: false,
         }
     }
 
@@ -49,14 +53,20 @@ impl HardeningOptions {
         Self {
             mode: HardeningMode::Aggressive,
             network_firewalling: true,
+            filesystem_whitelisting: true,
         }
     }
 
     pub(crate) fn to_cmdline(&self) -> String {
         format!(
-            "-m {}{}",
+            "-m {}{}{}",
             self.mode,
-            if self.network_firewalling { " -n" } else { "" }
+            if self.network_firewalling { " -n" } else { "" },
+            if self.filesystem_whitelisting {
+                " -w"
+            } else {
+                ""
+            }
         )
     }
 }

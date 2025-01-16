@@ -4,7 +4,8 @@ use std::{
     any::{type_name, type_name_of_val},
     collections::HashMap,
     ffi::OsStr,
-    os::unix::ffi::OsStrExt as _,
+    io,
+    os::unix::{ffi::OsStrExt as _, fs::FileTypeExt as _},
     path::{Path, PathBuf},
     sync::LazyLock,
 };
@@ -33,6 +34,8 @@ pub(crate) enum HandlerError {
         member: &'static str,
         struct_: HashMap<String, Expression>,
     },
+    #[error("System error: {0}")]
+    SystemError(#[from] io::Error),
 }
 
 pub(crate) fn summarize_syscall(
@@ -353,9 +356,11 @@ fn handle_open(
     if flags_val.is_flag_set("O_CREAT") {
         actions.push(ProgramAction::Create(path.clone()));
     }
-    if flags_val.is_flag_set("O_WRONLY")
+    if (flags_val.is_flag_set("O_WRONLY")
         || flags_val.is_flag_set("O_RDWR")
-        || flags_val.is_flag_set("O_TRUNC")
+        || flags_val.is_flag_set("O_TRUNC"))
+        // char devices can be written to, even if filesystem is mounted read only
+        && !path.metadata()?.file_type().is_char_device()
     {
         actions.push(ProgramAction::Write(path.clone()));
     }
