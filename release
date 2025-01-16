@@ -2,7 +2,7 @@
 
 set -o pipefail
 
-readonly VERSION="${1:?}"
+readonly VERSION="${1:-$(date +%Y.%-m.%-d)}"
 
 cd "$(git rev-parse --show-toplevel)"
 
@@ -25,5 +25,5 @@ git cliff | head -n -3 > CHANGELOG.md
 git add CHANGELOG.md
 git commit --amend --no-edit
 
-git tag -d "${VERSION}"
+git tag -d "v${VERSION}"
 git tag -f -m "Version ${VERSION}" "v${VERSION}"
