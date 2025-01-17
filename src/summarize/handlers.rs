@@ -607,7 +607,6 @@ fn resolve_path(
     relfd: Option<&Expression>,
     cur_dir: Option<&PathBuf>,
 ) -> Option<PathBuf> {
-    // TODO use current directory
     let path = if path.is_relative() {
         let metadata = relfd.and_then(|a| a.metadata());
         if let Some(metadata) = metadata {
