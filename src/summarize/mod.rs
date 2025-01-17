@@ -10,6 +10,8 @@ use std::{
     sync::LazyLock,
 };
 
+use anyhow::Context as _;
+
 use crate::{
     strace::{
         BufferExpression, BufferType, Expression, IntegerExpression, IntegerExpressionValue,
@@ -579,7 +581,8 @@ where
 
         if let Some(arg_indexes) = SYSCALL_MAP.get(name) {
             let args = arg_indexes.extract_args(&syscall)?;
-            handlers::summarize_syscall(&syscall, args, &mut actions, &mut program_state)?;
+            handlers::summarize_syscall(&syscall, args, &mut actions, &mut program_state)
+                .with_context(|| format!("Failed to summarize syscall {syscall:?}"))?;
         }
     }
 
