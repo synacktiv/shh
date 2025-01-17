@@ -447,11 +447,7 @@ fn run_sched_realtime() {
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
         .stdout(predicate::str::contains("ProtectHome=read-only\n").count(1))
-        .stdout(if !Uid::effective().is_root() && env::current_exe().unwrap().starts_with("/tmp") {
-            BoxPredicate::new(predicate::str::contains("PrivateTmp=").count(0))
-        } else {
-            BoxPredicate::new(predicate::str::contains("PrivateTmp=true\n").count(1).or(predicate::str::contains("PrivateTmp=disconnected\n").count(1)))
-        })
+        // Python 3.13 for some reason reads the parent script, which is running under /tmp and breaks PrivateTmp
         .stdout(predicate::str::contains("PrivateDevices=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelModules=true\n").count(1))
@@ -478,11 +474,7 @@ fn run_sched_realtime() {
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
         .stdout(predicate::str::contains("ProtectHome=read-only\n").count(1))
-        .stdout(if !Uid::effective().is_root() && env::current_exe().unwrap().starts_with("/tmp") {
-            BoxPredicate::new(predicate::str::contains("PrivateTmp=").count(0))
-        } else {
-            BoxPredicate::new(predicate::str::contains("PrivateTmp=true\n").count(1).or(predicate::str::contains("PrivateTmp=disconnected\n").count(1)))
-        })
+        // Python 3.13 for some reason reads the parent script, which is running under /tmp and breaks PrivateTmp
         .stdout(predicate::str::contains("PrivateDevices=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelModules=true\n").count(1))
