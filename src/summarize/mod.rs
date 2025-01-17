@@ -557,6 +557,7 @@ struct ProgramState {
     /// because the fd will be reused or never bound again
     known_sockets_proto: HashMap<(u32, i32), SocketProtocol>,
     /// Current working directory
+    // TODO initialize with startup current dir?
     cur_dir: Option<PathBuf>,
 }
 

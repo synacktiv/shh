@@ -44,14 +44,16 @@ pub(crate) fn summarize_syscall(
     match args {
         SyscallArgsInfo::Chdir(p) => handle_chdir(&sc.name, p, state),
         SyscallArgsInfo::EpollCtl { op, event } => handle_epoll_ctl(&sc.name, op, event, actions),
-        SyscallArgsInfo::Mkdir { relfd, path } => handle_mkdir(&sc.name, relfd, path, actions),
+        SyscallArgsInfo::Mkdir { relfd, path } => {
+            handle_mkdir(&sc.name, relfd, path, actions, state)
+        }
         SyscallArgsInfo::Mknod { mode } => handle_mknod(&sc.name, mode, actions),
         SyscallArgsInfo::Mmap { prot } => handle_mmap(&sc.name, prot, actions),
         SyscallArgsInfo::Network { fd, sockaddr } => {
             handle_network(&sc.name, sc.pid, fd, sockaddr, actions, state)
         }
         SyscallArgsInfo::Open { relfd, path, flags } => {
-            handle_open(&sc.name, relfd, path, flags, actions)
+            handle_open(&sc.name, relfd, path, flags, actions, state)
         }
         SyscallArgsInfo::Rename {
             relfd_src,
@@ -60,15 +62,15 @@ pub(crate) fn summarize_syscall(
             path_dst,
             flags,
         } => handle_rename(
-            &sc.name, relfd_src, path_src, relfd_dst, path_dst, flags, actions,
+            &sc.name, relfd_src, path_src, relfd_dst, path_dst, flags, actions, state,
         ),
         SyscallArgsInfo::SetScheduler { policy } => handle_setscheduler(&sc.name, policy, actions),
         SyscallArgsInfo::Socket { af, flags } => {
             handle_socket(&sc.name, sc.pid, sc.ret_val, af, flags, actions, state)
         }
-        SyscallArgsInfo::StatFd { fd } => handle_stat_fd(&sc.name, fd, actions),
+        SyscallArgsInfo::StatFd { fd } => handle_stat_fd(&sc.name, fd, actions, state),
         SyscallArgsInfo::StatPath { relfd, path } => {
-            handle_stat_path(&sc.name, relfd, path, actions)
+            handle_stat_path(&sc.name, relfd, path, actions, state)
         }
         SyscallArgsInfo::TimerCreate { clockid } => handle_timer_create(&sc.name, clockid, actions),
     }
@@ -82,7 +84,7 @@ fn handle_chdir(
     state: &mut ProgramState,
 ) -> Result<(), HandlerError> {
     let dir = match path {
-        FdOrPath::Fd(fd) => resolve_path(Path::new(""), Some(fd)),
+        FdOrPath::Fd(fd) => resolve_path(Path::new(""), Some(fd), state.cur_dir.as_ref()),
         FdOrPath::Path(Expression::Buffer(BufferExpression {
             value: b,
             type_: BufferType::Unknown,
@@ -154,6 +156,7 @@ fn handle_mkdir(
     relfd: Option<&Expression>,
     path: &Expression,
     actions: &mut Vec<ProgramAction>,
+    state: &ProgramState,
 ) -> Result<(), HandlerError> {
     let path = if let Expression::Buffer(BufferExpression {
         value: b,
@@ -167,7 +170,7 @@ fn handle_mkdir(
             arg: path.to_owned(),
         });
     };
-    if let Some(path) = resolve_path(&path, relfd) {
+    if let Some(path) = resolve_path(&path, relfd, state.cur_dir.as_ref()) {
         actions.push(ProgramAction::Create(path));
     }
     Ok(())
@@ -245,7 +248,7 @@ fn handle_network(
     #[expect(clippy::single_match)]
     match af {
         "AF_UNIX" => {
-            if let Some(path) = socket_address_uds_path(addr) {
+            if let Some(path) = socket_address_uds_path(addr, state.cur_dir.as_ref()) {
                 actions.push(ProgramAction::Read(path));
             };
         }
@@ -313,6 +316,7 @@ fn handle_open(
     path: &Expression,
     flags: &Expression,
     actions: &mut Vec<ProgramAction>,
+    state: &ProgramState,
 ) -> Result<(), HandlerError> {
     let mut path = if let Expression::Buffer(BufferExpression {
         value: b,
@@ -336,7 +340,7 @@ fn handle_open(
         });
     };
 
-    path = if let Some(path) = resolve_path(&path, relfd) {
+    path = if let Some(path) = resolve_path(&path, relfd, state.cur_dir.as_ref()) {
         path
     } else {
         return Ok(());
@@ -358,6 +362,7 @@ fn handle_open(
 }
 
 /// Handle rename-like syscalls
+#[expect(clippy::too_many_arguments)]
 fn handle_rename(
     name: &str,
     relfd_src: Option<&Expression>,
@@ -366,6 +371,7 @@ fn handle_rename(
     path_dst: &Expression,
     flags: Option<&Expression>,
     actions: &mut Vec<ProgramAction>,
+    state: &ProgramState,
 ) -> Result<(), HandlerError> {
     let path_src = if let Expression::Buffer(BufferExpression {
         value: b1,
@@ -393,8 +399,8 @@ fn handle_rename(
     };
 
     let (Some(path_src), Some(path_dst)) = (
-        resolve_path(&path_src, relfd_src),
-        resolve_path(&path_dst, relfd_dst),
+        resolve_path(&path_src, relfd_src, state.cur_dir.as_ref()),
+        resolve_path(&path_dst, relfd_dst, state.cur_dir.as_ref()),
     ) else {
         return Ok(());
     };
@@ -511,6 +517,7 @@ fn handle_stat_fd(
     name: &str,
     fd: &Expression,
     actions: &mut Vec<ProgramAction>,
+    state: &ProgramState,
 ) -> Result<(), HandlerError> {
     let path = fd
         .metadata()
@@ -519,7 +526,7 @@ fn handle_stat_fd(
             sc_name: name.to_owned(),
             arg: fd.to_owned(),
         })?;
-    if let Some(path) = resolve_path(&path, None) {
+    if let Some(path) = resolve_path(&path, None, state.cur_dir.as_ref()) {
         actions.push(ProgramAction::Read(path));
     };
     Ok(())
@@ -531,6 +538,7 @@ fn handle_stat_path(
     relfd: Option<&Expression>,
     path: &Expression,
     actions: &mut Vec<ProgramAction>,
+    state: &ProgramState,
 ) -> Result<(), HandlerError> {
     let path = if let Expression::Buffer(BufferExpression {
         value: b,
@@ -544,7 +552,7 @@ fn handle_stat_path(
             arg: path.to_owned(),
         });
     };
-    if let Some(path) = resolve_path(&path, relfd) {
+    if let Some(path) = resolve_path(&path, relfd, state.cur_dir.as_ref()) {
         actions.push(ProgramAction::Read(path));
     }
     Ok(())
@@ -574,20 +582,27 @@ fn handle_timer_create(
 }
 
 /// Extract path for socket address structure if it's a non abstract one
-fn socket_address_uds_path(members: &HashMap<String, Expression>) -> Option<PathBuf> {
+fn socket_address_uds_path(
+    members: &HashMap<String, Expression>,
+    cur_dir: Option<&PathBuf>,
+) -> Option<PathBuf> {
     if let Some(Expression::Buffer(BufferExpression {
         value: b,
         type_: BufferType::Unknown,
     })) = members.get("sun_path")
     {
-        resolve_path(&PathBuf::from(OsStr::from_bytes(b)), None)
+        resolve_path(&PathBuf::from(OsStr::from_bytes(b)), None, cur_dir)
     } else {
         None
     }
 }
 
 /// Resolve relative path if possible, and normalize it
-fn resolve_path(path: &Path, relfd: Option<&Expression>) -> Option<PathBuf> {
+fn resolve_path(
+    path: &Path,
+    relfd: Option<&Expression>,
+    cur_dir: Option<&PathBuf>,
+) -> Option<PathBuf> {
     // TODO use current directory
     let path = if path.is_relative() {
         let metadata = relfd.and_then(|a| a.metadata());
@@ -597,6 +612,8 @@ fn resolve_path(path: &Path, relfd: Option<&Expression>) -> Option<PathBuf> {
             }
             let rel_path = PathBuf::from(OsStr::from_bytes(metadata));
             rel_path.join(path)
+        } else if let Some(cur_dir) = cur_dir {
+            cur_dir.join(path)
         } else {
             return None;
         }
