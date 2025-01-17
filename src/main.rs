@@ -112,7 +112,7 @@ fn main() -> anyhow::Result<()> {
                 bincode::serialize_into(file, &actions)?;
             } else {
                 // Resolve
-                let resolved_opts = systemd::resolve(&sd_opts, &actions);
+                let resolved_opts = systemd::resolve(&sd_opts, &actions, &hardening_opts);
 
                 // Report
                 systemd::report_options(resolved_opts);
@@ -136,7 +136,7 @@ fn main() -> anyhow::Result<()> {
             log::debug!("{actions:?}");
 
             // Resolve
-            let resolved_opts = systemd::resolve(&sd_opts, &actions);
+            let resolved_opts = systemd::resolve(&sd_opts, &actions, &hardening_opts);
 
             // Report
             systemd::report_options(resolved_opts);

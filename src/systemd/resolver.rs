@@ -3,6 +3,7 @@
 use itertools::Itertools as _;
 
 use crate::{
+    cl::HardeningOptions,
     summarize::{NetworkActivity, ProgramAction},
     systemd::options::{
         ListMode, OptionDescription, OptionEffect, OptionValue, OptionValueEffect, OptionWithValue,
@@ -17,6 +18,7 @@ impl OptionValueEffect {
         action: &ProgramAction,
         prev_actions: &[ProgramAction],
         updater: Option<&OptionUpdater>,
+        hardening_opts: &HardeningOptions,
     ) -> ActionOptionEffectCompatibility {
         let compatible = match self {
             OptionValueEffect::DenyAction(denied) => match denied {
@@ -70,23 +72,21 @@ impl OptionValueEffect {
                     true
                 }
             }
-            OptionValueEffect::Multiple(effects) => {
-                effects
-                    .iter()
-                    .all(|e| match e.compatible(action, prev_actions, None) {
-                        ActionOptionEffectCompatibility::Compatible => true,
-                        ActionOptionEffectCompatibility::CompatibleIfChanged(_) => todo!(),
-                        ActionOptionEffectCompatibility::Incompatible => false,
-                    })
-            }
+            OptionValueEffect::Multiple(effects) => effects.iter().all(|e| {
+                match e.compatible(action, prev_actions, None, hardening_opts) {
+                    ActionOptionEffectCompatibility::Compatible => true,
+                    ActionOptionEffectCompatibility::CompatibleIfChanged(_) => todo!(),
+                    ActionOptionEffectCompatibility::Incompatible => false,
+                }
+            }),
         };
         if compatible {
             ActionOptionEffectCompatibility::Compatible
         } else if let Some(updater) = updater {
-            if let Some(new_eff) = (updater.effect)(self, action) {
+            if let Some(new_eff) = (updater.effect)(self, action, hardening_opts) {
                 ActionOptionEffectCompatibility::CompatibleIfChanged(
                     ChangedOptionValueDescription {
-                        new_options: (updater.options)(&new_eff),
+                        new_options: (updater.options)(&new_eff, hardening_opts),
                         effect: new_eff,
                     },
                 )
@@ -127,11 +127,12 @@ pub(crate) fn actions_compatible(
     eff: &OptionValueEffect,
     actions: &[ProgramAction],
     updater: Option<&OptionUpdater>,
+    hardening_opts: &HardeningOptions,
 ) -> ActionOptionEffectCompatibility {
     let mut changed_desc: Option<ChangedOptionValueDescription> = None;
     for i in 0..actions.len() {
         let cur_eff = changed_desc.as_ref().map_or(eff, |d| &d.effect);
-        match cur_eff.compatible(&actions[i], &actions[..i], updater) {
+        match cur_eff.compatible(&actions[i], &actions[..i], updater, hardening_opts) {
             ActionOptionEffectCompatibility::Compatible => {}
             ActionOptionEffectCompatibility::CompatibleIfChanged(new_desc) => {
                 log::debug!(
@@ -163,6 +164,7 @@ pub(crate) fn actions_compatible(
 pub(crate) fn resolve(
     opts: &Vec<OptionDescription>,
     actions: &[ProgramAction],
+    hardening_opts: &HardeningOptions,
 ) -> Vec<OptionWithValue> {
     let mut candidates = Vec::new();
     for opt in opts {
@@ -178,7 +180,8 @@ pub(crate) fn resolve(
                     break;
                 }
                 OptionEffect::Simple(effect) => {
-                    match actions_compatible(effect, actions, opt.updater.as_ref()) {
+                    match actions_compatible(effect, actions, opt.updater.as_ref(), hardening_opts)
+                    {
                         ActionOptionEffectCompatibility::Compatible => {
                             candidates.push(OptionWithValue {
                                 name: opt.name.to_owned(),
@@ -206,8 +209,12 @@ pub(crate) fn resolve(
                             debug_assert_eq!(values.len(), effects.len());
                             let mut cur_effects = effects.clone();
                             for (optv, opte) in values.iter().zip(&mut cur_effects) {
-                                let compatible =
-                                    actions_compatible(opte, actions, opt.updater.as_ref());
+                                let compatible = actions_compatible(
+                                    opte,
+                                    actions,
+                                    opt.updater.as_ref(),
+                                    hardening_opts,
+                                );
                                 let mut cur_opt_vals = vec![optv.to_owned()];
                                 let enable_opt = match mode {
                                     ListMode::WhiteList => matches!(
@@ -220,7 +227,7 @@ pub(crate) fn resolve(
                                             nd,
                                         ) => {
                                             *opte = nd.effect;
-                                            match actions_compatible(opte, actions, None) {
+                                            match actions_compatible(opte, actions, None, hardening_opts) {
                                                 ActionOptionEffectCompatibility::Compatible => {
                                                     match nd.new_options.iter().at_most_one() {
                                                         Ok(Some(OptionWithValue { name, value: OptionValue::List { values: new_vals, .. } })) if name == opt.name => {
@@ -286,52 +293,54 @@ mod tests {
     #[test]
     fn test_resolve_protect_system() {
         let _ = simple_logger::SimpleLogger::new().init();
+        let hardening_opts = HardeningOptions::safe();
 
         let opts = test_options(&["ProtectSystem"]);
 
         let actions = vec![];
-        let candidates = resolve(&opts, &actions);
+        let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 1);
         assert_eq!(format!("{}", candidates[0]), "ProtectSystem=strict");
 
         let actions = vec![ProgramAction::Write("/sys/whatever".into())];
-        let candidates = resolve(&opts, &actions);
+        let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 1);
         assert_eq!(format!("{}", candidates[0]), "ProtectSystem=strict");
 
         let actions = vec![ProgramAction::Write("/var/cache/whatever".into())];
-        let candidates = resolve(&opts, &actions);
+        let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 1);
         assert_eq!(format!("{}", candidates[0]), "ProtectSystem=full");
 
         let actions = vec![ProgramAction::Write("/etc/plop.conf".into())];
-        let candidates = resolve(&opts, &actions);
+        let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 1);
         assert_eq!(format!("{}", candidates[0]), "ProtectSystem=true");
 
         let actions = vec![ProgramAction::Write("/usr/bin/false".into())];
-        let candidates = resolve(&opts, &actions);
+        let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 0);
     }
 
     #[test]
     fn test_resolve_protect_home() {
         let _ = simple_logger::SimpleLogger::new().init();
+        let hardening_opts = HardeningOptions::safe();
 
         let opts = test_options(&["ProtectHome"]);
 
         let actions = vec![];
-        let candidates = resolve(&opts, &actions);
+        let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 1);
         assert_eq!(format!("{}", candidates[0]), "ProtectHome=tmpfs");
 
         let actions = vec![ProgramAction::Write("/home/user/data".into())];
-        let candidates = resolve(&opts, &actions);
+        let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 1);
         assert_eq!(format!("{}", candidates[0]), "ProtectHome=true");
 
         let actions = vec![ProgramAction::Read("/home/user/data".into())];
-        let candidates = resolve(&opts, &actions);
+        let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 1);
         assert_eq!(format!("{}", candidates[0]), "ProtectHome=read-only");
 
@@ -339,7 +348,7 @@ mod tests {
             ProgramAction::Create("/home/user/data".into()),
             ProgramAction::Read("/home/user/data".into()),
         ];
-        let candidates = resolve(&opts, &actions);
+        let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 1);
         assert_eq!(format!("{}", candidates[0]), "ProtectHome=true");
     }
@@ -347,28 +356,29 @@ mod tests {
     #[test]
     fn test_resolve_private_tmp() {
         let _ = simple_logger::SimpleLogger::new().init();
+        let hardening_opts = HardeningOptions::safe();
 
         let opts = test_options(&["PrivateTmp"]);
 
         let actions = vec![];
-        let candidates = resolve(&opts, &actions);
+        let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 1);
         assert_eq!(format!("{}", candidates[0]), "PrivateTmp=true");
 
         let actions = vec![ProgramAction::Write("/tmp/data".into())];
-        let candidates = resolve(&opts, &actions);
+        let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 1);
         assert_eq!(format!("{}", candidates[0]), "PrivateTmp=true");
 
         let actions = vec![ProgramAction::Read("/tmp/data".into())];
-        let candidates = resolve(&opts, &actions);
+        let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 0);
 
         let actions = vec![
             ProgramAction::Create("/tmp/data".into()),
             ProgramAction::Read("/tmp/data".into()),
         ];
-        let candidates = resolve(&opts, &actions);
+        let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 1);
         assert_eq!(format!("{}", candidates[0]), "PrivateTmp=true");
     }

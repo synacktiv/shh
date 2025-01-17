@@ -6,6 +6,7 @@ use std::{
     borrow::ToOwned,
     collections::{HashMap, HashSet},
     fmt, iter,
+    num::NonZeroUsize,
     os::unix::ffi::OsStrExt as _,
     path::{Path, PathBuf},
     str::FromStr,
@@ -27,9 +28,10 @@ use crate::{
 #[derive(Debug)]
 pub(crate) struct OptionUpdater {
     /// Generate a new option effect compatible with the previously incompatible action
-    pub effect: fn(&OptionValueEffect, &ProgramAction) -> Option<OptionValueEffect>,
+    pub effect:
+        fn(&OptionValueEffect, &ProgramAction, &HardeningOptions) -> Option<OptionValueEffect>,
     /// Generate new options from the new effect
-    pub options: fn(&OptionValueEffect) -> Vec<OptionWithValue>,
+    pub options: fn(&OptionValueEffect, &HardeningOptions) -> Vec<OptionWithValue>,
 }
 
 /// Systemd option with its possibles values, and their effect
@@ -812,6 +814,49 @@ static SYSCALL_CLASSES: LazyLock<HashMap<&'static str, HashSet<&'static str>>> =
         ])
     });
 
+fn merge_similar_paths(paths: &[PathBuf], threshold: NonZeroUsize) -> Vec<PathBuf> {
+    if paths.len() <= threshold.get() {
+        paths.to_vec()
+    } else {
+        let mut children: HashMap<PathBuf, HashSet<PathBuf>> = HashMap::new();
+        for path in paths {
+            let ancestors: Vec<_> = path.ancestors().map(Path::to_path_buf).collect();
+            let mut parent: Option<PathBuf> = None;
+            for dir in ancestors.into_iter().rev() {
+                if let Some(parent) = parent.as_ref() {
+                    children
+                        .entry(parent.to_owned())
+                        .or_default()
+                        .insert(dir.clone());
+                }
+                parent = Some(dir);
+            }
+        }
+        let initial_candidates = vec![PathBuf::from("/")];
+        let mut candidates = initial_candidates.clone();
+        loop {
+            let mut advancing = false;
+            let mut new_candidates = Vec::with_capacity(candidates.len());
+            for candidate in &candidates {
+                if let Some(candidate_children) = children.get(candidate) {
+                    new_candidates.extend(candidate_children.iter().cloned());
+                    advancing |= !candidate_children.is_empty();
+                }
+            }
+            if !advancing || new_candidates.len() > threshold.get() {
+                break;
+            }
+            candidates = new_candidates;
+        }
+        if candidates == initial_candidates {
+            paths.to_vec()
+        } else {
+            candidates.sort_unstable();
+            candidates
+        }
+    }
+}
+
 #[expect(clippy::too_many_lines)]
 pub(crate) fn build_options(
     systemd_version: &SystemdVersion,
@@ -1121,7 +1166,7 @@ pub(crate) fn build_options(
                 })),
             }],
             updater: Some(OptionUpdater {
-                effect: |effect, action| match effect {
+                effect: |effect, action, _hopts| match effect {
                     OptionValueEffect::DenyWrite(PathDescription::Base { base, exceptions }) => {
                         let new_exception = match action {
                             ProgramAction::Write(action_path) => Some(action_path.to_owned()),
@@ -1145,7 +1190,7 @@ pub(crate) fn build_options(
                     }
                     _ => None,
                 },
-                options: |effect| match effect {
+                options: |effect, hopts| match effect {
                     OptionValueEffect::DenyWrite(PathDescription::Base { base, exceptions }) => {
                         vec![
                             OptionWithValue {
@@ -1156,10 +1201,13 @@ pub(crate) fn build_options(
                             OptionWithValue {
                                 name: "ReadWritePaths".to_owned(),
                                 value: OptionValue::List {
-                                    values: exceptions
-                                        .iter()
-                                        .filter_map(|p| p.to_str().map(ToOwned::to_owned))
-                                        .collect(),
+                                    values: merge_similar_paths(
+                                        exceptions,
+                                        hopts.merge_paths_threshold,
+                                    )
+                                    .iter()
+                                    .filter_map(|p| p.to_str().map(ToOwned::to_owned))
+                                    .collect(),
                                     value_if_empty: None,
                                     prefix: "",
                                     repeat_option: false,
@@ -1330,7 +1378,7 @@ pub(crate) fn build_options(
             ),
         }],
         updater: hardening_opts.network_firewalling.then_some(OptionUpdater {
-            effect: |e, a| {
+            effect: |e, a, _| {
                 let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(effect_na)) = e
                 else {
                     unreachable!();
@@ -1353,7 +1401,7 @@ pub(crate) fn build_options(
                     }),
                 ))
             },
-            options: |e| {
+            options: |e, _| {
                 let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(denied_na)) = e
                 else {
                     unreachable!();
@@ -1639,4 +1687,62 @@ pub(crate) fn build_options(
 
     log::debug!("{options:#?}");
     options
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_merge_similar_paths() {
+        assert_eq!(
+            merge_similar_paths(
+                &[
+                    PathBuf::from("/a/ab/ab1"),
+                    PathBuf::from("/a/ab/ab2"),
+                    PathBuf::from("/a/ab/ab3"),
+                    PathBuf::from("/a/ab/ab4/abc")
+                ],
+                NonZeroUsize::new(2).unwrap()
+            ),
+            vec![PathBuf::from("/a/ab")]
+        );
+        assert_eq!(
+            merge_similar_paths(
+                &[
+                    PathBuf::from("/a1/ab/ab1"),
+                    PathBuf::from("/a2/ab/ab2"),
+                    PathBuf::from("/a3/ab/ab3")
+                ],
+                NonZeroUsize::new(2).unwrap()
+            ),
+            vec![
+                PathBuf::from("/a1/ab/ab1"),
+                PathBuf::from("/a2/ab/ab2"),
+                PathBuf::from("/a3/ab/ab3")
+            ]
+        );
+        assert_eq!(
+            merge_similar_paths(
+                &[
+                    PathBuf::from("/a/aa/ab1"),
+                    PathBuf::from("/a/ab/ab2"),
+                    PathBuf::from("/a/ac/ab3")
+                ],
+                NonZeroUsize::new(2).unwrap()
+            ),
+            vec![PathBuf::from("/a")]
+        );
+        assert_eq!(
+            merge_similar_paths(
+                &[
+                    PathBuf::from("/a/aa/ab1"),
+                    PathBuf::from("/a/aa/ab2"),
+                    PathBuf::from("/a/ab/ab3")
+                ],
+                NonZeroUsize::new(2).unwrap()
+            ),
+            vec![PathBuf::from("/a/aa"), PathBuf::from("/a/ab")]
+        );
+    }
 }

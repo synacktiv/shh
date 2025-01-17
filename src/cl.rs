@@ -1,6 +1,6 @@
 //! Command line interface
 
-use std::path::PathBuf;
+use std::{num::NonZeroUsize, path::PathBuf};
 
 use clap::Parser;
 
@@ -35,6 +35,10 @@ pub(crate) struct HardeningOptions {
     /// Enable whitelist-based filesystem hardening
     #[arg(short = 'w', long, default_value_t)]
     pub filesystem_whitelisting: bool,
+    /// When using whitelist-based filesystem hardening, if path whitelist is longer than this value,
+    /// try to merge paths with the same parent
+    #[arg(long, default_value = "5")]
+    pub merge_paths_threshold: NonZeroUsize,
 }
 
 impl HardeningOptions {
@@ -45,6 +49,8 @@ impl HardeningOptions {
             mode: HardeningMode::Safe,
             network_firewalling: false,
             filesystem_whitelisting: false,
+            #[expect(clippy::unwrap_used)]
+            merge_paths_threshold: NonZeroUsize::new(1).unwrap(),
         }
     }
 
@@ -54,19 +60,22 @@ impl HardeningOptions {
             mode: HardeningMode::Aggressive,
             network_firewalling: true,
             filesystem_whitelisting: true,
+            #[expect(clippy::unwrap_used)]
+            merge_paths_threshold: NonZeroUsize::new(usize::MAX).unwrap(),
         }
     }
 
     pub(crate) fn to_cmdline(&self) -> String {
         format!(
-            "-m {}{}{}",
+            "-m {}{}{} --merge-paths-threshold {}",
             self.mode,
             if self.network_firewalling { " -n" } else { "" },
             if self.filesystem_whitelisting {
                 " -w"
             } else {
                 ""
-            }
+            },
+            self.merge_paths_threshold
         )
     }
 }
