@@ -270,6 +270,7 @@ impl Display for NetworkPort {
     }
 }
 
+#[derive(Debug)]
 enum FdOrPath<T> {
     Fd(T),
     Path(T),

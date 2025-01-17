@@ -88,7 +88,10 @@ fn handle_chdir(
         FdOrPath::Path(Expression::Buffer(BufferExpression {
             value: b,
             type_: BufferType::Unknown,
-        })) => Some(PathBuf::from(OsStr::from_bytes(b))),
+        })) => {
+            let p = Path::new(OsStr::from_bytes(b));
+            resolve_path(p, None, state.cur_dir.as_ref())
+        }
         FdOrPath::Path(e) => {
             return Err(HandlerError::ArgTypeMismatch {
                 sc_name: name.to_owned(),
@@ -97,6 +100,7 @@ fn handle_chdir(
         }
     };
     if let Some(dir) = dir {
+        debug_assert!(dir.is_absolute());
         state.cur_dir = Some(dir);
     }
     Ok(())
