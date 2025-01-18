@@ -23,8 +23,8 @@ fn sd_options(
     sd_version: &systemd::SystemdVersion,
     kernel_version: &systemd::KernelVersion,
     hardening_opts: &cl::HardeningOptions,
-) -> Vec<systemd::OptionDescription> {
-    let sd_opts = systemd::build_options(sd_version, kernel_version, hardening_opts);
+) -> anyhow::Result<Vec<systemd::OptionDescription>> {
+    let sd_opts = systemd::build_options(sd_version, kernel_version, hardening_opts)?;
     log::info!(
         "Enabled support for systemd options: {}",
         sd_opts
@@ -33,7 +33,7 @@ fn sd_options(
             .collect::<Vec<_>>()
             .join(", ")
     );
-    sd_opts
+    Ok(sd_opts)
 }
 
 #[cfg(feature = "gen-man-pages")]
@@ -81,7 +81,7 @@ fn main() -> anyhow::Result<()> {
             strace_log_path,
         } => {
             // Build supported systemd options
-            let sd_opts = sd_options(&sd_version, &kernel_version, &hardening_opts);
+            let sd_opts = sd_options(&sd_version, &kernel_version, &hardening_opts)?;
 
             // Run strace
             let cmd = command.iter().map(|a| &**a).collect::<Vec<&str>>();
@@ -123,7 +123,7 @@ fn main() -> anyhow::Result<()> {
             paths,
         } => {
             // Build supported systemd options
-            let sd_opts = sd_options(&sd_version, &kernel_version, &hardening_opts);
+            let sd_opts = sd_options(&sd_version, &kernel_version, &hardening_opts)?;
 
             // Load and merge profile data
             let mut actions: Vec<summarize::ProgramAction> = Vec::new();
@@ -198,7 +198,7 @@ fn main() -> anyhow::Result<()> {
                 &sd_version,
                 &kernel_version,
                 &cl::HardeningOptions::strict(),
-            );
+            )?;
             sd_opts.sort_unstable_by_key(|o| o.name);
             for sd_opt in sd_opts {
                 println!("- [`{sd_opt}`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#{sd_opt}=)");

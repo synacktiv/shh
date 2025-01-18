@@ -285,6 +285,7 @@ mod tests {
         let sd_version = SystemdVersion::new(254, 0);
         let kernel_version = KernelVersion::new(6, 4, 0);
         build_options(&sd_version, &kernel_version, &HardeningOptions::safe())
+            .unwrap()
             .into_iter()
             .filter(|o| names.contains(&o.name))
             .collect()

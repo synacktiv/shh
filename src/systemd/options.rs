@@ -5,7 +5,7 @@
 use std::{
     borrow::ToOwned,
     collections::{HashMap, HashSet},
-    fmt, iter,
+    fmt, fs, iter,
     num::NonZeroUsize,
     os::unix::ffi::OsStrExt as _,
     path::{Path, PathBuf},
@@ -862,7 +862,7 @@ pub(crate) fn build_options(
     systemd_version: &SystemdVersion,
     kernel_version: &KernelVersion,
     hardening_opts: &HardeningOptions,
-) -> Vec<OptionDescription> {
+) -> anyhow::Result<Vec<OptionDescription>> {
     let mut options = Vec::new();
 
     //
@@ -1155,6 +1155,7 @@ pub(crate) fn build_options(
         });
     }
 
+    // https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ReadWritePaths=
     if hardening_opts.filesystem_whitelisting {
         options.push(OptionDescription {
             name: "ReadOnlyPaths",
@@ -1224,8 +1225,40 @@ pub(crate) fn build_options(
             }),
         });
 
+        let mut base_paths: Vec<_> = fs::read_dir("/")?
+            .filter_map(Result::ok)
+            .map(|e| e.path())
+            .collect();
+        base_paths.sort_unstable();
+        options.push(OptionDescription {
+            name: "InaccessiblePaths",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::List {
+                    values: base_paths
+                        .iter()
+                        .filter_map(|d| d.to_str().map(ToOwned::to_owned))
+                        .collect(),
+                    value_if_empty: None,
+                    prefix: "-",
+                    repeat_option: false,
+                    mode: ListMode::BlackList,
+                },
+                desc: OptionEffect::Cumulative(
+                    base_paths
+                        .iter()
+                        .map(|d| {
+                            OptionValueEffect::Hide(PathDescription::Base {
+                                base: d.to_owned(),
+                                exceptions: vec![],
+                            })
+                        })
+                        .collect(),
+                ),
+            }],
+            updater: None, // TODO
+        });
+
         // TODO NoExecPaths + ExecPaths updater
-        // TODO InaccessiblePaths + ReadWritePaths/ReadOnlyPaths updater
     }
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#MemoryDenyWriteExecute=
@@ -1686,7 +1719,7 @@ pub(crate) fn build_options(
     }
 
     log::debug!("{options:#?}");
-    options
+    Ok(options)
 }
 
 #[cfg(test)]
