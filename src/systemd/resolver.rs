@@ -205,7 +205,7 @@ pub(crate) fn resolve(
                         OptionValue::List {
                             values,
                             value_if_empty,
-                            negation_prefix,
+                            prefix,
                             repeat_option,
                             mode,
                         } => {
@@ -254,8 +254,8 @@ pub(crate) fn resolve(
                                     name: opt.name.to_owned(),
                                     value: OptionValue::List {
                                         values: compatible_opts,
-                                        value_if_empty: value_if_empty.clone(),
-                                        negation_prefix: *negation_prefix,
+                                        value_if_empty: *value_if_empty,
+                                        prefix,
                                         repeat_option: *repeat_option,
                                         mode: mode.clone(),
                                     },

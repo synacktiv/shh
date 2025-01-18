@@ -58,8 +58,8 @@ pub(crate) enum OptionValue {
     String(String), // enum-like, or free string
     List {
         values: Vec<String>,
-        value_if_empty: Option<String>,
-        negation_prefix: bool,
+        value_if_empty: Option<&'static str>,
+        prefix: &'static str,
         repeat_option: bool,
         mode: ListMode,
     },
@@ -255,7 +255,7 @@ impl fmt::Display for OptionWithValue {
             OptionValue::List {
                 values,
                 value_if_empty,
-                negation_prefix,
+                prefix,
                 repeat_option,
                 ..
             } => {
@@ -268,24 +268,18 @@ impl fmt::Display for OptionWithValue {
                     }
                 } else if *repeat_option {
                     for (i, value) in values.iter().enumerate() {
-                        write!(f, "{}=", self.name)?;
-                        if *negation_prefix {
-                            write!(f, "~")?;
-                        }
-                        write!(f, "{value}")?;
+                        write!(f, "{}={}{}", self.name, prefix, value)?;
                         if i < values.len() - 1 {
                             writeln!(f)?;
                         }
                     }
                     Ok(())
                 } else {
-                    write!(f, "{}=", self.name)?;
-                    if *negation_prefix {
-                        write!(f, "~")?;
-                    }
                     write!(
                         f,
-                        "{}",
+                        "{}={}{}",
+                        self.name,
+                        prefix,
                         values
                             .iter()
                             .map(ToOwned::to_owned)
@@ -1179,8 +1173,8 @@ pub(crate) fn build_options(
         possible_values: vec![OptionValueDescription {
             value: OptionValue::List {
                 values: afs.iter().map(|s| (*s).to_owned()).collect(),
-                value_if_empty: Some("none".to_owned()),
-                negation_prefix: false,
+                value_if_empty: Some("none"),
+                prefix: "",
                 repeat_option: false,
                 mode: ListMode::WhiteList,
             },
@@ -1243,7 +1237,7 @@ pub(crate) fn build_options(
                     .map(|(af, proto)| format!("{af}:{proto}"))
                     .collect(),
                 value_if_empty: None,
-                negation_prefix: false,
+                prefix: "",
                 repeat_option: true,
                 mode: ListMode::BlackList,
             },
@@ -1310,7 +1304,7 @@ pub(crate) fn build_options(
                         })
                         .collect(),
                     value_if_empty: None,
-                    negation_prefix: false,
+                    prefix: "",
                     repeat_option: true,
                     mode: ListMode::BlackList,
                 }
@@ -1509,7 +1503,7 @@ pub(crate) fn build_options(
             value: OptionValue::List {
                 values: cap_effects.iter().map(|(c, _e)| (*c).to_owned()).collect(),
                 value_if_empty: None,
-                negation_prefix: true,
+                prefix: "~",
                 repeat_option: false,
                 mode: ListMode::BlackList,
             },
@@ -1539,7 +1533,7 @@ pub(crate) fn build_options(
                     .map(|c| format!("@{c}:EPERM"))
                     .collect(),
                 value_if_empty: None,
-                negation_prefix: true,
+                prefix: "~",
                 repeat_option: false,
                 mode: ListMode::BlackList,
             },
