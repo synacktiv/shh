@@ -6,7 +6,7 @@ mod service;
 mod version;
 
 pub(crate) use options::{
-    build_options, OptionDescription, OptionValue, SocketFamily, SocketProtocol,
+    build_options, ListOptionValue, OptionDescription, OptionValue, SocketFamily, SocketProtocol,
 };
 pub(crate) use resolver::resolve;
 pub(crate) use service::Service;
