@@ -595,7 +595,7 @@ where
 
     // Report stats
     let mut syscall_names = stats.keys().collect::<Vec<_>>();
-    syscall_names.sort();
+    syscall_names.sort_unstable();
     for syscall_name in syscall_names {
         #[expect(clippy::unwrap_used)]
         let count = stats.get(syscall_name).unwrap();
