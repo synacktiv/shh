@@ -208,7 +208,7 @@ fn main() -> anyhow::Result<()> {
                             println!("  - `{}`", if v { "true" } else { "false" });
                         }
                         systemd::OptionValue::String(v) => println!("  - `{v}`"),
-                        systemd::OptionValue::List { values, .. } => {
+                        systemd::OptionValue::List(systemd::ListOptionValue { values, .. }) => {
                             for val in values {
                                 println!("  - `{val}`");
                             }

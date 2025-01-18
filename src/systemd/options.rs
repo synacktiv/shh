@@ -5,7 +5,7 @@
 use std::{
     borrow::ToOwned,
     collections::{HashMap, HashSet},
-    fmt, fs, iter,
+    fmt, iter,
     num::NonZeroUsize,
     os::unix::ffi::OsStrExt as _,
     path::{Path, PathBuf},
@@ -48,7 +48,7 @@ impl fmt::Display for OptionDescription {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ListMode {
     WhiteList,
     BlackList,
@@ -59,13 +59,17 @@ pub(crate) enum ListMode {
 pub(crate) enum OptionValue {
     Boolean(bool), // In most case we only model the 'true' value, because false is no-op and the default
     String(String), // enum-like, or free string
-    List {
-        values: Vec<String>,
-        value_if_empty: Option<&'static str>,
-        prefix: &'static str,
-        repeat_option: bool,
-        mode: ListMode,
-    },
+    List(ListOptionValue),
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ListOptionValue {
+    pub values: Vec<String>,
+    pub value_if_empty: Option<&'static str>,
+    pub prefix: &'static str,
+    pub repeat_option: bool,
+    pub mode: ListMode,
+    pub mergeable_paths: bool,
 }
 
 impl FromStr for OptionValue {
@@ -131,6 +135,33 @@ pub(crate) enum OptionValueEffect {
     DenySyscalls(DenySyscalls),
     /// Union of multiple effects
     Multiple(Vec<OptionValueEffect>),
+}
+
+impl OptionValueEffect {
+    /// Merge current effect with another, while avoiding creating nested `Multiple`
+    pub(crate) fn merge(&mut self, other: &OptionValueEffect) {
+        match self {
+            OptionValueEffect::Multiple(effs) => match other {
+                OptionValueEffect::Multiple(oeffs) => {
+                    effs.extend(oeffs.iter().cloned());
+                }
+                oeff => {
+                    effs.push(oeff.clone());
+                }
+            },
+            eff => match other {
+                OptionValueEffect::Multiple(oeffs) => {
+                    let mut new_effs = Vec::with_capacity(oeffs.len() + 1);
+                    new_effs.push(eff.to_owned());
+                    new_effs.extend(oeffs.iter().cloned());
+                    *eff = OptionValueEffect::Multiple(new_effs);
+                }
+                oeff => {
+                    *eff = OptionValueEffect::Multiple(vec![eff.to_owned(), oeff.to_owned()]);
+                }
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -227,10 +258,50 @@ impl DenySyscalls {
 }
 
 /// A systemd option with a value, as would be present in a config file
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct OptionWithValue<T> {
     pub name: T,
     pub value: OptionValue,
+}
+
+impl<T: PartialEq> OptionWithValue<T> {
+    /// Merge current option with another if we can, return true if we succeeded
+    pub(crate) fn merge(&mut self, other: &Self) -> bool {
+        if self.name == other.name {
+            match (&mut self.value, &other.value) {
+                (
+                    OptionValue::List(ListOptionValue {
+                        values,
+                        value_if_empty,
+                        prefix,
+                        repeat_option,
+                        mode,
+                        mergeable_paths,
+                    }),
+                    OptionValue::List(ListOptionValue {
+                        values: ovalues,
+                        value_if_empty: ovalue_if_empty,
+                        prefix: oprefix,
+                        repeat_option: orepeat_option,
+                        mode: omode,
+                        mergeable_paths: omergeable_paths,
+                    }),
+                ) if value_if_empty == ovalue_if_empty
+                    && prefix == oprefix
+                    && repeat_option == orepeat_option
+                    && mode == omode
+                    && mergeable_paths == omergeable_paths =>
+                {
+                    values.extend(ovalues.iter().cloned());
+                    values.sort_unstable();
+                    true
+                }
+                _ => false,
+            }
+        } else {
+            false
+        }
+    }
 }
 
 impl FromStr for OptionWithValue<String> {
@@ -256,13 +327,13 @@ impl<T: fmt::Display> fmt::Display for OptionWithValue<T> {
                 write!(f, "{}={}", self.name, if *value { "true" } else { "false" })
             }
             OptionValue::String(value) => write!(f, "{}={}", self.name, value),
-            OptionValue::List {
+            OptionValue::List(ListOptionValue {
                 values,
                 value_if_empty,
                 prefix,
                 repeat_option,
                 ..
-            } => {
+            }) => {
                 if values.is_empty() {
                     write!(f, "{}=", self.name)?;
                     if let Some(value_if_empty) = value_if_empty {
@@ -814,7 +885,7 @@ static SYSCALL_CLASSES: LazyLock<HashMap<&'static str, HashSet<&'static str>>> =
         ])
     });
 
-fn merge_similar_paths(paths: &[PathBuf], threshold: NonZeroUsize) -> Vec<PathBuf> {
+pub(crate) fn merge_similar_paths(paths: &[PathBuf], threshold: NonZeroUsize) -> Vec<PathBuf> {
     if paths.len() <= threshold.get() {
         paths.to_vec()
     } else {
@@ -838,12 +909,26 @@ fn merge_similar_paths(paths: &[PathBuf], threshold: NonZeroUsize) -> Vec<PathBu
             let mut advancing = false;
             let mut new_candidates = Vec::with_capacity(candidates.len());
             for candidate in &candidates {
-                if let Some(candidate_children) = children.get(candidate) {
-                    new_candidates.extend(candidate_children.iter().cloned());
-                    advancing |= !candidate_children.is_empty();
+                match children.get(candidate) {
+                    Some(candidate_children) if !paths.contains(candidate) => {
+                        new_candidates.extend(candidate_children.iter().cloned());
+                        advancing |= !candidate_children.is_empty();
+                    }
+                    _ => {
+                        new_candidates.push(candidate.to_owned());
+                    }
                 }
             }
-            if !advancing || new_candidates.len() > threshold.get() {
+            // Bail out if:
+            // not progressing anymore (paths don't have children)
+            if !advancing
+                // previous candidate count were lower, and new one is above threshold
+                || ((new_candidates.len() > threshold.get())
+                    && (candidates.len() < new_candidates.len())
+                    && (candidates != initial_candidates))
+                // not less path than initial input
+                || (new_candidates.len() >= paths.len())
+            {
                 break;
             }
             candidates = new_candidates;
@@ -857,7 +942,7 @@ fn merge_similar_paths(paths: &[PathBuf], threshold: NonZeroUsize) -> Vec<PathBu
     }
 }
 
-#[expect(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines, clippy::unnecessary_wraps)]
 pub(crate) fn build_options(
     systemd_version: &SystemdVersion,
     kernel_version: &KernelVersion,
@@ -1160,14 +1245,21 @@ pub(crate) fn build_options(
         options.push(OptionDescription {
             name: "ReadOnlyPaths",
             possible_values: vec![OptionValueDescription {
-                value: OptionValue::String("/".into()),
+                value: OptionValue::List(ListOptionValue {
+                    values: vec!["/".to_owned()],
+                    value_if_empty: None,
+                    prefix: "-",
+                    repeat_option: false,
+                    mode: ListMode::BlackList,
+                    mergeable_paths: true,
+                }),
                 desc: OptionEffect::Simple(OptionValueEffect::DenyWrite(PathDescription::Base {
                     base: "/".into(),
                     exceptions: vec![],
                 })),
             }],
             updater: Some(OptionUpdater {
-                effect: |effect, action, _hopts| match effect {
+                effect: |effect, action, _| match effect {
                     OptionValueEffect::DenyWrite(PathDescription::Base { base, exceptions }) => {
                         let new_exception = match action {
                             ProgramAction::Write(action_path) => Some(action_path.to_owned()),
@@ -1196,12 +1288,19 @@ pub(crate) fn build_options(
                         vec![
                             OptionWithValue {
                                 name: "ReadOnlyPaths",
-                                #[expect(clippy::unwrap_used)] // path is from our option, so unicode safe
-                                value: OptionValue::String(base.to_str().unwrap().to_owned()),
+                                value: OptionValue::List(ListOptionValue {
+                                    #[expect(clippy::unwrap_used)] // path is from our option, so unicode safe
+                                    values: vec![base.to_str().unwrap().to_owned()],
+                                    value_if_empty: None,
+                                    prefix: "-",
+                                    repeat_option: false,
+                                    mode: ListMode::BlackList,
+                                    mergeable_paths: true,
+                                }),
                             },
                             OptionWithValue {
                                 name: "ReadWritePaths",
-                                value: OptionValue::List {
+                                value: OptionValue::List(ListOptionValue {
                                     values: merge_similar_paths(
                                         exceptions,
                                         hopts.merge_paths_threshold,
@@ -1210,10 +1309,11 @@ pub(crate) fn build_options(
                                     .filter_map(|p| p.to_str().map(ToOwned::to_owned))
                                     .collect(),
                                     value_if_empty: None,
-                                    prefix: "",
+                                    prefix: "-",
                                     repeat_option: false,
                                     mode: ListMode::WhiteList,
-                                },
+                                    mergeable_paths: true,
+                                }),
                             },
                         ]
                     }
@@ -1225,37 +1325,86 @@ pub(crate) fn build_options(
             }),
         });
 
-        let mut base_paths: Vec<_> = fs::read_dir("/")?
-            .filter_map(Result::ok)
-            .map(|e| e.path())
-            .collect();
-        base_paths.sort_unstable();
         options.push(OptionDescription {
             name: "InaccessiblePaths",
             possible_values: vec![OptionValueDescription {
-                value: OptionValue::List {
-                    values: base_paths
-                        .iter()
-                        .filter_map(|d| d.to_str().map(ToOwned::to_owned))
-                        .collect(),
+                value: OptionValue::List(ListOptionValue {
+                    values: vec!["/".to_owned()],
                     value_if_empty: None,
                     prefix: "-",
                     repeat_option: false,
                     mode: ListMode::BlackList,
-                },
-                desc: OptionEffect::Cumulative(
-                    base_paths
-                        .iter()
-                        .map(|d| {
-                            OptionValueEffect::Hide(PathDescription::Base {
-                                base: d.to_owned(),
-                                exceptions: vec![],
-                            })
-                        })
-                        .collect(),
-                ),
+                    mergeable_paths: true,
+                }),
+                desc: OptionEffect::Simple(OptionValueEffect::Hide(PathDescription::Base {
+                    base: "/".into(),
+                    exceptions: vec![],
+                })),
             }],
-            updater: None, // TODO
+            updater: Some(OptionUpdater {
+                effect: |effect, action, _| {
+                    let (ProgramAction::Read(action_path)
+                    | ProgramAction::Write(action_path)
+                    | ProgramAction::Create(action_path)) = action
+                    else {
+                        return None;
+                    };
+                    match effect {
+                        OptionValueEffect::Hide(PathDescription::Base { base, exceptions }) => {
+                            let mut new_exceptions = Vec::with_capacity(exceptions.len() + 1);
+                            new_exceptions.extend(exceptions.iter().cloned());
+                            new_exceptions.push(action_path.to_owned());
+                            Some(OptionValueEffect::Hide(PathDescription::Base {
+                                base: base.to_owned(),
+                                exceptions: new_exceptions,
+                            }))
+                        }
+                        OptionValueEffect::Hide(PathDescription::Pattern(_)) => {
+                            unimplemented!()
+                        }
+                        _ => None,
+                    }
+                },
+                options: |effect, hopts| match effect {
+                    OptionValueEffect::Hide(PathDescription::Base { base, exceptions }) => {
+                        vec![
+                            OptionWithValue {
+                                name: "TemporaryFileSystem",
+                                value: OptionValue::List(ListOptionValue {
+                                    #[expect(clippy::unwrap_used)] // path is from our option, so unicode safe
+                                    values: vec![base.to_str().unwrap().to_owned()], // TODO ro?
+                                    value_if_empty: None,
+                                    prefix: "",
+                                    repeat_option: false,
+                                    mode: ListMode::BlackList,
+                                    mergeable_paths: true,
+                                }),
+                            },
+                            OptionWithValue {
+                                name: "BindPaths",
+                                value: OptionValue::List(ListOptionValue {
+                                    values: merge_similar_paths(
+                                        exceptions,
+                                        hopts.merge_paths_threshold,
+                                    )
+                                    .iter()
+                                    .filter_map(|p| p.to_str().map(ToOwned::to_owned))
+                                    .collect(),
+                                    value_if_empty: None,
+                                    prefix: "-",
+                                    repeat_option: false,
+                                    mode: ListMode::WhiteList,
+                                    mergeable_paths: true,
+                                }),
+                            },
+                        ]
+                    }
+                    OptionValueEffect::DenyWrite(PathDescription::Pattern(_)) => {
+                        unimplemented!()
+                    }
+                    _ => unreachable!(),
+                },
+            }),
         });
 
         // TODO NoExecPaths + ExecPaths updater
@@ -1324,13 +1473,14 @@ pub(crate) fn build_options(
     options.push(OptionDescription {
         name: "RestrictAddressFamilies",
         possible_values: vec![OptionValueDescription {
-            value: OptionValue::List {
+            value: OptionValue::List(ListOptionValue {
                 values: afs.iter().map(|s| (*s).to_owned()).collect(),
                 value_if_empty: Some("none"),
                 prefix: "",
                 repeat_option: false,
                 mode: ListMode::WhiteList,
-            },
+                mergeable_paths: false,
+            }),
             desc: OptionEffect::Cumulative(
                 afs.into_iter()
                     .map(|af| {
@@ -1384,7 +1534,7 @@ pub(crate) fn build_options(
     options.push(OptionDescription {
         name: "SocketBindDeny",
         possible_values: vec![OptionValueDescription {
-            value: OptionValue::List {
+            value: OptionValue::List(ListOptionValue {
                 values: deny_binds
                     .iter()
                     .map(|(af, proto)| format!("{af}:{proto}"))
@@ -1393,7 +1543,8 @@ pub(crate) fn build_options(
                 prefix: "",
                 repeat_option: true,
                 mode: ListMode::BlackList,
-            },
+                mergeable_paths: false,
+            }),
             desc: OptionEffect::Cumulative(
                 deny_binds
                     .into_iter()
@@ -1441,7 +1592,7 @@ pub(crate) fn build_options(
                 };
                 vec![OptionWithValue {
                     name: "SocketBindDeny",
-                    value: OptionValue::List {
+                    value: OptionValue::List(ListOptionValue {
                         values: denied_na
                             .af
                             .elements()
@@ -1462,7 +1613,8 @@ pub(crate) fn build_options(
                         prefix: "",
                         repeat_option: true,
                         mode: ListMode::BlackList,
-                    },
+                        mergeable_paths: false,
+                    }),
                 }]
             },
         }),
@@ -1656,13 +1808,14 @@ pub(crate) fn build_options(
     options.push(OptionDescription {
         name: "CapabilityBoundingSet",
         possible_values: vec![OptionValueDescription {
-            value: OptionValue::List {
+            value: OptionValue::List(ListOptionValue {
                 values: cap_effects.iter().map(|(c, _e)| (*c).to_owned()).collect(),
                 value_if_empty: None,
                 prefix: "~",
                 repeat_option: false,
                 mode: ListMode::BlackList,
-            },
+                mergeable_paths: false,
+            }),
             desc: OptionEffect::Cumulative(cap_effects.into_iter().map(|(_c, e)| e).collect()),
         }],
         updater: None,
@@ -1683,7 +1836,7 @@ pub(crate) fn build_options(
     options.push(OptionDescription {
         name: "SystemCallFilter",
         possible_values: vec![OptionValueDescription {
-            value: OptionValue::List {
+            value: OptionValue::List(ListOptionValue {
                 values: syscall_classes
                     .iter()
                     .map(|c| format!("@{c}:EPERM"))
@@ -1692,7 +1845,8 @@ pub(crate) fn build_options(
                 prefix: "~",
                 repeat_option: false,
                 mode: ListMode::BlackList,
-            },
+                mergeable_paths: false,
+            }),
             desc: OptionEffect::Cumulative(
                 syscall_classes
                     .into_iter()

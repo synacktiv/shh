@@ -1,6 +1,6 @@
 //! Resolver code that finds options compatible with program actions
 
-use itertools::Itertools as _;
+use std::path::PathBuf;
 
 use crate::{
     cl::HardeningOptions,
@@ -10,7 +10,10 @@ use crate::{
     },
 };
 
-use super::options::OptionUpdater;
+use super::{
+    options::{merge_similar_paths, OptionUpdater},
+    ListOptionValue,
+};
 
 impl OptionValueEffect {
     fn compatible(
@@ -106,6 +109,26 @@ pub(crate) struct ChangedOptionValueDescription {
     pub effect: OptionValueEffect,
 }
 
+impl ChangedOptionValueDescription {
+    fn merge(&mut self, other: &Self) {
+        let mut to_append = Vec::with_capacity(other.new_options.len());
+        for ooption in &other.new_options {
+            let mut handled = false;
+            for option in &mut self.new_options {
+                handled = option.merge(ooption);
+                if handled {
+                    break;
+                }
+            }
+            if !handled {
+                to_append.push(ooption.clone());
+            }
+        }
+        self.new_options.append(&mut to_append);
+        self.effect.merge(&other.effect);
+    }
+}
+
 /// How compatible is an action with an option effect?
 pub(crate) enum ActionOptionEffectCompatibility {
     Compatible,
@@ -123,7 +146,7 @@ impl From<bool> for ActionOptionEffectCompatibility {
     }
 }
 
-pub(crate) fn actions_compatible(
+fn actions_compatible(
     eff: &OptionValueEffect,
     actions: &[ProgramAction],
     updater: Option<&OptionUpdater>,
@@ -156,6 +179,71 @@ pub(crate) fn actions_compatible(
 
     if let Some(new_desc) = changed_desc {
         ActionOptionEffectCompatibility::CompatibleIfChanged(new_desc)
+    } else {
+        ActionOptionEffectCompatibility::Compatible
+    }
+}
+
+fn actions_compatible_list(
+    opt_name: &'static str,
+    list: &ListOptionValue,
+    effects: &[OptionValueEffect],
+    actions: &[ProgramAction],
+    updater: Option<&OptionUpdater>,
+    hardening_opts: &HardeningOptions,
+) -> ActionOptionEffectCompatibility {
+    debug_assert_eq!(list.values.len(), effects.len());
+    let mut changed_desc: Option<ChangedOptionValueDescription> = None;
+    let mut enabled_list_vals = Vec::new();
+    let mut enabled_list_val_effects = Vec::new();
+    for (list_val, list_val_eff) in list.values.iter().zip(effects.to_vec().iter_mut()) {
+        let compatible = actions_compatible(list_val_eff, actions, updater, hardening_opts);
+        let enable_opt_val = match list.mode {
+            ListMode::WhiteList => {
+                matches!(compatible, ActionOptionEffectCompatibility::Incompatible)
+            }
+            ListMode::BlackList => match compatible {
+                ActionOptionEffectCompatibility::Compatible => true,
+                ActionOptionEffectCompatibility::CompatibleIfChanged(new_desc) => {
+                    if let Some(changed_desc) = changed_desc.as_mut() {
+                        changed_desc.merge(&new_desc);
+                    } else {
+                        changed_desc = Some(new_desc);
+                    }
+                    false
+                }
+                ActionOptionEffectCompatibility::Incompatible => false,
+            },
+        };
+        if enable_opt_val {
+            enabled_list_vals.push(list_val.to_owned());
+            enabled_list_val_effects.push(list_val_eff.to_owned());
+        }
+    }
+    if enabled_list_vals.is_empty() && matches!(list.mode, ListMode::BlackList) {
+        return ActionOptionEffectCompatibility::Incompatible;
+    }
+    if list.values != enabled_list_vals || changed_desc.is_some() {
+        // Rebuild option with changed list
+        let mut new_list_desc = ChangedOptionValueDescription {
+            new_options: vec![OptionWithValue {
+                name: opt_name,
+                value: OptionValue::List(ListOptionValue {
+                    values: enabled_list_vals,
+                    ..list.to_owned()
+                }),
+            }],
+            effect: OptionValueEffect::Multiple(enabled_list_val_effects),
+        };
+        if let Some(changed_desc) = changed_desc.as_mut() {
+            new_list_desc.merge(changed_desc);
+            *changed_desc = new_list_desc;
+        } else {
+            changed_desc = Some(new_list_desc);
+        }
+    }
+    if let Some(changed_desc) = changed_desc {
+        ActionOptionEffectCompatibility::CompatibleIfChanged(changed_desc)
     } else {
         ActionOptionEffectCompatibility::Compatible
     }
@@ -198,69 +286,30 @@ pub(crate) fn resolve(
                 }
                 OptionEffect::Cumulative(effects) => {
                     match &opt_value_desc.value {
-                        OptionValue::List {
-                            values,
-                            value_if_empty,
-                            prefix,
-                            repeat_option,
-                            mode,
-                        } => {
-                            let mut compatible_opts = Vec::new();
-                            debug_assert_eq!(values.len(), effects.len());
-                            let mut cur_effects = effects.clone();
-                            for (optv, opte) in values.iter().zip(&mut cur_effects) {
-                                let compatible = actions_compatible(
-                                    opte,
-                                    actions,
-                                    opt.updater.as_ref(),
-                                    hardening_opts,
-                                );
-                                let mut cur_opt_vals = vec![optv.to_owned()];
-                                let enable_opt = match mode {
-                                    ListMode::WhiteList => matches!(
-                                        compatible,
-                                        ActionOptionEffectCompatibility::Incompatible
-                                    ),
-                                    ListMode::BlackList => match compatible {
-                                        ActionOptionEffectCompatibility::Compatible => true,
-                                        ActionOptionEffectCompatibility::CompatibleIfChanged(
-                                            nd,
-                                        ) => {
-                                            *opte = nd.effect;
-                                            match actions_compatible(opte, actions, None, hardening_opts) {
-                                                ActionOptionEffectCompatibility::Compatible => {
-                                                    match nd.new_options.iter().at_most_one() {
-                                                        Ok(Some(OptionWithValue { name, value: OptionValue::List { values: new_vals, .. } })) if *name == opt.name => {
-                                                            new_vals.clone_into(&mut cur_opt_vals);
-                                                        },
-                                                        e => unreachable!("{e:?}"),
-                                                    }
-                                                    true
-                                                },
-                                                ActionOptionEffectCompatibility::CompatibleIfChanged(_) => unreachable!(),
-                                                ActionOptionEffectCompatibility::Incompatible => false,
-                                            }
-                                        }
-                                        ActionOptionEffectCompatibility::Incompatible => false,
-                                    },
-                                };
-                                if enable_opt {
-                                    compatible_opts.append(&mut cur_opt_vals);
+                        OptionValue::List(lv) => {
+                            match actions_compatible_list(
+                                opt.name,
+                                lv,
+                                effects,
+                                actions,
+                                opt.updater.as_ref(),
+                                hardening_opts,
+                            ) {
+                                ActionOptionEffectCompatibility::Compatible => {
+                                    candidates.push(OptionWithValue {
+                                        name: opt.name,
+                                        value: opt_value_desc.value.clone(),
+                                    });
+                                    break;
                                 }
+                                ActionOptionEffectCompatibility::CompatibleIfChanged(
+                                    opt_new_desc,
+                                ) => {
+                                    candidates.extend(opt_new_desc.new_options);
+                                    break;
+                                }
+                                ActionOptionEffectCompatibility::Incompatible => {}
                             }
-                            if !compatible_opts.is_empty() || value_if_empty.is_some() {
-                                candidates.push(OptionWithValue {
-                                    name: opt.name,
-                                    value: OptionValue::List {
-                                        values: compatible_opts,
-                                        value_if_empty: *value_if_empty,
-                                        prefix,
-                                        repeat_option: *repeat_option,
-                                        mode: mode.clone(),
-                                    },
-                                });
-                            }
-                            break;
                         }
                         _ => unreachable!(),
                     };
@@ -268,6 +317,29 @@ pub(crate) fn resolve(
             }
         }
     }
+
+    // Merge paths in compatible options
+    for option in &mut candidates {
+        if let OptionValue::List(ListOptionValue {
+            values,
+            mergeable_paths: true,
+            ..
+        }) = &mut option.value
+        {
+            *values = merge_similar_paths(
+                values
+                    .iter()
+                    .map(PathBuf::from)
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+                hardening_opts.merge_paths_threshold,
+            )
+            .into_iter()
+            .filter_map(|p| p.to_str().map(ToOwned::to_owned))
+            .collect();
+        }
+    }
+
     candidates
 }
 
