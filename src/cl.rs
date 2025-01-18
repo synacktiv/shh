@@ -29,10 +29,14 @@ pub(crate) struct HardeningOptions {
     /// How hard we should harden
     #[arg(short, long, default_value_t, value_enum)]
     pub mode: HardeningMode,
-    /// Enable advanced network firewalling
+    /// Enable advanced network firewalling.
+    /// Only use this if you know that the network addresses and ports, of
+    /// local system and remote peers will not change
     #[arg(short = 'f', long, default_value_t)]
     pub network_firewalling: bool,
-    /// Enable whitelist-based filesystem hardening
+    /// Enable whitelist-based filesystem hardening.
+    /// Only use this if you know that the paths accessed by the service will not
+    /// change
     #[arg(short = 'w', long, default_value_t)]
     pub filesystem_whitelisting: bool,
     /// When using whitelist-based filesystem hardening, if path whitelist is longer than this value,
