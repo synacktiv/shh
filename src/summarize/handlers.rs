@@ -5,7 +5,10 @@ use std::{
     collections::HashMap,
     ffi::OsStr,
     io,
-    os::unix::{ffi::OsStrExt as _, fs::FileTypeExt as _},
+    os::{
+        fd::RawFd,
+        unix::{ffi::OsStrExt as _, fs::FileTypeExt as _},
+    },
     path::{Path, PathBuf},
     sync::LazyLock,
 };
@@ -309,8 +312,14 @@ fn handle_network(
             },
             _ => CountableSetSpecifier::None,
         };
-        #[expect(clippy::cast_possible_truncation)]
-        if let Some(proto) = state.known_sockets_proto.get(&(pid, *fd_val as i32)) {
+        if let Some(proto) = state.known_sockets_proto.get(&(
+            pid,
+            TryInto::<RawFd>::try_into(*fd_val).map_err(|_| HandlerError::ConversionFailed {
+                src: fd_val.to_string(),
+                type_src: type_name_of_val(fd_val),
+                type_dst: type_name::<RawFd>(),
+            })?,
+        )) {
             actions.push(ProgramAction::NetworkActivity(NetworkActivity {
                 af: SetSpecifier::One(af),
                 proto: SetSpecifier::One(proto.to_owned()),
@@ -513,10 +522,17 @@ fn handle_socket(
             src: proto_flag.to_owned(),
             type_: type_name::<SocketProtocol>(),
         })?;
-    #[expect(clippy::cast_possible_truncation)]
-    state
-        .known_sockets_proto
-        .insert((pid, ret_val as i32), proto.clone());
+    state.known_sockets_proto.insert(
+        (
+            pid,
+            TryInto::<RawFd>::try_into(ret_val).map_err(|_| HandlerError::ConversionFailed {
+                src: ret_val.to_string(),
+                type_src: type_name_of_val(&ret_val),
+                type_dst: type_name::<RawFd>(),
+            })?,
+        ),
+        proto.clone(),
+    );
 
     actions.push(ProgramAction::NetworkActivity(NetworkActivity {
         af: SetSpecifier::One(af),

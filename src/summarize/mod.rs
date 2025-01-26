@@ -5,6 +5,7 @@ use std::{
     fmt::{self, Display},
     num::NonZeroU16,
     ops::{Add, RangeInclusive, Sub},
+    os::fd::RawFd,
     path::PathBuf,
     slice,
     sync::LazyLock,
@@ -558,7 +559,7 @@ static SYSCALL_MAP: LazyLock<HashMap<&'static str, SyscallArgsIndex>> = LazyLock
 struct ProgramState {
     /// Keep known socket protocols (per process) for bind handling, we don't care for the socket closings
     /// because the fd will be reused or never bound again
-    known_sockets_proto: HashMap<(u32, i32), SocketProtocol>,
+    known_sockets_proto: HashMap<(u32, RawFd), SocketProtocol>,
     /// Current working directory
     // TODO initialize with startup current dir?
     cur_dir: Option<PathBuf>,
