@@ -31,7 +31,7 @@ pub(crate) struct OptionUpdater {
     pub effect:
         fn(&OptionValueEffect, &ProgramAction, &HardeningOptions) -> Option<OptionValueEffect>,
     /// Generate new options from the new effect
-    pub options: fn(&OptionValueEffect, &HardeningOptions) -> Vec<OptionWithValue>,
+    pub options: fn(&OptionValueEffect, &HardeningOptions) -> Vec<OptionWithValue<&'static str>>,
 }
 
 /// Systemd option with its possibles values, and their effect
@@ -228,12 +228,12 @@ impl DenySyscalls {
 
 /// A systemd option with a value, as would be present in a config file
 #[derive(Debug)]
-pub(crate) struct OptionWithValue {
-    pub name: String,
+pub(crate) struct OptionWithValue<T> {
+    pub name: T,
     pub value: OptionValue,
 }
 
-impl FromStr for OptionWithValue {
+impl FromStr for OptionWithValue<String> {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -249,7 +249,7 @@ impl FromStr for OptionWithValue {
     }
 }
 
-impl fmt::Display for OptionWithValue {
+impl<T: fmt::Display> fmt::Display for OptionWithValue<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match &self.value {
             OptionValue::Boolean(value) => {
@@ -1195,12 +1195,12 @@ pub(crate) fn build_options(
                     OptionValueEffect::DenyWrite(PathDescription::Base { base, exceptions }) => {
                         vec![
                             OptionWithValue {
-                                name: "ReadOnlyPaths".to_owned(),
+                                name: "ReadOnlyPaths",
                                 #[expect(clippy::unwrap_used)] // path is from our option, so unicode safe
                                 value: OptionValue::String(base.to_str().unwrap().to_owned()),
                             },
                             OptionWithValue {
-                                name: "ReadWritePaths".to_owned(),
+                                name: "ReadWritePaths",
                                 value: OptionValue::List {
                                     values: merge_similar_paths(
                                         exceptions,
@@ -1440,7 +1440,7 @@ pub(crate) fn build_options(
                     unreachable!();
                 };
                 vec![OptionWithValue {
-                    name: "SocketBindDeny".to_owned(),
+                    name: "SocketBindDeny",
                     value: OptionValue::List {
                         values: denied_na
                             .af

@@ -185,7 +185,10 @@ impl Service {
         Ok(())
     }
 
-    pub(crate) fn add_hardening_fragment(&self, opts: Vec<OptionWithValue>) -> anyhow::Result<()> {
+    pub(crate) fn add_hardening_fragment(
+        &self,
+        opts: Vec<OptionWithValue<String>>,
+    ) -> anyhow::Result<()> {
         let fragment_path = self.fragment_path(HARDENING_FRAGMENT_NAME, true);
         #[expect(clippy::unwrap_used)]
         fs::create_dir_all(fragment_path.parent().unwrap())?;
@@ -234,7 +237,7 @@ impl Service {
         Ok(())
     }
 
-    pub(crate) fn profiling_result(&self) -> anyhow::Result<Vec<OptionWithValue>> {
+    pub(crate) fn profiling_result(&self) -> anyhow::Result<Vec<OptionWithValue<String>>> {
         // Start journalctl process
         let mut child = Command::new("journalctl")
             .args([
@@ -283,7 +286,7 @@ impl Service {
         let opts = snippet_lines[1..snippet_lines.len() - 1]
             .iter()
             .rev()
-            .map(|l| l.parse::<OptionWithValue>())
+            .map(|l| l.parse::<OptionWithValue<String>>())
             .collect::<anyhow::Result<_>>()?;
 
         // Stop journalctl

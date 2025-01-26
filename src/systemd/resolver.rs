@@ -102,7 +102,7 @@ impl OptionValueEffect {
 /// A systemd option value and its effect, altered from original
 #[derive(Debug)]
 pub(crate) struct ChangedOptionValueDescription {
-    pub new_options: Vec<OptionWithValue>,
+    pub new_options: Vec<OptionWithValue<&'static str>>,
     pub effect: OptionValueEffect,
 }
 
@@ -165,7 +165,7 @@ pub(crate) fn resolve(
     opts: &Vec<OptionDescription>,
     actions: &[ProgramAction],
     hardening_opts: &HardeningOptions,
-) -> Vec<OptionWithValue> {
+) -> Vec<OptionWithValue<&'static str>> {
     let mut candidates = Vec::new();
     for opt in opts {
         // Options are in the less to most restrictive order,
@@ -174,7 +174,7 @@ pub(crate) fn resolve(
             match &opt_value_desc.desc {
                 OptionEffect::None => {
                     candidates.push(OptionWithValue {
-                        name: opt.name.to_owned(),
+                        name: opt.name,
                         value: opt_value_desc.value.clone(),
                     });
                     break;
@@ -184,7 +184,7 @@ pub(crate) fn resolve(
                     {
                         ActionOptionEffectCompatibility::Compatible => {
                             candidates.push(OptionWithValue {
-                                name: opt.name.to_owned(),
+                                name: opt.name,
                                 value: opt_value_desc.value.clone(),
                             });
                             break;
@@ -230,7 +230,7 @@ pub(crate) fn resolve(
                                             match actions_compatible(opte, actions, None, hardening_opts) {
                                                 ActionOptionEffectCompatibility::Compatible => {
                                                     match nd.new_options.iter().at_most_one() {
-                                                        Ok(Some(OptionWithValue { name, value: OptionValue::List { values: new_vals, .. } })) if name == opt.name => {
+                                                        Ok(Some(OptionWithValue { name, value: OptionValue::List { values: new_vals, .. } })) if *name == opt.name => {
                                                             new_vals.clone_into(&mut cur_opt_vals);
                                                         },
                                                         e => unreachable!("{e:?}"),
@@ -250,7 +250,7 @@ pub(crate) fn resolve(
                             }
                             if !compatible_opts.is_empty() || value_if_empty.is_some() {
                                 candidates.push(OptionWithValue {
-                                    name: opt.name.to_owned(),
+                                    name: opt.name,
                                     value: OptionValue::List {
                                         values: compatible_opts,
                                         value_if_empty: *value_if_empty,
