@@ -288,16 +288,22 @@ fn handle_network(
                 Some(Expression::Integer(IntegerExpression {
                     value: IntegerExpressionValue::Literal(port_val),
                     ..
-                })) =>
-                {
-                    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                    CountableSetSpecifier::One(NetworkPort((*port_val as u16).try_into().map_err(
-                        |_| HandlerError::ConversionFailed {
-                            src: port_val.to_string(),
-                            type_src: type_name_of_val(port_val),
-                            type_dst: type_name::<NetworkPort>(),
-                        },
-                    )?))
+                })) => {
+                    if *port_val == 0 {
+                        // 0 means bind random port, we don't know which one so assume all
+                        CountableSetSpecifier::All
+                    } else {
+                        CountableSetSpecifier::One(NetworkPort(
+                            TryInto::<u16>::try_into(*port_val)
+                                .ok()
+                                .and_then(|i| i.try_into().ok())
+                                .ok_or_else(|| HandlerError::ConversionFailed {
+                                    src: port_val.to_string(),
+                                    type_src: type_name_of_val(port_val),
+                                    type_dst: type_name::<NetworkPort>(),
+                                })?,
+                        ))
+                    }
                 }
                 _ => todo!(),
             },
