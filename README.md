@@ -7,11 +7,14 @@
 
 Automatic [systemd](https://systemd.io/) service hardening guided by [strace](https://strace.io/) profiling.
 
-See [this article](https://www.synacktiv.com/publications/systemd-hardening-made-easy-with-shh) for an introduction.
-
 [Official repository](https://github.com/desbma/shh) - [Mirror repository](https://github.com/synacktiv/shh)
 
-[Changelog](CHANGELOG.md) - [Currently supported systemd options](systemd_options.md)
+## Documentation
+
+- High level introduction: [Systemd hardening made easy with SHH](https://www.synacktiv.com/publications/systemd-hardening-made-easy-with-shh)
+- [FAQ](FAQ.md)
+- [Changelog](CHANGELOG.md)
+- [Currently supported systemd options](systemd_options.md)
 
 ## Installation
 
