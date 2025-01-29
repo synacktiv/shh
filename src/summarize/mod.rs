@@ -33,6 +33,8 @@ pub(crate) enum ProgramAction {
     Write(PathBuf),
     /// Path was created
     Create(PathBuf),
+    /// Path was exec'd
+    Exec(PathBuf),
     /// Network (socket) activity
     NetworkActivity(NetworkActivity),
     /// Memory mapping with write and execute bits
@@ -285,6 +287,10 @@ enum SyscallArgsInfo<T> {
         op: T,
         event: T,
     },
+    Exec {
+        relfd: Option<T>,
+        path: T,
+    },
     Mkdir {
         relfd: Option<T>,
         path: T,
@@ -347,6 +353,12 @@ impl SyscallArgsIndex {
             Self::EpollCtl { op, event } => SyscallArgs::EpollCtl {
                 op: Self::extract_arg(sc, *op)?,
                 event: Self::extract_arg(sc, *event)?,
+            },
+            Self::Exec { relfd, path } => SyscallArgs::Exec {
+                relfd: relfd
+                    .map(|relfd| Self::extract_arg(sc, relfd))
+                    .transpose()?,
+                path: Self::extract_arg(sc, *path)?,
             },
             Self::Mkdir { relfd, path } => SyscallArgs::Mkdir {
                 relfd: relfd
@@ -437,6 +449,21 @@ static SYSCALL_MAP: LazyLock<HashMap<&'static str, SyscallArgsIndex>> = LazyLock
         ("fchdir", SyscallArgsIndex::Chdir(FdOrPath::Fd(0))),
         // epoll_ctl
         ("epoll_ctl", SyscallArgsIndex::EpollCtl { op: 1, event: 3 }),
+        // execve
+        (
+            "execve",
+            SyscallArgsIndex::Exec {
+                relfd: None,
+                path: 0,
+            },
+        ),
+        (
+            "execveat",
+            SyscallArgsIndex::Exec {
+                relfd: Some(0),
+                path: 1,
+            },
+        ),
         // mkdir
         (
             "mkdir",

@@ -50,6 +50,7 @@ pub(crate) fn summarize_syscall(
     match args {
         SyscallArgsInfo::Chdir(p) => handle_chdir(&sc.name, p, state),
         SyscallArgsInfo::EpollCtl { op, event } => handle_epoll_ctl(&sc.name, op, event, actions),
+        SyscallArgsInfo::Exec { relfd, path } => handle_exec(&sc.name, relfd, path, actions, state),
         SyscallArgsInfo::Mkdir { relfd, path } => {
             handle_mkdir(&sc.name, relfd, path, actions, state)
         }
@@ -156,6 +157,32 @@ fn handle_epoll_ctl(
         if evt_flags.value.is_flag_set("EPOLLWAKEUP") {
             actions.push(ProgramAction::Wakeup);
         }
+    }
+    Ok(())
+}
+
+/// Handle exec-like syscalls
+fn handle_exec(
+    name: &str,
+    relfd: Option<&Expression>,
+    path: &Expression,
+    actions: &mut Vec<ProgramAction>,
+    state: &ProgramState,
+) -> Result<(), HandlerError> {
+    let path = if let Expression::Buffer(BufferExpression {
+        value: b,
+        type_: BufferType::Unknown,
+    }) = path
+    {
+        PathBuf::from(OsStr::from_bytes(b))
+    } else {
+        return Err(HandlerError::ArgTypeMismatch {
+            sc_name: name.to_owned(),
+            arg: path.to_owned(),
+        });
+    };
+    if let Some(path) = resolve_path(&path, relfd, state.cur_dir.as_ref()) {
+        actions.push(ProgramAction::Exec(path));
     }
     Ok(())
 }

@@ -50,7 +50,11 @@ impl OptionValueEffect {
                 ProgramAction::Syscalls(_)
                 | ProgramAction::Read(_)
                 | ProgramAction::Write(_)
-                | ProgramAction::Create(_) => unreachable!(),
+                | ProgramAction::Create(_)
+                | ProgramAction::Exec(_) => {
+                    // Handled via different effects, see below
+                    unreachable!()
+                }
             },
             OptionValueEffect::DenyWrite(ro_paths) => match action {
                 ProgramAction::Write(path_action) | ProgramAction::Create(path_action) => {
@@ -58,14 +62,17 @@ impl OptionValueEffect {
                 }
                 _ => true,
             },
-            OptionValueEffect::Hide(hidden_paths) => {
-                if let ProgramAction::Read(path_action) = action {
+            OptionValueEffect::DenyExec(noexec_paths) => match action {
+                ProgramAction::Exec(path_action) => !noexec_paths.matches(path_action),
+                _ => true,
+            },
+            OptionValueEffect::Hide(hidden_paths) => match action {
+                ProgramAction::Read(path_action) | ProgramAction::Exec(path_action) => {
                     !hidden_paths.matches(path_action)
                         || prev_actions.contains(&ProgramAction::Create(path_action.clone()))
-                } else {
-                    true
                 }
-            }
+                _ => true,
+            },
             OptionValueEffect::DenySyscalls(denied) => {
                 if let ProgramAction::Syscalls(syscalls) = action {
                     let denied_syscalls = denied.syscalls();

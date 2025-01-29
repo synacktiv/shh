@@ -129,6 +129,9 @@ pub(crate) enum OptionValueEffect {
     DenyAction(ProgramAction),
     /// Mount path as read only
     DenyWrite(PathDescription),
+    /// Mount path as noexec
+    #[expect(dead_code)]
+    DenyExec(PathDescription),
     /// Mount an empty tmpfs under given directory
     Hide(PathDescription),
     /// Deny syscall(s)
