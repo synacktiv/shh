@@ -1345,17 +1345,20 @@ pub(crate) fn build_options(
             }],
             updater: Some(OptionUpdater {
                 effect: |effect, action, _| {
-                    let (ProgramAction::Read(action_path)
-                    | ProgramAction::Write(action_path)
-                    | ProgramAction::Create(action_path)) = action
-                    else {
-                        return None;
+                    let action_path = match action {
+                        ProgramAction::Read(action_path)
+                        | ProgramAction::Write(action_path)
+                        | ProgramAction::Exec(action_path) => action_path.to_owned(),
+                        ProgramAction::Create(action_path) => {
+                            action_path.parent().map(Path::to_path_buf)?
+                        }
+                        _ => return None,
                     };
                     match effect {
                         OptionValueEffect::Hide(PathDescription::Base { base, exceptions }) => {
                             let mut new_exceptions = Vec::with_capacity(exceptions.len() + 1);
                             new_exceptions.extend(exceptions.iter().cloned());
-                            new_exceptions.push(action_path.to_owned());
+                            new_exceptions.push(action_path);
                             Some(OptionValueEffect::Hide(PathDescription::Base {
                                 base: base.to_owned(),
                                 exceptions: new_exceptions,
