@@ -130,7 +130,6 @@ pub(crate) enum OptionValueEffect {
     /// Mount path as read only
     DenyWrite(PathDescription),
     /// Mount path as noexec
-    #[expect(dead_code)]
     DenyExec(PathDescription),
     /// Mount an empty tmpfs under given directory
     Hide(PathDescription),
@@ -1410,7 +1409,76 @@ pub(crate) fn build_options(
             }),
         });
 
-        // TODO NoExecPaths + ExecPaths updater
+        options.push(OptionDescription {
+            name: "NoExecPaths",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::List(ListOptionValue {
+                    values: vec!["/".to_owned()],
+                    value_if_empty: None,
+                    prefix: "-",
+                    repeat_option: false,
+                    mode: ListMode::BlackList,
+                    mergeable_paths: true,
+                }),
+                desc: OptionEffect::Simple(OptionValueEffect::DenyExec(PathDescription::Base {
+                    base: "/".into(),
+                    exceptions: vec![],
+                })),
+            }],
+            updater: Some(OptionUpdater {
+                effect: |effect, action, _| match effect {
+                    OptionValueEffect::DenyExec(PathDescription::Base { base, exceptions }) => {
+                        let ProgramAction::Exec(new_exception) = action else {
+                            return None;
+                        };
+                        let mut new_exceptions = Vec::with_capacity(exceptions.len() + 1);
+                        new_exceptions.extend(exceptions.iter().cloned());
+                        new_exceptions.push(new_exception.to_owned());
+                        Some(OptionValueEffect::DenyExec(PathDescription::Base {
+                            base: base.to_owned(),
+                            exceptions: new_exceptions,
+                        }))
+                    }
+                    _ => None,
+                },
+                options: |effect, hopts| match effect {
+                    OptionValueEffect::DenyExec(PathDescription::Base { base, exceptions }) => {
+                        vec![
+                            OptionWithValue {
+                                name: "NoExecPaths",
+                                value: OptionValue::List(ListOptionValue {
+                                    #[expect(clippy::unwrap_used)] // path is from our option, so unicode safe
+                                    values: vec![base.to_str().unwrap().to_owned()],
+                                    value_if_empty: None,
+                                    prefix: "-",
+                                    repeat_option: false,
+                                    mode: ListMode::BlackList,
+                                    mergeable_paths: true,
+                                }),
+                            },
+                            OptionWithValue {
+                                name: "ExecPaths",
+                                value: OptionValue::List(ListOptionValue {
+                                    values: merge_similar_paths(
+                                        exceptions,
+                                        hopts.merge_paths_threshold,
+                                    )
+                                    .iter()
+                                    .filter_map(|p| p.to_str().map(ToOwned::to_owned))
+                                    .collect(),
+                                    value_if_empty: None,
+                                    prefix: "-",
+                                    repeat_option: false,
+                                    mode: ListMode::WhiteList,
+                                    mergeable_paths: true,
+                                }),
+                            },
+                        ]
+                    }
+                    _ => unreachable!(),
+                },
+            }),
+        });
     }
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#MemoryDenyWriteExecute=
