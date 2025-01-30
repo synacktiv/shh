@@ -50,7 +50,7 @@ pub(crate) fn summarize_syscall(
     state: &mut ProgramState,
 ) -> Result<(), HandlerError> {
     match args {
-        SyscallArgsInfo::Chdir(p) => handle_chdir(&sc.name, p, state),
+        SyscallArgsInfo::Chdir(p) => handle_chdir(&sc.name, p, actions, state),
         SyscallArgsInfo::EpollCtl { op, event } => handle_epoll_ctl(&sc.name, op, event, actions),
         SyscallArgsInfo::Exec { relfd, path } => handle_exec(&sc.name, relfd, path, actions, state),
         SyscallArgsInfo::Mkdir { relfd, path } => {
@@ -90,6 +90,7 @@ pub(crate) fn summarize_syscall(
 fn handle_chdir(
     name: &str,
     path: FdOrPath<&Expression>,
+    actions: &mut Vec<ProgramAction>,
     state: &mut ProgramState,
 ) -> Result<(), HandlerError> {
     let dir = match path {
@@ -108,7 +109,8 @@ fn handle_chdir(
             });
         }
     };
-    if let Some(dir) = dir {
+    if let Some(mut dir) = dir {
+        traverse_symlinks(&mut dir, actions);
         debug_assert!(dir.is_absolute());
         state.cur_dir = Some(dir);
     }
@@ -183,7 +185,8 @@ fn handle_exec(
             arg: path.to_owned(),
         });
     };
-    if let Some(path) = resolve_path(&path, relfd, state.cur_dir.as_ref()) {
+    if let Some(mut path) = resolve_path(&path, relfd, state.cur_dir.as_ref()) {
+        traverse_symlinks(&mut path, actions);
         actions.push(ProgramAction::Exec(path));
     }
     Ok(())
@@ -209,7 +212,8 @@ fn handle_mkdir(
             arg: path.to_owned(),
         });
     };
-    if let Some(path) = resolve_path(&path, relfd, state.cur_dir.as_ref()) {
+    if let Some(mut path) = resolve_path(&path, relfd, state.cur_dir.as_ref()) {
+        traverse_symlinks(&mut path, actions);
         actions.push(ProgramAction::Create(path));
     }
     Ok(())
@@ -257,7 +261,8 @@ fn handle_mmap(
         .and_then(|e| e.metadata())
         .map(|m| PathBuf::from(OsStr::from_bytes(m)));
     if prot_val.is_flag_set("PROT_EXEC") {
-        if let Some(path) = path {
+        if let Some(mut path) = path {
+            traverse_symlinks(&mut path, actions);
             actions.push(ProgramAction::Exec(path));
         }
         if prot_val.is_flag_set("PROT_WRITE") {
@@ -406,19 +411,20 @@ fn handle_open(
     } else {
         return Ok(());
     };
+
+    // Add actions for traversed symlinks
+    traverse_symlinks(&mut path, actions);
+
+    // Returned fd has normalized path, use it if we can
     let ret_path = ret_val
         .metadata
         .as_ref()
         .map(|b| PathBuf::from(OsStr::from_bytes(b)));
+    path = ret_path.unwrap_or(path);
 
+    // Set actions from flags
     if flags_val.is_flag_set("O_CREAT") {
         actions.push(ProgramAction::Create(path.clone()));
-        if let Some(ret_path) = &ret_path {
-            // Add path from returned fd (can be different because symlinks are followed)
-            if *ret_path != path {
-                actions.push(ProgramAction::Create(ret_path.clone()));
-            }
-        }
     }
     if (flags_val.is_flag_set("O_WRONLY")
         || flags_val.is_flag_set("O_RDWR")
@@ -427,22 +433,11 @@ fn handle_open(
         && !path.metadata().ok().is_some_and(|m| m.file_type().is_char_device())
     {
         actions.push(ProgramAction::Write(path.clone()));
-        if let Some(ret_path) = &ret_path {
-            // Add path from returned fd (can be different because symlinks are followed)
-            if *ret_path != path {
-                actions.push(ProgramAction::Write(ret_path.clone()));
-            }
-        }
     }
     if flags_val.is_flag_set("O_RDONLY") || !flags_val.is_flag_set("O_WRONLY") {
         actions.push(ProgramAction::Read(path.clone()));
-        if let Some(ret_path) = ret_path {
-            // Add path from returned fd (can be different because symlinks are followed)
-            if ret_path != path {
-                actions.push(ProgramAction::Read(ret_path));
-            }
-        }
     }
+
     Ok(())
 }
 
@@ -483,7 +478,7 @@ fn handle_rename(
         });
     };
 
-    let (Some(path_src), Some(path_dst)) = (
+    let (Some(mut path_src), Some(mut path_dst)) = (
         resolve_path(&path_src, relfd_src, state.cur_dir.as_ref()),
         resolve_path(&path_dst, relfd_dst, state.cur_dir.as_ref()),
     ) else {
@@ -503,6 +498,8 @@ fn handle_rename(
         None => false,
     };
 
+    traverse_symlinks(&mut path_src, actions);
+    traverse_symlinks(&mut path_dst, actions);
     actions.push(ProgramAction::Read(path_src.clone()));
     actions.push(ProgramAction::Write(path_src.clone()));
     if exchange {
@@ -623,7 +620,8 @@ fn handle_stat_fd(
             sc_name: name.to_owned(),
             arg: fd.to_owned(),
         })?;
-    if let Some(path) = resolve_path(&path, None, state.cur_dir.as_ref()) {
+    if let Some(mut path) = resolve_path(&path, None, state.cur_dir.as_ref()) {
+        traverse_symlinks(&mut path, actions);
         actions.push(ProgramAction::Read(path));
     };
     Ok(())
@@ -649,7 +647,8 @@ fn handle_stat_path(
             arg: path.to_owned(),
         });
     };
-    if let Some(path) = resolve_path(&path, relfd, state.cur_dir.as_ref()) {
+    if let Some(mut path) = resolve_path(&path, relfd, state.cur_dir.as_ref()) {
+        traverse_symlinks(&mut path, actions);
         actions.push(ProgramAction::Read(path));
     }
     Ok(())
@@ -695,6 +694,7 @@ fn socket_address_uds_path(
 }
 
 /// Resolve relative path if possible, and normalize it
+/// Does not access filesystem to resolve symlinks
 fn resolve_path(
     path: &Path,
     relfd: Option<&Expression>,
@@ -719,6 +719,64 @@ fn resolve_path(
     Some(path.clean())
 }
 
+/// Add actions for traversed symlinks, set symlink target of current path if it is one
+fn traverse_symlinks(in_path: &mut PathBuf, actions: &mut Vec<ProgramAction>) {
+    actions.extend(
+        path_symlinks(in_path)
+            .unwrap_or_default()
+            .into_iter()
+            .map(ProgramAction::Read),
+    );
+}
+
+/// Get all symlinks paths that need to be followed to access a path
+fn path_symlinks(in_path: &mut PathBuf) -> io::Result<Vec<PathBuf>> {
+    /// Max number of links to follow before giving up (likely a loop)
+    const MAX_LINK_COUNT: usize = 10;
+
+    debug_assert!(in_path.is_absolute());
+    let mut links = Vec::new();
+
+    let mut cur_level_path: Option<PathBuf> = None;
+    let mut leaf_is_link = false;
+    for component in in_path.components() {
+        let mut cur_path = if let Some(cur_level_path) = &cur_level_path {
+            cur_level_path.join(component).clean()
+        } else {
+            PathBuf::from(&component)
+        };
+        let mut link_count = 0;
+        while let Ok(mut link_target) = cur_path.read_link() {
+            if link_count > MAX_LINK_COUNT {
+                // TODO use ErrorKind::FilesystemLoop when stabilized
+                return Err(io::Error::other("Too many symlinks"));
+            }
+            links.push(cur_path.clone());
+
+            #[expect(clippy::unwrap_used)]
+            if link_target.is_relative() {
+                link_target = cur_path
+                    .parent()
+                    .or(cur_level_path.as_deref())
+                    .unwrap()
+                    .join(link_target);
+            }
+
+            cur_path = link_target.clean();
+            link_count += 1;
+        }
+        cur_level_path = Some(cur_path);
+        leaf_is_link = link_count > 0;
+    }
+
+    #[expect(clippy::unwrap_used)]
+    if leaf_is_link {
+        *in_path = cur_level_path.unwrap();
+    }
+
+    Ok(links)
+}
+
 #[expect(clippy::unwrap_used)]
 static FD_PSEUDO_PATH_REGEX: LazyLock<regex::bytes::Regex> =
     LazyLock::new(|| regex::bytes::Regex::new(r"^[a-z]+:\[[0-9a-z]+\]/?$").unwrap());
@@ -729,6 +787,11 @@ fn is_fd_pseudo_path(path: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        fs::{self, File},
+        os::unix,
+    };
+
     use super::*;
 
     #[test]
@@ -736,5 +799,63 @@ mod tests {
         assert!(!is_fd_pseudo_path("plop".as_bytes()));
         assert!(is_fd_pseudo_path("pipe:[12334]".as_bytes()));
         assert!(is_fd_pseudo_path("socket:[1234]/".as_bytes()));
+    }
+
+    #[test]
+    fn test_path_symlinks_lib() {
+        let tmp_dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(tmp_dir.path().join("usr/lib/x86_64-linux-gnu")).unwrap();
+        unix::fs::symlink(tmp_dir.path().join("usr/lib"), tmp_dir.path().join("lib")).unwrap();
+        File::create(
+            tmp_dir
+                .path()
+                .join("usr/lib/x86_64-linux-gnu/libselinux.so.1"),
+        )
+        .unwrap();
+        unix::fs::symlink(
+            tmp_dir
+                .path()
+                .join("usr/lib/x86_64-linux-gnu/libselinux.so.1"),
+            tmp_dir
+                .path()
+                .join("usr/lib/x86_64-linux-gnu/libselinux.so"),
+        )
+        .unwrap();
+
+        let mut in_path = tmp_dir.path().join("lib/x86_64-linux-gnu/libselinux.so");
+        assert_eq!(
+            path_symlinks(&mut in_path).unwrap(),
+            vec![
+                tmp_dir.path().join("lib"),
+                tmp_dir
+                    .path()
+                    .join("usr/lib/x86_64-linux-gnu/libselinux.so")
+            ]
+        );
+        assert_eq!(
+            in_path,
+            tmp_dir
+                .path()
+                .join("usr/lib/x86_64-linux-gnu/libselinux.so.1")
+        );
+    }
+
+    #[test]
+    fn test_path_symlinks_parent() {
+        let tmp_dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(tmp_dir.path().join("a/b")).unwrap();
+        fs::create_dir_all(tmp_dir.path().join("d/e")).unwrap();
+        unix::fs::symlink(
+            tmp_dir.path().join("a/b/c/../.."),
+            tmp_dir.path().join("a/b/c"),
+        )
+        .unwrap();
+
+        let mut in_path = tmp_dir.path().join("a/b/c/e");
+        assert_eq!(
+            path_symlinks(&mut in_path).unwrap(),
+            vec![tmp_dir.path().join("a/b/c"),]
+        );
+        assert_eq!(in_path, tmp_dir.path().join("a/b/c/e"));
     }
 }
