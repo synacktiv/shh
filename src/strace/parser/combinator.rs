@@ -158,18 +158,9 @@ fn parse_in_out_argument(i: &str) -> IResult<&str, Expression> {
 }
 
 #[function_name::named]
-fn parse_ret_val(i: &str) -> IResult<&str, i128> {
+fn parse_ret_val(i: &str) -> IResult<&str, IntegerExpression> {
     dbg_parser!(i);
-    map_res(
-        preceded(terminated(char('='), space1), parse_int_literal),
-        |e| {
-            if let IntegerExpressionValue::Literal(v) = e.value {
-                Ok(v)
-            } else {
-                Err("Failed to get return value: {e:?}")
-            }
-        },
-    )(i)
+    preceded(terminated(char('='), space1), parse_int_literal)(i)
 }
 
 // Shared parsers

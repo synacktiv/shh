@@ -62,7 +62,7 @@ pub(crate) fn summarize_syscall(
             handle_network(&sc.name, sc.pid, fd, sockaddr, actions, state)
         }
         SyscallArgsInfo::Open { relfd, path, flags } => {
-            handle_open(&sc.name, relfd, path, flags, actions, state)
+            handle_open(&sc.name, relfd, path, flags, &sc.ret_val, actions, state)
         }
         SyscallArgsInfo::Rename {
             relfd_src,
@@ -75,7 +75,7 @@ pub(crate) fn summarize_syscall(
         ),
         SyscallArgsInfo::SetScheduler { policy } => handle_setscheduler(&sc.name, policy, actions),
         SyscallArgsInfo::Socket { af, flags } => {
-            handle_socket(&sc.name, sc.pid, sc.ret_val, af, flags, actions, state)
+            handle_socket(&sc.name, sc.pid, &sc.ret_val, af, flags, actions, state)
         }
         SyscallArgsInfo::StatFd { fd } => handle_stat_fd(&sc.name, fd, actions, state),
         SyscallArgsInfo::StatPath { relfd, path } => {
@@ -375,6 +375,7 @@ fn handle_open(
     relfd: Option<&Expression>,
     path: &Expression,
     flags: &Expression,
+    ret_val: &IntegerExpression,
     actions: &mut Vec<ProgramAction>,
     state: &ProgramState,
 ) -> Result<(), HandlerError> {
@@ -405,9 +406,19 @@ fn handle_open(
     } else {
         return Ok(());
     };
+    let ret_path = ret_val
+        .metadata
+        .as_ref()
+        .map(|b| PathBuf::from(OsStr::from_bytes(b)));
 
     if flags_val.is_flag_set("O_CREAT") {
         actions.push(ProgramAction::Create(path.clone()));
+        if let Some(ret_path) = &ret_path {
+            // Add path from returned fd (can be different because symlinks are followed)
+            if *ret_path != path {
+                actions.push(ProgramAction::Create(ret_path.clone()));
+            }
+        }
     }
     if (flags_val.is_flag_set("O_WRONLY")
         || flags_val.is_flag_set("O_RDWR")
@@ -416,9 +427,21 @@ fn handle_open(
         && !path.metadata().ok().is_some_and(|m| m.file_type().is_char_device())
     {
         actions.push(ProgramAction::Write(path.clone()));
+        if let Some(ret_path) = &ret_path {
+            // Add path from returned fd (can be different because symlinks are followed)
+            if *ret_path != path {
+                actions.push(ProgramAction::Write(ret_path.clone()));
+            }
+        }
     }
     if flags_val.is_flag_set("O_RDONLY") || !flags_val.is_flag_set("O_WRONLY") {
-        actions.push(ProgramAction::Read(path));
+        actions.push(ProgramAction::Read(path.clone()));
+        if let Some(ret_path) = ret_path {
+            // Add path from returned fd (can be different because symlinks are followed)
+            if ret_path != path {
+                actions.push(ProgramAction::Read(ret_path));
+            }
+        }
     }
     Ok(())
 }
@@ -517,7 +540,7 @@ fn handle_setscheduler(
 fn handle_socket(
     name: &str,
     pid: u32,
-    ret_val: i128,
+    ret_val: &IntegerExpression,
     af: &Expression,
     flags: &Expression,
     actions: &mut Vec<ProgramAction>,
@@ -560,11 +583,16 @@ fn handle_socket(
             src: proto_flag.to_owned(),
             type_: type_name::<SocketProtocol>(),
         })?;
+    let ret_fd = ret_val.value().ok_or_else(|| HandlerError::ParsingFailed {
+        src: format!("{ret_val:?}"),
+        type_: type_name::<i128>(),
+    })?;
+
     state.known_sockets_proto.insert(
         (
             pid,
-            TryInto::<RawFd>::try_into(ret_val).map_err(|_| HandlerError::ConversionFailed {
-                src: ret_val.to_string(),
+            TryInto::<RawFd>::try_into(ret_fd).map_err(|_| HandlerError::ConversionFailed {
+                src: ret_fd.to_string(),
                 type_src: type_name_of_val(&ret_val),
                 type_dst: type_name::<RawFd>(),
             })?,

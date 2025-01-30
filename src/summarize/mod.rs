@@ -689,7 +689,10 @@ mod tests {
                     metadata: None,
                 }),
             ],
-            ret_val: 0,
+            ret_val: IntegerExpression {
+                value: IntegerExpressionValue::Literal(0),
+                metadata: None,
+            },
         })];
         assert_eq!(
             summarize(syscalls).unwrap(),
@@ -737,7 +740,10 @@ mod tests {
                     metadata: None,
                 }),
             ],
-            ret_val: 0,
+            ret_val: IntegerExpression {
+                value: IntegerExpressionValue::Literal(0),
+                metadata: None,
+            },
         })];
         assert_eq!(
             summarize(syscalls).unwrap(),

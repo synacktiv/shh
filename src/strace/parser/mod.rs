@@ -11,7 +11,7 @@ use crate::strace::Syscall;
 mod combinator;
 use combinator::parse_line;
 
-use super::{Expression, SyscallRetVal};
+use super::{Expression, IntegerExpression};
 
 pub(crate) struct LogParser {
     reader: Box<dyn BufRead>,
@@ -69,7 +69,7 @@ impl SyscallStart {
             rel_ts: end.rel_ts,
             name: self.name,
             args: self.args,
-            ret_val: end.ret_val,
+            ret_val: end.ret_val.clone(),
         }
     }
 }
@@ -80,7 +80,7 @@ pub(crate) struct SyscallEnd {
     pub pid: u32,
     pub rel_ts: f64,
     pub name: String,
-    pub ret_val: SyscallRetVal,
+    pub ret_val: IntegerExpression,
 }
 
 impl Iterator for LogParser {
@@ -206,7 +206,7 @@ mod tests {
                     }),
 
                 ],
-                ret_val: 0x7f52a332e000
+                ret_val: IntegerExpression { value: IntegerExpressionValue::Literal(0x7f52a332e000), metadata: None }
             })
         );
 
@@ -251,7 +251,7 @@ mod tests {
                         metadata: None
                     }),
                 ],
-                ret_val: 0x7f2fce8dc000
+                ret_val: IntegerExpression { value: IntegerExpressionValue::Literal(0x7f2fce8dc000), metadata: None }
             })
         );
     }
@@ -278,7 +278,7 @@ mod tests {
                         metadata: None,
                     }),
                 ],
-                ret_val: -1
+                ret_val: IntegerExpression { value: IntegerExpressionValue::Literal(-1), metadata: None }
             })
         );
     }
@@ -358,7 +358,7 @@ mod tests {
                         metadata: None
                     }),
                 ],
-                ret_val: 0
+                ret_val: IntegerExpression { value: IntegerExpressionValue::Literal(0), metadata: None }
             })
         );
     }
@@ -431,7 +431,7 @@ mod tests {
                         metadata: None,
                     }),
                 ],
-                ret_val: 0,
+                ret_val: IntegerExpression { value: IntegerExpressionValue::Literal(0), metadata: None }
             })
         );
     }
@@ -581,7 +581,7 @@ mod tests {
                         metadata: None
                     }),
                 ],
-                ret_val: 0
+                ret_val: IntegerExpression { value: IntegerExpressionValue::Literal(0), metadata: None }
             })
         );
     }
@@ -612,7 +612,7 @@ mod tests {
                         metadata: None,
                     }),
                 ],
-                ret_val: 8
+                ret_val: IntegerExpression { value: IntegerExpressionValue::Literal(8), metadata: None }
             })
         );
     }
@@ -737,7 +737,7 @@ mod tests {
                         ),
                     ]))
                 ],
-                ret_val: 0
+                ret_val: IntegerExpression { value: IntegerExpressionValue::Literal(0), metadata: None }
             })
         );
 
@@ -860,7 +860,7 @@ mod tests {
                         ),
                     ]))
                 ],
-                ret_val: 0
+                ret_val: IntegerExpression { value: IntegerExpressionValue::Literal(0), metadata: None }
             })
         );
     }
@@ -896,7 +896,10 @@ mod tests {
                         metadata: None,
                     }),
                 ],
-                ret_val: 3
+                ret_val: IntegerExpression {
+                    value: IntegerExpressionValue::Literal(3),
+                    metadata: Some("/home/mde/src".as_bytes().to_vec())
+                }
             })
         );
     }
@@ -1014,7 +1017,7 @@ mod tests {
                         metadata: None,
                     }),
                 ],
-                ret_val: 20
+                ret_val: IntegerExpression { value: IntegerExpressionValue::Literal(20), metadata: None }
             })
         );
 
@@ -1038,7 +1041,10 @@ mod tests {
                         metadata: None,
                     }),
                 ],
-                ret_val: 832
+                ret_val: IntegerExpression {
+                    value: IntegerExpressionValue::Literal(832),
+                    metadata: None
+                }
             })
         );
     }
@@ -1093,7 +1099,7 @@ mod tests {
                         metadata: None,
                     }),
                 ],
-                ret_val: 0
+                ret_val: IntegerExpression { value: IntegerExpressionValue::Literal(0), metadata: None }
             })
         );
 
@@ -1148,7 +1154,7 @@ mod tests {
                         metadata: None,
                     }),
                 ],
-                ret_val: 0
+                ret_val: IntegerExpression { value: IntegerExpressionValue::Literal(0), metadata: None }
             })
         );
     }
@@ -1201,7 +1207,7 @@ mod tests {
                         metadata: None,
                     }),
                 ],
-                ret_val: 0
+                ret_val: IntegerExpression { value: IntegerExpressionValue::Literal(0), metadata: None }
             })
         );
     }
@@ -1260,7 +1266,7 @@ mod tests {
                         ),
                     ])),
                 ],
-                ret_val: 0
+                ret_val: IntegerExpression { value: IntegerExpressionValue::Literal(0), metadata: None }
             })
         );
 
@@ -1361,7 +1367,7 @@ mod tests {
                         metadata: None,
                     }),
                 ],
-                ret_val: 2
+                ret_val: IntegerExpression { value: IntegerExpressionValue::Literal(2), metadata: None }
             })
         );
     }
@@ -1409,7 +1415,10 @@ mod tests {
                             ),
                         ])),
                     ],
-                    ret_val: 0
+                    ret_val: IntegerExpression {
+                        value: IntegerExpressionValue::Literal(0),
+                        metadata: None
+                    }
                 },
                 Syscall {
                     pid: 1,
@@ -1443,7 +1452,10 @@ mod tests {
                             metadata: None,
                         }),
                     ],
-                    ret_val: 1
+                    ret_val: IntegerExpression {
+                        value: IntegerExpressionValue::Literal(1),
+                        metadata: None
+                    }
                 }
             ]
         );
@@ -1460,7 +1472,10 @@ mod tests {
                 rel_ts: 0.000022,
                 name: "getpid".to_owned(),
                 args: vec![],
-                ret_val: 641314
+                ret_val: IntegerExpression {
+                    value: IntegerExpressionValue::Literal(641314),
+                    metadata: None
+                }
             })
         );
     }
@@ -1481,7 +1496,7 @@ mod tests {
                         metadata: Some("/memfd:mozilla-ipc".as_bytes().to_vec()),
                     }),
                 ],
-                ret_val: 0
+                ret_val: IntegerExpression { value: IntegerExpressionValue::Literal(0), metadata: None }
             })
         );
     }
@@ -1568,7 +1583,10 @@ mod tests {
                         ]
                     },
                 ],
-                ret_val: 8
+                ret_val: IntegerExpression {
+                    value: IntegerExpressionValue::Literal(8),
+                    metadata: None
+                }
             })
         );
     }
@@ -1610,7 +1628,10 @@ mod tests {
                         ),]
                     },
                 ],
-                ret_val: 0
+                ret_val: IntegerExpression {
+                    value: IntegerExpressionValue::Literal(0),
+                    metadata: None
+                }
             })
         );
     }
@@ -2122,7 +2143,7 @@ mod tests {
                         ),
                     ]))
                 ],
-                ret_val: 0
+                ret_val: IntegerExpression { value: IntegerExpressionValue::Literal(0), metadata: None }
             })
         );
     }
@@ -2207,7 +2228,10 @@ mod tests {
                         metadata: None,
                     }),
                 ],
-                ret_val: 664773
+                ret_val: IntegerExpression {
+                    value: IntegerExpressionValue::Literal(664773),
+                    metadata: None
+                }
             })
         );
 
@@ -2246,7 +2270,7 @@ mod tests {
                         metadata: None,
                     }),
                 ],
-                ret_val: 0
+                ret_val: IntegerExpression { value: IntegerExpressionValue::Literal(0), metadata: None }
             })
         );
     }
@@ -2293,7 +2317,10 @@ mod tests {
                         ),
                     ])),
                 ],
-                ret_val: 714434
+                ret_val: IntegerExpression {
+                    value: IntegerExpressionValue::Literal(714434),
+                    metadata: None
+                }
             })
         );
     }
@@ -2358,7 +2385,7 @@ mod tests {
                         ),
                     ])),
                 ],
-                ret_val: 0
+                ret_val: IntegerExpression { value: IntegerExpressionValue::Literal(0), metadata: None }
             })
         );
     }
@@ -2443,7 +2470,7 @@ mod tests {
                         metadata: None,
                     }),
                 ],
-                ret_val: 0
+                ret_val: IntegerExpression { value: IntegerExpressionValue::Literal(0), metadata: None }
             })
         );
     }

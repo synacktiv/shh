@@ -13,7 +13,7 @@ pub(crate) struct Syscall {
     pub rel_ts: f64,
     pub name: String,
     pub args: Vec<Expression>,
-    pub ret_val: SyscallRetVal,
+    pub ret_val: IntegerExpression,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -26,6 +26,12 @@ pub(crate) enum BufferType {
 pub(crate) struct IntegerExpression {
     pub value: IntegerExpressionValue,
     pub metadata: Option<Vec<u8>>,
+}
+
+impl IntegerExpression {
+    pub(crate) fn value(&self) -> Option<i128> {
+        self.value.value()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -93,9 +99,29 @@ impl IntegerExpressionValue {
             _ => vec![],
         }
     }
-}
 
-pub(crate) type SyscallRetVal = i128; // allows holding both signed and unsigned 64 bit integers
+    pub(crate) fn value(&self) -> Option<i128> {
+        match self {
+            IntegerExpressionValue::BinaryOr(values) => values
+                .iter()
+                .map(Self::value)
+                .collect::<Option<Vec<_>>>()?
+                .into_iter()
+                .reduce(|a, b| a | b),
+            IntegerExpressionValue::Multiplication(values) => values
+                .iter()
+                .map(Self::value)
+                .collect::<Option<Vec<_>>>()?
+                .into_iter()
+                .reduce(|a, b| a * b),
+            IntegerExpressionValue::LeftBitShift { bits, shift } => {
+                Some(bits.value()? << shift.value()?)
+            }
+            IntegerExpressionValue::NamedConst(_) => None,
+            IntegerExpressionValue::Literal(v) => Some(*v),
+        }
+    }
+}
 
 #[derive(Ord, PartialOrd, Eq, PartialEq)]
 pub(crate) struct StraceVersion {
