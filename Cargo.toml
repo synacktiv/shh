@@ -30,6 +30,7 @@ itertools = { version = "0.13.0", default-features = false, features = ["use_std
 log = { version = "0.4.25", default-features = false, features = ["max_level_trace", "release_max_level_info"] }
 nix = { version = "0.29.0", default-features = false, features = ["fs"] }
 nom = { version = "7.1.3", default-features = false, features = ["std"] }
+path-clean = { version = "1.0.1", default-features = false }
 rand = { version = "0.8.5", default-features = false, features = ["std", "std_rng"] }
 regex = { version = "1.11.1", default-features = false, features = ["std", "perf"] }
 serde = { version = "1.0.217", default-features = false, features = ["std", "derive"] }

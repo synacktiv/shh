@@ -13,6 +13,8 @@ use std::{
     sync::LazyLock,
 };
 
+use path_clean::PathClean as _;
+
 use super::{
     BufferExpression, BufferType, CountableSetSpecifier, Expression, FdOrPath, IntegerExpression,
     IntegerExpressionValue, NetworkActivity, NetworkActivityKind, NetworkPort, ProgramAction,
@@ -686,10 +688,7 @@ fn resolve_path(
     } else {
         path.to_path_buf()
     };
-    // TODO APPROXIMATION
-    // canonicalize relies on the FS state at profiling time which may have changed
-    // and may follow links, therefore lead to different filesystem actions
-    Some(path.canonicalize().unwrap_or(path))
+    Some(path.clean())
 }
 
 #[expect(clippy::unwrap_used)]
