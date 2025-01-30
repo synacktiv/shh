@@ -415,7 +415,7 @@ fn handle_open(
     {
         actions.push(ProgramAction::Write(path.clone()));
     }
-    if !flags_val.is_flag_set("O_WRONLY") {
+    if flags_val.is_flag_set("O_RDONLY") || !flags_val.is_flag_set("O_WRONLY") {
         actions.push(ProgramAction::Read(path));
     }
     Ok(())
