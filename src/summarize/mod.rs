@@ -300,6 +300,7 @@ enum SyscallArgsInfo<T> {
     },
     Mmap {
         prot: T,
+        fd: Option<T>,
     },
     Network {
         fd: T,
@@ -369,8 +370,9 @@ impl SyscallArgsIndex {
             Self::Mknod { mode } => SyscallArgs::Mknod {
                 mode: Self::extract_arg(sc, *mode)?,
             },
-            Self::Mmap { prot } => SyscallArgs::Mmap {
+            Self::Mmap { prot, fd } => SyscallArgs::Mmap {
                 prot: Self::extract_arg(sc, *prot)?,
+                fd: fd.map(|fd| Self::extract_arg(sc, fd)).transpose()?,
             },
             Self::Network { fd, sockaddr } => SyscallArgs::Network {
                 fd: Self::extract_arg(sc, *fd)?,
@@ -483,11 +485,25 @@ static SYSCALL_MAP: LazyLock<HashMap<&'static str, SyscallArgsIndex>> = LazyLock
         ("mknod", SyscallArgsIndex::Mknod { mode: 1 }),
         ("mknodat", SyscallArgsIndex::Mknod { mode: 2 }),
         // mmap
-        ("mmap", SyscallArgsIndex::Mmap { prot: 2 }),
-        ("mmap2", SyscallArgsIndex::Mmap { prot: 2 }),
-        ("shmat", SyscallArgsIndex::Mmap { prot: 2 }),
-        ("mprotect", SyscallArgsIndex::Mmap { prot: 2 }),
-        ("pkey_mprotect", SyscallArgsIndex::Mmap { prot: 2 }),
+        (
+            "mmap",
+            SyscallArgsIndex::Mmap {
+                prot: 2,
+                fd: Some(4),
+            },
+        ),
+        (
+            "mmap2",
+            SyscallArgsIndex::Mmap {
+                prot: 2,
+                fd: Some(4),
+            },
+        ),
+        ("mprotect", SyscallArgsIndex::Mmap { prot: 2, fd: None }),
+        (
+            "pkey_mprotect",
+            SyscallArgsIndex::Mmap { prot: 2, fd: None },
+        ),
         // network
         ("connect", SyscallArgsIndex::Network { fd: 0, sockaddr: 1 }),
         ("bind", SyscallArgsIndex::Network { fd: 0, sockaddr: 1 }),

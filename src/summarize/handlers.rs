@@ -55,7 +55,7 @@ pub(crate) fn summarize_syscall(
             handle_mkdir(&sc.name, relfd, path, actions, state)
         }
         SyscallArgsInfo::Mknod { mode } => handle_mknod(&sc.name, mode, actions),
-        SyscallArgsInfo::Mmap { prot } => handle_mmap(&sc.name, prot, actions),
+        SyscallArgsInfo::Mmap { prot, fd } => handle_mmap(&sc.name, prot, fd, actions),
         SyscallArgsInfo::Network { fd, sockaddr } => {
             handle_network(&sc.name, sc.pid, fd, sockaddr, actions, state)
         }
@@ -239,6 +239,7 @@ fn handle_mknod(
 fn handle_mmap(
     name: &str,
     prot: &Expression,
+    fd: Option<&Expression>,
     actions: &mut Vec<ProgramAction>,
 ) -> Result<(), HandlerError> {
     let Expression::Integer(IntegerExpression {
@@ -250,8 +251,16 @@ fn handle_mmap(
             arg: prot.to_owned(),
         });
     };
-    if prot_val.is_flag_set("PROT_WRITE") && prot_val.is_flag_set("PROT_EXEC") {
-        actions.push(ProgramAction::WriteExecuteMemoryMapping);
+    let path = fd
+        .and_then(|e| e.metadata())
+        .map(|m| PathBuf::from(OsStr::from_bytes(m)));
+    if prot_val.is_flag_set("PROT_EXEC") {
+        if let Some(path) = path {
+            actions.push(ProgramAction::Exec(path));
+        }
+        if prot_val.is_flag_set("PROT_WRITE") {
+            actions.push(ProgramAction::WriteExecuteMemoryMapping);
+        }
     }
     Ok(())
 }
