@@ -1872,7 +1872,10 @@ pub(crate) fn build_options(
         ),
         (
             "CAP_SYSLOG",
-            OptionValueEffect::DenySyscalls(DenySyscalls::Single("syslog")),
+            OptionValueEffect::Multiple(vec![
+                OptionValueEffect::DenySyscalls(DenySyscalls::Single("syslog")),
+                OptionValueEffect::DenyAction(ProgramAction::Read("/dev/kmsg".into())),
+            ]),
         ),
         (
             "CAP_WAKE_ALARM",

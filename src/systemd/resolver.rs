@@ -42,13 +42,13 @@ impl OptionValueEffect {
                         true
                     }
                 }
-                ProgramAction::WriteExecuteMemoryMapping
+                ProgramAction::Read(_)
+                | ProgramAction::WriteExecuteMemoryMapping
                 | ProgramAction::SetRealtimeScheduler
                 | ProgramAction::Wakeup
                 | ProgramAction::MknodSpecial
                 | ProgramAction::SetAlarm => action != denied,
                 ProgramAction::Syscalls(_)
-                | ProgramAction::Read(_)
                 | ProgramAction::Write(_)
                 | ProgramAction::Create(_)
                 | ProgramAction::Exec(_) => {
