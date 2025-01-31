@@ -1113,6 +1113,11 @@ pub(crate) fn build_options(
                     .collect(),
                 }),
                 OptionValueEffect::DenySyscalls(DenySyscalls::Class("raw-io")),
+                OptionValueEffect::DenyAction(ProgramAction::MknodSpecial),
+                OptionValueEffect::DenyExec(PathDescription::Base {
+                    base: "/dev/".into(),
+                    exceptions: vec![],
+                }),
             ])),
         }],
         updater: None,

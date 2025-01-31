@@ -709,7 +709,7 @@ fn run_mknod() {
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
         .stdout(predicate::str::contains("ProtectHome=tmpfs\n").count(1))
         .stdout(predicate::str::contains("PrivateTmp=true\n").count(1).or(predicate::str::contains("PrivateTmp=disconnected\n").count(1)))
-        .stdout(predicate::str::contains("PrivateDevices=true\n").count(1))
+        .stdout(predicate::str::contains("PrivateDevices=").not())
         .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelModules=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelLogs=true\n").count(1))
