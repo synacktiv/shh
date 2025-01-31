@@ -1192,7 +1192,7 @@ pub(crate) fn build_options(
         possible_values: vec![OptionValueDescription {
             value: OptionValue::Boolean(true),
             desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L140
+                // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L148
                 OptionValueEffect::Hide(PathDescription::Base {
                     base: "/proc/kmsg".into(),
                     exceptions: vec![],
@@ -1201,6 +1201,7 @@ pub(crate) fn build_options(
                     base: "/dev/kmsg".into(),
                     exceptions: vec![],
                 }),
+                OptionValueEffect::DenySyscalls(DenySyscalls::Single("syslog")),
             ])),
         }],
         updater: None,
