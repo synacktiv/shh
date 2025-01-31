@@ -66,7 +66,8 @@ pub(crate) enum OptionValue {
 pub(crate) struct ListOptionValue {
     pub values: Vec<String>,
     pub value_if_empty: Option<&'static str>,
-    pub prefix: &'static str,
+    pub option_prefix: &'static str,
+    pub elem_prefix: &'static str,
     pub repeat_option: bool,
     pub mode: ListMode,
     pub mergeable_paths: bool,
@@ -287,7 +288,8 @@ impl<T: PartialEq> OptionWithValue<T> {
                     OptionValue::List(ListOptionValue {
                         values,
                         value_if_empty,
-                        prefix,
+                        option_prefix,
+                        elem_prefix,
                         repeat_option,
                         mode,
                         mergeable_paths,
@@ -295,13 +297,15 @@ impl<T: PartialEq> OptionWithValue<T> {
                     OptionValue::List(ListOptionValue {
                         values: ovalues,
                         value_if_empty: ovalue_if_empty,
-                        prefix: oprefix,
+                        option_prefix: ooption_prefix,
+                        elem_prefix: oelem_prefix,
                         repeat_option: orepeat_option,
                         mode: omode,
                         mergeable_paths: omergeable_paths,
                     }),
                 ) if value_if_empty == ovalue_if_empty
-                    && prefix == oprefix
+                    && option_prefix == ooption_prefix
+                    && elem_prefix == oelem_prefix
                     && repeat_option == orepeat_option
                     && mode == omode
                     && mergeable_paths == omergeable_paths =>
@@ -344,7 +348,8 @@ impl<T: fmt::Display> fmt::Display for OptionWithValue<T> {
             OptionValue::List(ListOptionValue {
                 values,
                 value_if_empty,
-                prefix,
+                option_prefix,
+                elem_prefix,
                 repeat_option,
                 ..
             }) => {
@@ -357,7 +362,7 @@ impl<T: fmt::Display> fmt::Display for OptionWithValue<T> {
                     }
                 } else if *repeat_option {
                     for (i, value) in values.iter().enumerate() {
-                        write!(f, "{}={}{}", self.name, prefix, value)?;
+                        write!(f, "{}={}{}{}", self.name, option_prefix, elem_prefix, value)?;
                         if i < values.len() - 1 {
                             writeln!(f)?;
                         }
@@ -368,10 +373,10 @@ impl<T: fmt::Display> fmt::Display for OptionWithValue<T> {
                         f,
                         "{}={}{}",
                         self.name,
-                        prefix,
+                        option_prefix,
                         values
                             .iter()
-                            .map(ToOwned::to_owned)
+                            .map(|v| format!("{elem_prefix}{v}"))
                             .collect::<Vec<_>>()
                             .join(" ")
                     )
@@ -1218,7 +1223,8 @@ pub(crate) fn build_options(
                 value: OptionValue::List(ListOptionValue {
                     values: vec!["/".to_owned()],
                     value_if_empty: None,
-                    prefix: "-",
+                    option_prefix: "",
+                    elem_prefix: "-",
                     repeat_option: false,
                     mode: ListMode::BlackList,
                     mergeable_paths: true,
@@ -1261,7 +1267,8 @@ pub(crate) fn build_options(
                                     #[expect(clippy::unwrap_used)] // path is from our option, so unicode safe
                                     values: vec![base.to_str().unwrap().to_owned()],
                                     value_if_empty: None,
-                                    prefix: "-",
+                                    option_prefix: "",
+                    elem_prefix: "-",
                                     repeat_option: false,
                                     mode: ListMode::BlackList,
                                     mergeable_paths: true,
@@ -1278,7 +1285,8 @@ pub(crate) fn build_options(
                                     .filter_map(|p| p.to_str().map(ToOwned::to_owned))
                                     .collect(),
                                     value_if_empty: None,
-                                    prefix: "-",
+                                    option_prefix: "",
+                                    elem_prefix: "-",
                                     repeat_option: false,
                                     mode: ListMode::WhiteList,
                                     mergeable_paths: true,
@@ -1300,7 +1308,8 @@ pub(crate) fn build_options(
                 value: OptionValue::List(ListOptionValue {
                     values: vec!["/".to_owned()],
                     value_if_empty: None,
-                    prefix: "-",
+                    option_prefix: "",
+                    elem_prefix: "-",
                     repeat_option: false,
                     mode: ListMode::BlackList,
                     mergeable_paths: true,
@@ -1343,7 +1352,8 @@ pub(crate) fn build_options(
                                     #[expect(clippy::unwrap_used)] // path is from our option, so unicode safe
                                     values: vec![base.to_str().unwrap().to_owned()], // TODO ro?
                                     value_if_empty: None,
-                                    prefix: "",
+                                    option_prefix: "",
+                                    elem_prefix: "",
                                     repeat_option: false,
                                     mode: ListMode::BlackList,
                                     mergeable_paths: true,
@@ -1360,7 +1370,8 @@ pub(crate) fn build_options(
                                     .filter_map(|p| p.to_str().map(ToOwned::to_owned))
                                     .collect(),
                                     value_if_empty: None,
-                                    prefix: "-",
+                                    option_prefix: "",
+                                    elem_prefix: "-",
                                     repeat_option: false,
                                     mode: ListMode::WhiteList,
                                     mergeable_paths: true,
@@ -1382,7 +1393,8 @@ pub(crate) fn build_options(
                 value: OptionValue::List(ListOptionValue {
                     values: vec!["/".to_owned()],
                     value_if_empty: None,
-                    prefix: "-",
+                    option_prefix: "",
+                    elem_prefix: "-",
                     repeat_option: false,
                     mode: ListMode::BlackList,
                     mergeable_paths: true,
@@ -1414,7 +1426,8 @@ pub(crate) fn build_options(
                                     #[expect(clippy::unwrap_used)] // path is from our option, so unicode safe
                                     values: vec![base.to_str().unwrap().to_owned()],
                                     value_if_empty: None,
-                                    prefix: "-",
+                                    option_prefix: "",
+                                    elem_prefix: "-",
                                     repeat_option: false,
                                     mode: ListMode::BlackList,
                                     mergeable_paths: true,
@@ -1431,7 +1444,8 @@ pub(crate) fn build_options(
                                     .filter_map(|p| p.to_str().map(ToOwned::to_owned))
                                     .collect(),
                                     value_if_empty: None,
-                                    prefix: "-",
+                                    option_prefix: "",
+                                    elem_prefix: "-",
                                     repeat_option: false,
                                     mode: ListMode::WhiteList,
                                     mergeable_paths: true,
@@ -1511,7 +1525,8 @@ pub(crate) fn build_options(
             value: OptionValue::List(ListOptionValue {
                 values: afs.iter().map(|s| (*s).to_owned()).collect(),
                 value_if_empty: Some("none"),
-                prefix: "",
+                option_prefix: "",
+                elem_prefix: "",
                 repeat_option: false,
                 mode: ListMode::WhiteList,
                 mergeable_paths: false,
@@ -1575,7 +1590,8 @@ pub(crate) fn build_options(
                     .map(|(af, proto)| format!("{af}:{proto}"))
                     .collect(),
                 value_if_empty: None,
-                prefix: "",
+                option_prefix: "",
+                elem_prefix: "",
                 repeat_option: true,
                 mode: ListMode::BlackList,
                 mergeable_paths: false,
@@ -1645,7 +1661,8 @@ pub(crate) fn build_options(
                             })
                             .collect(),
                         value_if_empty: None,
-                        prefix: "",
+                        option_prefix: "",
+                        elem_prefix: "",
                         repeat_option: true,
                         mode: ListMode::BlackList,
                         mergeable_paths: false,
@@ -1846,7 +1863,8 @@ pub(crate) fn build_options(
             value: OptionValue::List(ListOptionValue {
                 values: cap_effects.iter().map(|(c, _e)| (*c).to_owned()).collect(),
                 value_if_empty: None,
-                prefix: "~",
+                option_prefix: "~",
+                elem_prefix: "",
                 repeat_option: false,
                 mode: ListMode::BlackList,
                 mergeable_paths: false,
@@ -1877,7 +1895,8 @@ pub(crate) fn build_options(
                     .map(|c| format!("@{c}:EPERM"))
                     .collect(),
                 value_if_empty: None,
-                prefix: "~",
+                option_prefix: "~",
+                elem_prefix: "",
                 repeat_option: false,
                 mode: ListMode::BlackList,
                 mergeable_paths: false,
