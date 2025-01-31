@@ -4,7 +4,7 @@ use std::{
     any::{type_name, type_name_of_val},
     collections::HashMap,
     ffi::OsStr,
-    io,
+    fs, io,
     os::{
         fd::RawFd,
         unix::{ffi::OsStrExt as _, fs::FileTypeExt as _},
@@ -13,6 +13,7 @@ use std::{
     sync::LazyLock,
 };
 
+use goblin::elf;
 use path_clean::PathClean as _;
 
 use super::{
@@ -187,6 +188,9 @@ fn handle_exec(
     };
     if let Some(mut path) = resolve_path(&path, relfd, state.cur_dir.as_ref()) {
         traverse_symlinks(&mut path, actions);
+        if let Some(interpreter) = read_elf_interpreter(&path) {
+            actions.push(ProgramAction::Exec(interpreter));
+        }
         actions.push(ProgramAction::Exec(path));
     }
     Ok(())
@@ -783,6 +787,14 @@ static FD_PSEUDO_PATH_REGEX: LazyLock<regex::bytes::Regex> =
 
 fn is_fd_pseudo_path(path: &[u8]) -> bool {
     FD_PSEUDO_PATH_REGEX.is_match(path)
+}
+
+/// Parse ELF and return interpreter path if we can
+fn read_elf_interpreter(path: &Path) -> Option<PathBuf> {
+    // TODO Find a way to parse opnly the first few pages
+    let buf = fs::read(path).ok()?;
+    let elf = elf::Elf::parse(&buf).ok()?;
+    elf.interpreter.map(PathBuf::from)
 }
 
 #[cfg(test)]

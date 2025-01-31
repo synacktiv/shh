@@ -26,6 +26,7 @@ bincode = { version = "1.3.3", default-features = false }
 clap = { version = "4.5.26", default-features = false, features = ["std", "color", "help", "usage", "error-context", "suggestions", "derive"] }
 clap_mangen = { version = "0.2.26", default-features = false, optional = true }
 function_name = { version = "0.3.0", default-features = false }
+goblin = { version = "0.9.3", default-features = false, features = ["std", "elf32", "elf64", "endian_fd"] }
 itertools = { version = "0.13.0", default-features = false, features = ["use_std"] }
 log = { version = "0.4.25", default-features = false, features = ["max_level_trace", "release_max_level_info"] }
 nix = { version = "0.29.0", default-features = false, features = ["fs"] }
