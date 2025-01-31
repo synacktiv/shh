@@ -112,6 +112,18 @@ pub(crate) enum PathDescription {
 }
 
 impl PathDescription {
+    pub(crate) fn base(base: &'static str) -> Self {
+        Self::Base {
+            base: base.into(),
+            exceptions: vec![],
+        }
+    }
+
+    pub(crate) fn pattern(pattern: &'static str) -> Self {
+        #[expect(clippy::unwrap_used)]
+        Self::Pattern(regex::bytes::Regex::new(pattern).unwrap())
+    }
+
     pub(crate) fn matches(&self, path: &Path) -> bool {
         assert!(path.is_absolute(), "{path:?}");
         match self {
@@ -969,18 +981,10 @@ pub(crate) fn build_options(
         "/usr/", "/boot/", "/efi/", "/lib/", "/lib64/", "/bin/", "/sbin/",
     ]
     .iter()
-    .map(|p| {
-        OptionValueEffect::DenyWrite(PathDescription::Base {
-            base: p.into(),
-            exceptions: vec![],
-        })
-    })
+    .map(|p| OptionValueEffect::DenyWrite(PathDescription::base(p)))
     .collect();
     let mut protect_system_full_nowrite = protect_system_yes_nowrite.clone();
-    protect_system_full_nowrite.push(OptionValueEffect::DenyWrite(PathDescription::Base {
-        base: "/etc/".into(),
-        exceptions: vec![],
-    }));
+    protect_system_full_nowrite.push(OptionValueEffect::DenyWrite(PathDescription::base("/etc/")));
     options.push(OptionDescription {
         name: "ProtectSystem",
         possible_values: vec![
@@ -1015,12 +1019,7 @@ pub(crate) fn build_options(
                 desc: OptionEffect::Simple(OptionValueEffect::Multiple(
                     home_paths
                         .iter()
-                        .map(|p| {
-                            OptionValueEffect::DenyWrite(PathDescription::Base {
-                                base: p.into(),
-                                exceptions: vec![],
-                            })
-                        })
+                        .map(|p| OptionValueEffect::DenyWrite(PathDescription::base(p)))
                         .collect(),
                 )),
             },
@@ -1029,12 +1028,7 @@ pub(crate) fn build_options(
                 desc: OptionEffect::Simple(OptionValueEffect::Multiple(
                     home_paths
                         .iter()
-                        .map(|p| {
-                            OptionValueEffect::Hide(PathDescription::Base {
-                                base: p.into(),
-                                exceptions: vec![],
-                            })
-                        })
+                        .map(|p| OptionValueEffect::Hide(PathDescription::base(p)))
                         .collect(),
                 )),
             },
@@ -1043,18 +1037,12 @@ pub(crate) fn build_options(
                 desc: OptionEffect::Simple(OptionValueEffect::Multiple(
                     home_paths
                         .iter()
-                        .map(|p| {
-                            OptionValueEffect::Hide(PathDescription::Base {
-                                base: p.into(),
-                                exceptions: vec![],
-                            })
-                        })
-                        .chain(home_paths.iter().map(|p| {
-                            OptionValueEffect::DenyWrite(PathDescription::Base {
-                                base: p.into(),
-                                exceptions: vec![],
-                            })
-                        }))
+                        .map(|p| OptionValueEffect::Hide(PathDescription::base(p)))
+                        .chain(
+                            home_paths
+                                .iter()
+                                .map(|p| OptionValueEffect::DenyWrite(PathDescription::base(p))),
+                        )
                         .collect(),
                 )),
             },
@@ -1072,14 +1060,8 @@ pub(crate) fn build_options(
                 OptionValue::Boolean(true)
             },
             desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                OptionValueEffect::Hide(PathDescription::Base {
-                    base: "/tmp/".into(),
-                    exceptions: vec![],
-                }),
-                OptionValueEffect::Hide(PathDescription::Base {
-                    base: "/var/tmp/".into(),
-                    exceptions: vec![],
-                }),
+                OptionValueEffect::Hide(PathDescription::base("/tmp")),
+                OptionValueEffect::Hide(PathDescription::base("/var/tmp")),
             ])),
         }],
         updater: None,
@@ -1114,10 +1096,7 @@ pub(crate) fn build_options(
                 }),
                 OptionValueEffect::DenySyscalls(DenySyscalls::Class("raw-io")),
                 OptionValueEffect::DenyAction(ProgramAction::MknodSpecial),
-                OptionValueEffect::DenyExec(PathDescription::Base {
-                    base: "/dev/".into(),
-                    exceptions: vec![],
-                }),
+                OptionValueEffect::DenyExec(PathDescription::base("/dev")),
             ])),
         }],
         updater: None,
@@ -1159,10 +1138,7 @@ pub(crate) fn build_options(
                 }))
                 .chain(
                     // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L130
-                    iter::once(OptionValueEffect::DenyWrite(PathDescription::Base {
-                        base: "/sys/".into(),
-                        exceptions: vec![],
-                    })),
+                    iter::once(OptionValueEffect::DenyWrite(PathDescription::base("/sys"))),
                 )
                 .collect(),
             )),
@@ -1177,14 +1153,8 @@ pub(crate) fn build_options(
             value: OptionValue::Boolean(true),
             desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
                 // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L140
-                OptionValueEffect::Hide(PathDescription::Base {
-                    base: "/lib/modules/".into(),
-                    exceptions: vec![],
-                }),
-                OptionValueEffect::Hide(PathDescription::Base {
-                    base: "/usr/lib/modules/".into(),
-                    exceptions: vec![],
-                }),
+                OptionValueEffect::Hide(PathDescription::base("/lib/modules/")),
+                OptionValueEffect::Hide(PathDescription::base("/usr/lib/modules/")),
                 OptionValueEffect::DenySyscalls(DenySyscalls::Class("module")),
             ])),
         }],
@@ -1198,14 +1168,8 @@ pub(crate) fn build_options(
             value: OptionValue::Boolean(true),
             desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
                 // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L148
-                OptionValueEffect::Hide(PathDescription::Base {
-                    base: "/proc/kmsg".into(),
-                    exceptions: vec![],
-                }),
-                OptionValueEffect::Hide(PathDescription::Base {
-                    base: "/dev/kmsg".into(),
-                    exceptions: vec![],
-                }),
+                OptionValueEffect::Hide(PathDescription::base("/proc/kmsg")),
+                OptionValueEffect::Hide(PathDescription::base("/dev/kmsg")),
                 OptionValueEffect::DenySyscalls(DenySyscalls::Single("syslog")),
             ])),
         }],
@@ -1218,10 +1182,9 @@ pub(crate) fn build_options(
         name: "ProtectControlGroups",
         possible_values: vec![OptionValueDescription {
             value: OptionValue::Boolean(true),
-            desc: OptionEffect::Simple(OptionValueEffect::DenyWrite(PathDescription::Base {
-                base: "/sys/fs/cgroup/".into(),
-                exceptions: vec![],
-            })),
+            desc: OptionEffect::Simple(OptionValueEffect::DenyWrite(PathDescription::base(
+                "/sys/fs/cgroup/",
+            ))),
         }],
         updater: None,
     });
@@ -1239,9 +1202,8 @@ pub(crate) fn build_options(
             // which user, only support the most restrictive option
             possible_values: vec![OptionValueDescription {
                 value: OptionValue::String("ptraceable".to_owned()),
-                desc: OptionEffect::Simple(OptionValueEffect::Hide(PathDescription::Pattern(
-                    #[expect(clippy::unwrap_used)]
-                    regex::bytes::Regex::new("^/proc/[0-9]+(/|$)").unwrap(),
+                desc: OptionEffect::Simple(OptionValueEffect::Hide(PathDescription::pattern(
+                    "^/proc/[0-9]+(/|$)",
                 ))),
             }],
             updater: None,
@@ -1261,10 +1223,9 @@ pub(crate) fn build_options(
                     mode: ListMode::BlackList,
                     mergeable_paths: true,
                 }),
-                desc: OptionEffect::Simple(OptionValueEffect::DenyWrite(PathDescription::Base {
-                    base: "/".into(),
-                    exceptions: vec![],
-                })),
+                desc: OptionEffect::Simple(OptionValueEffect::DenyWrite(PathDescription::base(
+                    "/",
+                ))),
             }],
             updater: Some(OptionUpdater {
                 effect: |effect, action, _| match effect {
@@ -1344,10 +1305,7 @@ pub(crate) fn build_options(
                     mode: ListMode::BlackList,
                     mergeable_paths: true,
                 }),
-                desc: OptionEffect::Simple(OptionValueEffect::Hide(PathDescription::Base {
-                    base: "/".into(),
-                    exceptions: vec![],
-                })),
+                desc: OptionEffect::Simple(OptionValueEffect::Hide(PathDescription::base("/"))),
             }],
             updater: Some(OptionUpdater {
                 effect: |effect, action, _| {
@@ -1429,10 +1387,7 @@ pub(crate) fn build_options(
                     mode: ListMode::BlackList,
                     mergeable_paths: true,
                 }),
-                desc: OptionEffect::Simple(OptionValueEffect::DenyExec(PathDescription::Base {
-                    base: "/".into(),
-                    exceptions: vec![],
-                })),
+                desc: OptionEffect::Simple(OptionValueEffect::DenyExec(PathDescription::base("/"))),
             }],
             updater: Some(OptionUpdater {
                 effect: |effect, action, _| match effect {
@@ -1749,10 +1704,7 @@ pub(crate) fn build_options(
         (
             "CAP_BLOCK_SUSPEND",
             OptionValueEffect::Multiple(vec![
-                OptionValueEffect::DenyWrite(PathDescription::Base {
-                    base: "/proc/sys/wake_lock".into(),
-                    exceptions: vec![],
-                }),
+                OptionValueEffect::DenyWrite(PathDescription::base("/proc/sys/wake_lock")),
                 OptionValueEffect::DenyAction(ProgramAction::Wakeup),
             ]),
         ),
