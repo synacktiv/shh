@@ -7,7 +7,12 @@
     clippy::shadow_unrelated
 )]
 
-use std::{fs, io::BufRead as _, os::unix::fs::FileTypeExt as _, sync::LazyLock};
+use std::{
+    fs::{self, Permissions},
+    io::{BufRead as _, Write as _},
+    os::unix::fs::{FileTypeExt as _, PermissionsExt},
+    sync::LazyLock,
+};
 
 use assert_cmd::{
     assert::{Assert, OutputAssertExt as _},
@@ -286,5 +291,24 @@ fn systemd_run_mknod() {
             .file_type()
             .is_block_device());
         fs::remove_file(&dev_path).unwrap();
+    }
+}
+
+#[test]
+#[cfg_attr(not(feature = "as-root"), ignore)]
+fn systemd_run_script() {
+    let mut script = tempfile::Builder::new()
+        .permissions(Permissions::from_mode(0o700))
+        .tempfile()
+        .unwrap();
+    script
+        .write_all("#!/usr/bin/env sh\necho 'from a script'".as_bytes())
+        .unwrap();
+    let script_path = script.into_temp_path();
+    let cmd = [script_path.to_str().unwrap()];
+    for shh_opts in &*ALL_SHH_RUN_OPTS {
+        let sd_opts = generate_options(&cmd, shh_opts);
+        let asrt = systemd_run(&cmd, &sd_opts);
+        asrt.stdout(predicate::str::contains("from a script"));
     }
 }

@@ -4,7 +4,8 @@ use std::{
     any::{type_name, type_name_of_val},
     collections::HashMap,
     ffi::OsStr,
-    fs, io,
+    fs::{self, File},
+    io::{self, BufRead as _, BufReader},
     os::{
         fd::RawFd,
         unix::{ffi::OsStrExt as _, fs::FileTypeExt as _},
@@ -188,10 +189,21 @@ fn handle_exec(
     };
     if let Some(mut path) = resolve_path(&path, relfd, state.cur_dir.as_ref()) {
         traverse_symlinks(&mut path, actions);
-        if let Some(interpreter) = read_elf_interpreter(&path) {
-            actions.push(ProgramAction::Exec(interpreter));
+        actions.push(ProgramAction::Exec(path.clone()));
+        let mut cur_path_opt = Some(path);
+        while let Some(cur_path) = cur_path_opt {
+            if let Some(mut elf_interpreter) = read_elf_interpreter(&cur_path) {
+                traverse_symlinks(&mut elf_interpreter, actions);
+                actions.push(ProgramAction::Exec(elf_interpreter.clone()));
+                cur_path_opt = Some(elf_interpreter);
+            } else if let Some(mut shebang_interpreter) = read_shebang_interpreter(&cur_path) {
+                traverse_symlinks(&mut shebang_interpreter, actions);
+                actions.push(ProgramAction::Exec(shebang_interpreter.clone()));
+                cur_path_opt = Some(shebang_interpreter);
+            } else {
+                cur_path_opt = None;
+            }
         }
-        actions.push(ProgramAction::Exec(path));
     }
     Ok(())
 }
@@ -795,6 +807,17 @@ fn read_elf_interpreter(path: &Path) -> Option<PathBuf> {
     let buf = fs::read(path).ok()?;
     let elf = elf::Elf::parse(&buf).ok()?;
     elf.interpreter.map(PathBuf::from)
+}
+
+/// Parse shebang and return interpreter path if we can
+fn read_shebang_interpreter(path: &Path) -> Option<PathBuf> {
+    let mut file = BufReader::new(File::open(path).ok()?);
+    let mut line = String::new();
+    file.read_line(&mut line).ok()?;
+    line.strip_prefix("#!")
+        .and_then(shlex::split)
+        .and_then(|a| a.first().cloned())
+        .map(PathBuf::from)
 }
 
 #[cfg(test)]
