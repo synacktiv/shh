@@ -73,7 +73,7 @@ impl HardeningOptions {
         format!(
             "-m {}{}{} --merge-paths-threshold {}",
             self.mode,
-            if self.network_firewalling { " -n" } else { "" },
+            if self.network_firewalling { " -f" } else { "" },
             if self.filesystem_whitelisting {
                 " -w"
             } else {
