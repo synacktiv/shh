@@ -5,7 +5,7 @@
 use std::{
     borrow::ToOwned,
     collections::{HashMap, HashSet},
-    fmt, iter,
+    fmt, fs, iter,
     num::NonZeroUsize,
     os::unix::ffi::OsStrExt as _,
     path::{Path, PathBuf},
@@ -113,7 +113,7 @@ pub(crate) enum PathDescription {
 }
 
 impl PathDescription {
-    pub(crate) fn base(base: &'static str) -> Self {
+    pub(crate) fn base(base: &str) -> Self {
         Self::Base {
             base: base.into(),
             exceptions: vec![],
@@ -1315,20 +1315,65 @@ pub(crate) fn build_options(
             }),
         });
 
+        let mut possible_values = vec![OptionValueDescription {
+            value: OptionValue::List(ListOptionValue {
+                values: vec!["/".to_owned()],
+                value_if_empty: None,
+                option_prefix: "",
+                elem_prefix: "-",
+                repeat_option: false,
+                mode: ListMode::BlackList,
+                mergeable_paths: true,
+            }),
+            desc: OptionEffect::Simple(OptionValueEffect::Hide(PathDescription::base("/"))),
+        }];
+        // To avoid InaccessiblePaths being disabled simply because of the equivalent of ls /,
+        // we set another option value for each dir directly under /
+        // disabled for now, as it breaks too much cases, TODO improve this
+        if false {
+            let base_paths: Option<Vec<String>> = fs::read_dir("/")
+                .ok()
+                .and_then(|i| i.collect::<Result<Vec<_>, _>>().ok())
+                .and_then(|v| {
+                    v.into_iter()
+                        // systemd follows symlinks when applying option, so exclude them
+                        .filter(|e| e.file_type().is_ok_and(|t| !t.is_symlink()))
+                        .filter(|e| {
+                            // systemd needs /run
+                            !["/run", "/proc"]
+                                .into_iter()
+                                .map(Path::new)
+                                .any(|d| e.path() == d)
+                        })
+                        .map(|e| e.path().to_str().map(ToOwned::to_owned))
+                        .collect()
+                });
+            if let Some(base_paths) = base_paths {
+                possible_values.insert(
+                    0,
+                    OptionValueDescription {
+                        value: OptionValue::List(ListOptionValue {
+                            values: base_paths.clone(),
+                            value_if_empty: None,
+                            option_prefix: "",
+                            elem_prefix: "-",
+                            repeat_option: false,
+                            mode: ListMode::BlackList,
+                            mergeable_paths: true,
+                        }),
+                        desc: OptionEffect::Cumulative(
+                            base_paths
+                                .iter()
+                                .map(|p| OptionValueEffect::Hide(PathDescription::base(p)))
+                                .collect(),
+                        ),
+                    },
+                );
+            }
+        }
         options.push(OptionDescription {
             name: "InaccessiblePaths",
-            possible_values: vec![OptionValueDescription {
-                value: OptionValue::List(ListOptionValue {
-                    values: vec!["/".to_owned()],
-                    value_if_empty: None,
-                    option_prefix: "",
-                    elem_prefix: "-",
-                    repeat_option: false,
-                    mode: ListMode::BlackList,
-                    mergeable_paths: true,
-                }),
-                desc: OptionEffect::Simple(OptionValueEffect::Hide(PathDescription::base("/"))),
-            }],
+            possible_values,
             updater: Some(OptionUpdater {
                 effect: |effect, action, _| {
                     let action_path = match action {
