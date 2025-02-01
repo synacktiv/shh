@@ -10,7 +10,7 @@
 use std::{
     fs::{self, Permissions},
     io::{BufRead as _, Write as _},
-    os::unix::fs::{FileTypeExt as _, PermissionsExt},
+    os::unix::fs::{FileTypeExt as _, PermissionsExt as _},
     sync::LazyLock,
 };
 
