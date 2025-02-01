@@ -906,7 +906,13 @@ static SYSCALL_CLASSES: LazyLock<HashMap<&'static str, HashSet<&'static str>>> =
 
 pub(crate) fn merge_similar_paths(paths: &[PathBuf], threshold: NonZeroUsize) -> Vec<PathBuf> {
     if paths.len() <= threshold.get() {
-        paths.to_vec()
+        let mut paths: Vec<_> = paths
+            .iter()
+            .filter(|e| !paths.iter().any(|oe| *e != oe && e.starts_with(oe)))
+            .cloned()
+            .collect();
+        paths.sort_unstable();
+        paths
     } else {
         let mut children: HashMap<PathBuf, HashSet<PathBuf>> = HashMap::new();
         for path in paths {
@@ -1998,5 +2004,19 @@ mod tests {
             ),
             vec![PathBuf::from("/a/aa"), PathBuf::from("/a/ab")]
         );
+        for threshold in [2, 5] {
+            assert_eq!(
+                merge_similar_paths(
+                    &[
+                        PathBuf::from("/a"),
+                        PathBuf::from("/a/b"),
+                        PathBuf::from("/a/b/c"),
+                        PathBuf::from("/d/b/c"),
+                    ],
+                    NonZeroUsize::new(threshold).unwrap()
+                ),
+                vec![PathBuf::from("/a"), PathBuf::from("/d/b/c")]
+            );
+        }
     }
 }
