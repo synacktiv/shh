@@ -79,7 +79,7 @@ fn systemd_run(cmd: &[&str], sd_opts: &[String]) -> Assert {
         .success()
 }
 
-/// Generate all combinations of `shh run args` to test
+/// Generate all combinations of `shh run` args to test
 fn all_shh_run_opts() -> Vec<Vec<&'static str>> {
     let args_mode = vec![vec![], vec!["-m", "aggressive"]];
     let args_fs = vec![
