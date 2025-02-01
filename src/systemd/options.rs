@@ -1234,29 +1234,36 @@ pub(crate) fn build_options(
                 ))),
             }],
             updater: Some(OptionUpdater {
-                effect: |effect, action, _| match effect {
-                    OptionValueEffect::DenyWrite(PathDescription::Base { base, exceptions }) => {
-                        let new_exception = match action {
-                            ProgramAction::Write(action_path) => Some(action_path.to_owned()),
-                            ProgramAction::Create(action_path) => {
-                                action_path.parent().map(Path::to_path_buf)
+                effect: |effect, action, _| {
+                    let action_path = match action {
+                        ProgramAction::Write(action_path) => action_path.to_owned(),
+                        ProgramAction::Create(action_path) => {
+                            if let Some(parent) = action_path.parent() {
+                                parent.to_owned()
+                            } else {
+                                return None;
                             }
-                            _ => None,
-                        };
-                        new_exception.map(|new_exception_path| {
+                        }
+                        _ => return None,
+                    };
+                    match effect {
+                        OptionValueEffect::DenyWrite(PathDescription::Base {
+                            base,
+                            exceptions,
+                        }) if action_path != Path::new("/") => {
                             let mut new_exceptions = Vec::with_capacity(exceptions.len() + 1);
                             new_exceptions.extend(exceptions.iter().cloned());
-                            new_exceptions.push(new_exception_path);
-                            OptionValueEffect::DenyWrite(PathDescription::Base {
+                            new_exceptions.push(action_path);
+                            Some(OptionValueEffect::DenyWrite(PathDescription::Base {
                                 base: base.to_owned(),
                                 exceptions: new_exceptions,
-                            })
-                        })
+                            }))
+                        }
+                        OptionValueEffect::DenyWrite(PathDescription::Pattern(_)) => {
+                            unimplemented!()
+                        }
+                        _ => None,
                     }
-                    OptionValueEffect::DenyWrite(PathDescription::Pattern(_)) => {
-                        unimplemented!()
-                    }
-                    _ => None,
                 },
                 options: |effect, hopts| match effect {
                     OptionValueEffect::DenyWrite(PathDescription::Base { base, exceptions }) => {
@@ -1328,7 +1335,9 @@ pub(crate) fn build_options(
                         _ => return None,
                     };
                     match effect {
-                        OptionValueEffect::Hide(PathDescription::Base { base, exceptions }) => {
+                        OptionValueEffect::Hide(PathDescription::Base { base, exceptions })
+                            if action_path != Path::new("/") =>
+                        {
                             let mut new_exceptions = Vec::with_capacity(exceptions.len() + 1);
                             new_exceptions.extend(exceptions.iter().cloned());
                             new_exceptions.push(action_path);
@@ -1402,20 +1411,24 @@ pub(crate) fn build_options(
                 desc: OptionEffect::Simple(OptionValueEffect::DenyExec(PathDescription::base("/"))),
             }],
             updater: Some(OptionUpdater {
-                effect: |effect, action, _| match effect {
-                    OptionValueEffect::DenyExec(PathDescription::Base { base, exceptions }) => {
-                        let ProgramAction::Exec(new_exception) = action else {
-                            return None;
-                        };
-                        let mut new_exceptions = Vec::with_capacity(exceptions.len() + 1);
-                        new_exceptions.extend(exceptions.iter().cloned());
-                        new_exceptions.push(new_exception.to_owned());
-                        Some(OptionValueEffect::DenyExec(PathDescription::Base {
-                            base: base.to_owned(),
-                            exceptions: new_exceptions,
-                        }))
+                effect: |effect, action, _| {
+                    let ProgramAction::Exec(action_path) = action else {
+                        return None;
+                    };
+                    match effect {
+                        OptionValueEffect::DenyExec(PathDescription::Base { base, exceptions })
+                            if action_path != Path::new("/") =>
+                        {
+                            let mut new_exceptions = Vec::with_capacity(exceptions.len() + 1);
+                            new_exceptions.extend(exceptions.iter().cloned());
+                            new_exceptions.push(action_path.to_owned());
+                            Some(OptionValueEffect::DenyExec(PathDescription::Base {
+                                base: base.to_owned(),
+                                exceptions: new_exceptions,
+                            }))
+                        }
+                        _ => None,
                     }
-                    _ => None,
                 },
                 options: |effect, hopts| match effect {
                     OptionValueEffect::DenyExec(PathDescription::Base { base, exceptions }) => {
