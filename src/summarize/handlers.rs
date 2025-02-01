@@ -352,8 +352,9 @@ fn handle_network(
                     ..
                 })) => {
                     if *port_val == 0 {
-                        // 0 means bind random port, we don't know which one so assume all
-                        CountableSetSpecifier::All
+                        // 0 means bind random port, we don't know which one, but this is not
+                        // denied by SocketBindDeny
+                        CountableSetSpecifier::None
                     } else {
                         CountableSetSpecifier::One(NetworkPort(
                             TryInto::<u16>::try_into(*port_val)
