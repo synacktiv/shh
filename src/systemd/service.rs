@@ -28,18 +28,34 @@ const HARDENING_FRAGMENT_NAME: &str = "harden";
 const PRIVILEGED_PREFIX: &str = "+";
 
 impl Service {
-    pub(crate) fn new(unit: &str) -> Self {
+    pub(crate) fn new(unit: &str) -> anyhow::Result<Self> {
+        const UNSUPPORTED_UNIT_SUFFIXS: [&str; 10] = [
+            ".socket",
+            ".device",
+            ".mount",
+            ".automount",
+            ".swap",
+            ".target",
+            ".path",
+            ".timer",
+            ".slice",
+            ".scope",
+        ];
+        if let Some(suffix) = UNSUPPORTED_UNIT_SUFFIXS.iter().find(|s| unit.ends_with(*s)) {
+            let type_ = suffix.split_at(1).1;
+            anyhow::bail!("Unit type {type_:?} is not supported");
+        }
         let unit = unit.strip_suffix(".service").unwrap_or(unit);
         if let Some((name, arg)) = unit.split_once('@') {
-            Self {
+            Ok(Self {
                 name: name.to_owned(),
                 arg: Some(arg.to_owned()),
-            }
+            })
         } else {
-            Self {
+            Ok(Self {
                 name: unit.to_owned(),
                 arg: None,
-            }
+            })
         }
     }
 
