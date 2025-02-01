@@ -29,6 +29,7 @@ const PRIVILEGED_PREFIX: &str = "+";
 
 impl Service {
     pub(crate) fn new(unit: &str) -> Self {
+        let unit = unit.strip_suffix(".service").unwrap_or(unit);
         if let Some((name, arg)) = unit.split_once('@') {
             Self {
                 name: name.to_owned(),
