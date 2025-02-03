@@ -1327,49 +1327,39 @@ pub(crate) fn build_options(
             }),
             desc: OptionEffect::Simple(OptionValueEffect::Hide(PathDescription::base("/"))),
         }];
-        // To avoid InaccessiblePaths being disabled simply because of the equivalent of ls /,
+        // To avoid InaccessiblePaths being completely disabled simply because of the equivalent of 'ls /',
         // we set another option value for each dir directly under /
-        // disabled for now, as it breaks too much cases, TODO improve this
-        if false {
-            let base_paths: Option<Vec<String>> = fs::read_dir("/")
-                .ok()
-                .and_then(|i| i.collect::<Result<Vec<_>, _>>().ok())
-                .and_then(|v| {
-                    v.into_iter()
-                        // systemd follows symlinks when applying option, so exclude them
-                        .filter(|e| e.file_type().is_ok_and(|t| !t.is_symlink()))
-                        .filter(|e| {
-                            // systemd needs /run
-                            !["/run", "/proc"]
-                                .into_iter()
-                                .map(Path::new)
-                                .any(|d| e.path() == d)
-                        })
-                        .map(|e| e.path().to_str().map(ToOwned::to_owned))
-                        .collect()
-                });
-            if let Some(base_paths) = base_paths {
-                possible_values.insert(
-                    0,
-                    OptionValueDescription {
-                        value: OptionValue::List(ListOptionValue {
-                            values: base_paths.clone(),
-                            value_if_empty: None,
-                            option_prefix: "",
-                            elem_prefix: "-",
-                            repeat_option: false,
-                            mode: ListMode::BlackList,
-                            mergeable_paths: true,
-                        }),
-                        desc: OptionEffect::Cumulative(
-                            base_paths
-                                .iter()
-                                .map(|p| OptionValueEffect::Hide(PathDescription::base(p)))
-                                .collect(),
-                        ),
-                    },
-                );
-            }
+        let base_paths: Option<Vec<String>> = fs::read_dir("/")
+            .ok()
+            .and_then(|i| i.collect::<Result<Vec<_>, _>>().ok())
+            .and_then(|v| {
+                v.into_iter()
+                    // systemd follows symlinks when applying option, so exclude them
+                    .filter(|e| e.file_type().is_ok_and(|t| !t.is_symlink()))
+                    .map(|e| e.path().to_str().map(ToOwned::to_owned))
+                    .collect()
+            });
+        if let Some(base_paths) = base_paths {
+            possible_values.insert(
+                0,
+                OptionValueDescription {
+                    value: OptionValue::List(ListOptionValue {
+                        values: base_paths.clone(),
+                        value_if_empty: None,
+                        option_prefix: "",
+                        elem_prefix: "-",
+                        repeat_option: false,
+                        mode: ListMode::BlackList,
+                        mergeable_paths: true,
+                    }),
+                    desc: OptionEffect::Cumulative(
+                        base_paths
+                            .iter()
+                            .map(|p| OptionValueEffect::Hide(PathDescription::base(p)))
+                            .collect(),
+                    ),
+                },
+            );
         }
         options.push(OptionDescription {
             name: "InaccessiblePaths",
@@ -1391,7 +1381,20 @@ pub(crate) fn build_options(
                         {
                             let mut new_exceptions = Vec::with_capacity(exceptions.len() + 1);
                             new_exceptions.extend(exceptions.iter().cloned());
-                            new_exceptions.push(action_path);
+                            let new_exception_path = if action_path
+                                .symlink_metadata()
+                                .is_ok_and(|m| m.file_type().is_symlink())
+                            {
+                                // systemd follows symlinks, so won't bind mount the symlink,
+                                // add exception for parent instead
+                                action_path
+                                    .parent()
+                                    .map(Path::to_path_buf)
+                                    .unwrap_or(action_path)
+                            } else {
+                                action_path
+                            };
+                            new_exceptions.push(new_exception_path);
                             Some(OptionValueEffect::Hide(PathDescription::Base {
                                 base: base.to_owned(),
                                 exceptions: new_exceptions,
@@ -1410,7 +1413,7 @@ pub(crate) fn build_options(
                                 name: "TemporaryFileSystem",
                                 value: OptionValue::List(ListOptionValue {
                                     #[expect(clippy::unwrap_used)] // path is from our option, so unicode safe
-                                    values: vec![base.to_str().unwrap().to_owned()], // TODO ro?
+                                    values: vec![base.to_str().unwrap().to_owned()], // TODO :ro?
                                     value_if_empty: None,
                                     option_prefix: "",
                                     elem_prefix: "",
@@ -1419,6 +1422,7 @@ pub(crate) fn build_options(
                                     mergeable_paths: true,
                                 }),
                             },
+                            // TODO BindReadOnlyPaths?
                             OptionWithValue {
                                 name: "BindPaths",
                                 value: OptionValue::List(ListOptionValue {
