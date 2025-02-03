@@ -443,6 +443,7 @@ dependencies = [
  "anstyle",
  "difflib",
  "predicates-core",
+ "regex",
 ]
 
 [[package]]

@@ -21,6 +21,7 @@ use assert_cmd::{
 use predicates::prelude::predicate;
 
 static ALL_SHH_RUN_OPTS: LazyLock<Vec<Vec<&'static str>>> = LazyLock::new(all_shh_run_opts);
+const KERNEL_LOG_REGEX: &str = r"\[\ *[0-9]+\.[0-9]+\] ";
 
 /// Run `shh run` for a given command, and return generated systemd options
 fn generate_options(cmd: &[&str], run_opts: &[&str]) -> Vec<String> {
@@ -176,7 +177,7 @@ fn systemd_run_dmesg() {
     for shh_opts in &*ALL_SHH_RUN_OPTS {
         let sd_opts = generate_options(&cmd, shh_opts);
         let asrt = systemd_run(&cmd, &sd_opts);
-        asrt.stdout(predicate::str::contains("0.000000] Linux version"));
+        asrt.stdout(predicate::str::is_match(KERNEL_LOG_REGEX).unwrap());
     }
 }
 
@@ -251,7 +252,7 @@ fn systemd_run_syslog() {
     for shh_opts in &*ALL_SHH_RUN_OPTS {
         let sd_opts = generate_options(&cmd, shh_opts);
         let asrt = systemd_run(&cmd, &sd_opts);
-        asrt.stdout(predicate::str::contains("0.000000] Linux version"));
+        asrt.stdout(predicate::str::is_match(KERNEL_LOG_REGEX).unwrap());
     }
 }
 
