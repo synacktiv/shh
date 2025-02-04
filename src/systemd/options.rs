@@ -5,7 +5,7 @@
 use std::{
     borrow::ToOwned,
     collections::{HashMap, HashSet},
-    fmt, fs, iter,
+    env, fmt, fs, iter,
     num::NonZeroUsize,
     os::unix::ffi::OsStrExt as _,
     path::{Path, PathBuf},
@@ -1333,9 +1333,15 @@ pub(crate) fn build_options(
             .ok()
             .and_then(|i| i.collect::<Result<Vec<_>, _>>().ok())
             .and_then(|v| {
+                // Directories in PATH env var need to be accessible, otherwise systemd errors
+                let env_paths: Vec<_> = env::var_os("PATH")
+                    .map(|ev| env::split_paths(&ev).collect())
+                    .unwrap_or_default();
                 v.into_iter()
                     // systemd follows symlinks when applying option, so exclude them
                     .filter(|e| e.file_type().is_ok_and(|t| !t.is_symlink()))
+                    // exclude paths wich are below paths in PATH
+                    .filter(|e| !env_paths.iter().any(|ep| ep.starts_with(e.path())))
                     .map(|e| e.path().to_str().map(ToOwned::to_owned))
                     .collect()
             })
