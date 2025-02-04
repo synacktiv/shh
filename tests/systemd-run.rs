@@ -287,6 +287,17 @@ fn systemd_run_mknod() {
         let _ = fs::remove_file(&pipe_path);
 
         sd_opts.push(format!("BindPaths={}", tmp_dir.path().to_str().unwrap()));
+        if let Some(inaccessible_path_opt) = sd_opts
+            .iter_mut()
+            .find(|o| o.starts_with("InaccessiblePaths="))
+        {
+            *inaccessible_path_opt = inaccessible_path_opt
+                .split(' ')
+                .filter(|e| e.strip_prefix('-').unwrap_or(e) != "/tmp")
+                .collect::<Vec<_>>()
+                .join(" ");
+        }
+
         let _ = systemd_run(&cmd, &sd_opts);
         assert!(fs::metadata(&pipe_path).unwrap().file_type().is_fifo());
         fs::remove_file(&pipe_path).unwrap();
@@ -306,6 +317,17 @@ fn systemd_run_mknod() {
         let _ = fs::remove_file(&dev_path);
 
         sd_opts.push(format!("BindPaths={}", tmp_dir.path().to_str().unwrap()));
+        if let Some(inaccessible_path_opt) = sd_opts
+            .iter_mut()
+            .find(|o| o.starts_with("InaccessiblePaths="))
+        {
+            *inaccessible_path_opt = inaccessible_path_opt
+                .split(' ')
+                .filter(|e| e.strip_prefix('-').unwrap_or(e) != "/tmp")
+                .collect::<Vec<_>>()
+                .join(" ");
+        }
+
         let _ = systemd_run(&cmd, &sd_opts);
         assert!(fs::metadata(&dev_path)
             .unwrap()
