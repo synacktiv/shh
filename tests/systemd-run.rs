@@ -213,7 +213,11 @@ fn systemd_run_ss() {
 #[test]
 #[cfg_attr(not(feature = "as-root"), ignore)]
 fn systemd_run_mmap_wx() {
-    let cmd = ["python3", "-c", "import mmap, os, tempfile; f = tempfile.NamedTemporaryFile(\"wb\"); f.write(os.urandom(16)); f.flush(); mmap.mmap(f.file.fileno(), 0, prot=mmap.PROT_WRITE|mmap.PROT_EXEC)"];
+    let cmd = [
+        "python3",
+        "-c",
+        "import mmap; mmap.mmap(-1, 4096, prot=mmap.PROT_WRITE|mmap.PROT_EXEC)",
+    ];
     for shh_opts in &*ALL_SHH_RUN_OPTS {
         eprintln!("shh run option: {}", shh_opts.join(" "));
         let sd_opts = generate_options(&cmd, shh_opts);
