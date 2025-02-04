@@ -1409,7 +1409,7 @@ pub(crate) fn build_options(
                             } else {
                                 action_path
                             };
-                            if new_exception_path.starts_with(base) {
+                            if base.starts_with(&new_exception_path) {
                                 return None;
                             }
                             new_exceptions.push(new_exception_path);
