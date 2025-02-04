@@ -112,6 +112,7 @@ fn all_shh_run_opts() -> Vec<Vec<&'static str>> {
 fn systemd_run_true() {
     let cmd = ["true"];
     for shh_opts in &*ALL_SHH_RUN_OPTS {
+        eprintln!("shh run option: {}", shh_opts.join(" "));
         let sd_opts = generate_options(&cmd, shh_opts);
         let _ = systemd_run(&cmd, &sd_opts);
     }
@@ -122,6 +123,7 @@ fn systemd_run_true() {
 fn systemd_run_write_dev_null() {
     let cmd = ["sh", "-c", ": > /dev/null"];
     for shh_opts in &*ALL_SHH_RUN_OPTS {
+        eprintln!("shh run option: {}", shh_opts.join(" "));
         let sd_opts = generate_options(&cmd, shh_opts);
         let _ = systemd_run(&cmd, &sd_opts);
     }
@@ -132,6 +134,7 @@ fn systemd_run_write_dev_null() {
 fn systemd_run_ls_dev() {
     let cmd = ["ls", "/dev/"];
     for shh_opts in &*ALL_SHH_RUN_OPTS {
+        eprintln!("shh run option: {}", shh_opts.join(" "));
         let sd_opts = generate_options(&cmd, shh_opts);
         let asrt = systemd_run(&cmd, &sd_opts);
         asrt.stdout(predicate::str::contains("block"))
@@ -145,6 +148,7 @@ fn systemd_run_ls_dev() {
 fn systemd_run_ls_proc() {
     let cmd = ["ls", "/proc/1"];
     for shh_opts in &*ALL_SHH_RUN_OPTS {
+        eprintln!("shh run option: {}", shh_opts.join(" "));
         let sd_opts = generate_options(&cmd, shh_opts);
         let _ = systemd_run(&cmd, &sd_opts);
     }
@@ -155,6 +159,7 @@ fn systemd_run_ls_proc() {
 fn systemd_run_read_kallsyms() {
     let cmd = ["head", "/proc/kallsyms"];
     for shh_opts in &*ALL_SHH_RUN_OPTS {
+        eprintln!("shh run option: {}", shh_opts.join(" "));
         let sd_opts = generate_options(&cmd, shh_opts);
         let _ = systemd_run(&cmd, &sd_opts);
     }
@@ -165,6 +170,7 @@ fn systemd_run_read_kallsyms() {
 fn systemd_run_ls_modules() {
     let cmd = ["ls", "/usr/lib/modules/"];
     for shh_opts in &*ALL_SHH_RUN_OPTS {
+        eprintln!("shh run option: {}", shh_opts.join(" "));
         let sd_opts = generate_options(&cmd, shh_opts);
         let _ = systemd_run(&cmd, &sd_opts);
     }
@@ -175,6 +181,7 @@ fn systemd_run_ls_modules() {
 fn systemd_run_dmesg() {
     let cmd = ["dmesg"];
     for shh_opts in &*ALL_SHH_RUN_OPTS {
+        eprintln!("shh run option: {}", shh_opts.join(" "));
         let sd_opts = generate_options(&cmd, shh_opts);
         let asrt = systemd_run(&cmd, &sd_opts);
         asrt.stdout(predicate::str::is_match(KERNEL_LOG_REGEX).unwrap());
@@ -186,6 +193,7 @@ fn systemd_run_dmesg() {
 fn systemd_run_systemctl() {
     let cmd = ["systemctl"];
     for shh_opts in &*ALL_SHH_RUN_OPTS {
+        eprintln!("shh run option: {}", shh_opts.join(" "));
         let sd_opts = generate_options(&cmd, shh_opts);
         let _ = systemd_run(&cmd, &sd_opts);
     }
@@ -196,6 +204,7 @@ fn systemd_run_systemctl() {
 fn systemd_run_ss() {
     let cmd = ["ss", "-l"];
     for shh_opts in &*ALL_SHH_RUN_OPTS {
+        eprintln!("shh run option: {}", shh_opts.join(" "));
         let sd_opts = generate_options(&cmd, shh_opts);
         let _ = systemd_run(&cmd, &sd_opts);
     }
@@ -206,6 +215,7 @@ fn systemd_run_ss() {
 fn systemd_run_mmap_wx() {
     let cmd = ["python3", "-c", "import mmap, os, tempfile; f = tempfile.NamedTemporaryFile(\"wb\"); f.write(os.urandom(16)); f.flush(); mmap.mmap(f.file.fileno(), 0, prot=mmap.PROT_WRITE|mmap.PROT_EXEC)"];
     for shh_opts in &*ALL_SHH_RUN_OPTS {
+        eprintln!("shh run option: {}", shh_opts.join(" "));
         let sd_opts = generate_options(&cmd, shh_opts);
         let _ = systemd_run(&cmd, &sd_opts);
     }
@@ -216,6 +226,7 @@ fn systemd_run_mmap_wx() {
 fn systemd_run_sched_realtime() {
     let cmd = ["python3", "-c", "import os; os.sched_setscheduler(0, os.SCHED_RR, os.sched_param(os.sched_get_priority_min(os.SCHED_RR)))"];
     for shh_opts in &*ALL_SHH_RUN_OPTS {
+        eprintln!("shh run option: {}", shh_opts.join(" "));
         let sd_opts = generate_options(&cmd, shh_opts);
         let _ = systemd_run(&cmd, &sd_opts);
     }
@@ -226,6 +237,7 @@ fn systemd_run_sched_realtime() {
 fn systemd_run_bind() {
     let cmd = ["python3", "-c", "import socket; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.bind((\"127.0.0.1\", 1234))"];
     for shh_opts in &*ALL_SHH_RUN_OPTS {
+        eprintln!("shh run option: {}", shh_opts.join(" "));
         let sd_opts = generate_options(&cmd, shh_opts);
         let _ = systemd_run(&cmd, &sd_opts);
     }
@@ -240,6 +252,7 @@ fn systemd_run_sock_packet() {
         "import socket; socket.socket(socket.AF_PACKET, socket.SOCK_RAW)",
     ];
     for shh_opts in &*ALL_SHH_RUN_OPTS {
+        eprintln!("shh run option: {}", shh_opts.join(" "));
         let sd_opts = generate_options(&cmd, shh_opts);
         let _ = systemd_run(&cmd, &sd_opts);
     }
@@ -250,6 +263,7 @@ fn systemd_run_sock_packet() {
 fn systemd_run_syslog() {
     let cmd = ["dmesg", "-S"];
     for shh_opts in &*ALL_SHH_RUN_OPTS {
+        eprintln!("shh run option: {}", shh_opts.join(" "));
         let sd_opts = generate_options(&cmd, shh_opts);
         let asrt = systemd_run(&cmd, &sd_opts);
         asrt.stdout(predicate::str::is_match(KERNEL_LOG_REGEX).unwrap());
@@ -264,6 +278,7 @@ fn systemd_run_mknod() {
     let pipe_path = tmp_dir.path().join("pipe");
     let cmd = ["mknod", pipe_path.as_os_str().to_str().unwrap(), "p"];
     for shh_opts in &*ALL_SHH_RUN_OPTS {
+        eprintln!("shh run option: {}", shh_opts.join(" "));
         let mut sd_opts = generate_options(&cmd, shh_opts);
         let _ = fs::remove_file(&pipe_path);
 
@@ -282,6 +297,7 @@ fn systemd_run_mknod() {
         "255",
     ];
     for shh_opts in &*ALL_SHH_RUN_OPTS {
+        eprintln!("shh run option: {}", shh_opts.join(" "));
         let mut sd_opts = generate_options(&cmd, shh_opts);
         let _ = fs::remove_file(&dev_path);
 
@@ -308,6 +324,7 @@ fn systemd_run_script() {
     let script_path = script.into_temp_path();
     let cmd = [script_path.to_str().unwrap()];
     for shh_opts in &*ALL_SHH_RUN_OPTS {
+        eprintln!("shh run option: {}", shh_opts.join(" "));
         let sd_opts = generate_options(&cmd, shh_opts);
         let asrt = systemd_run(&cmd, &sd_opts);
         asrt.stdout(predicate::str::contains("from a script"));
