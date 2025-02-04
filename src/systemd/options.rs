@@ -145,7 +145,9 @@ pub(crate) enum OptionValueEffect {
     /// Mount path as noexec
     DenyExec(PathDescription),
     /// Mount an empty tmpfs under given directory
-    Hide(PathDescription),
+    EmptyPath(PathDescription),
+    /// Don't mount path in target namespace
+    RemovePath(PathDescription),
     /// Deny syscall(s)
     DenySyscalls(DenySyscalls),
     /// Union of multiple effects
@@ -1026,11 +1028,24 @@ pub(crate) fn build_options(
         name: "ProtectHome",
         possible_values: vec![
             OptionValueDescription {
+                value: OptionValue::String("tmpfs".to_owned()),
+                desc: OptionEffect::Simple(OptionValueEffect::Multiple(
+                    home_paths
+                        .iter()
+                        .map(|p| OptionValueEffect::EmptyPath(PathDescription::base(p)))
+                        .collect(),
+                )),
+            },
+            OptionValueDescription {
                 value: OptionValue::String("read-only".to_owned()),
                 desc: OptionEffect::Simple(OptionValueEffect::Multiple(
                     home_paths
                         .iter()
-                        .map(|p| OptionValueEffect::DenyWrite(PathDescription::base(p)))
+                        .map(|p| OptionValueEffect::EmptyPath(PathDescription::base(p)))
+                        .chain(
+                            home_paths
+                                .map(|p| OptionValueEffect::DenyWrite(PathDescription::base(p))),
+                        )
                         .collect(),
                 )),
             },
@@ -1039,21 +1054,7 @@ pub(crate) fn build_options(
                 desc: OptionEffect::Simple(OptionValueEffect::Multiple(
                     home_paths
                         .iter()
-                        .map(|p| OptionValueEffect::Hide(PathDescription::base(p)))
-                        .collect(),
-                )),
-            },
-            OptionValueDescription {
-                value: OptionValue::String("tmpfs".to_owned()),
-                desc: OptionEffect::Simple(OptionValueEffect::Multiple(
-                    home_paths
-                        .iter()
-                        .map(|p| OptionValueEffect::Hide(PathDescription::base(p)))
-                        .chain(
-                            home_paths
-                                .iter()
-                                .map(|p| OptionValueEffect::DenyWrite(PathDescription::base(p))),
-                        )
+                        .map(|p| OptionValueEffect::RemovePath(PathDescription::base(p)))
                         .collect(),
                 )),
             },
@@ -1071,8 +1072,8 @@ pub(crate) fn build_options(
                 OptionValue::Boolean(true)
             },
             desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                OptionValueEffect::Hide(PathDescription::base("/tmp")),
-                OptionValueEffect::Hide(PathDescription::base("/var/tmp")),
+                OptionValueEffect::EmptyPath(PathDescription::base("/tmp")),
+                OptionValueEffect::EmptyPath(PathDescription::base("/var/tmp")),
             ])),
         }],
         updater: None,
@@ -1084,7 +1085,7 @@ pub(crate) fn build_options(
         possible_values: vec![OptionValueDescription {
             value: OptionValue::Boolean(true),
             desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                OptionValueEffect::Hide(PathDescription::Base {
+                OptionValueEffect::EmptyPath(PathDescription::Base {
                     base: "/dev/".into(),
                     // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L912
                     exceptions: [
@@ -1142,7 +1143,7 @@ pub(crate) fn build_options(
                     })
                 })
                 .chain(["kallsyms", "kcore"].iter().map(|p| {
-                    OptionValueEffect::Hide(PathDescription::Base {
+                    OptionValueEffect::RemovePath(PathDescription::Base {
                         base: PathBuf::from("/proc/").join(p),
                         exceptions: vec![],
                     })
@@ -1164,8 +1165,8 @@ pub(crate) fn build_options(
             value: OptionValue::Boolean(true),
             desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
                 // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L140
-                OptionValueEffect::Hide(PathDescription::base("/lib/modules/")),
-                OptionValueEffect::Hide(PathDescription::base("/usr/lib/modules/")),
+                OptionValueEffect::RemovePath(PathDescription::base("/lib/modules/")),
+                OptionValueEffect::RemovePath(PathDescription::base("/usr/lib/modules/")),
                 OptionValueEffect::DenySyscalls(DenySyscalls::Class("module")),
             ])),
         }],
@@ -1179,8 +1180,8 @@ pub(crate) fn build_options(
             value: OptionValue::Boolean(true),
             desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
                 // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L148
-                OptionValueEffect::Hide(PathDescription::base("/proc/kmsg")),
-                OptionValueEffect::Hide(PathDescription::base("/dev/kmsg")),
+                OptionValueEffect::RemovePath(PathDescription::base("/proc/kmsg")),
+                OptionValueEffect::RemovePath(PathDescription::base("/dev/kmsg")),
                 OptionValueEffect::DenySyscalls(DenySyscalls::Single("syslog")),
             ])),
         }],
@@ -1213,7 +1214,7 @@ pub(crate) fn build_options(
             // which user, only support the most restrictive option
             possible_values: vec![OptionValueDescription {
                 value: OptionValue::String("ptraceable".to_owned()),
-                desc: OptionEffect::Simple(OptionValueEffect::Hide(PathDescription::pattern(
+                desc: OptionEffect::Simple(OptionValueEffect::EmptyPath(PathDescription::pattern(
                     "^/proc/[0-9]+(/|$)",
                 ))),
             }],
@@ -1325,7 +1326,7 @@ pub(crate) fn build_options(
                 mode: ListMode::BlackList,
                 mergeable_paths: true,
             }),
-            desc: OptionEffect::Simple(OptionValueEffect::Hide(PathDescription::base("/"))),
+            desc: OptionEffect::Simple(OptionValueEffect::RemovePath(PathDescription::base("/"))),
         }];
         // To avoid InaccessiblePaths being completely disabled simply because of the equivalent of 'ls /',
         // we set another option value for each dir directly under /
@@ -1368,7 +1369,7 @@ pub(crate) fn build_options(
                     desc: OptionEffect::Cumulative(
                         base_paths
                             .iter()
-                            .map(|p| OptionValueEffect::Hide(PathDescription::base(p)))
+                            .map(|p| OptionValueEffect::RemovePath(PathDescription::base(p)))
                             .collect(),
                     ),
                 },
@@ -1389,9 +1390,10 @@ pub(crate) fn build_options(
                         _ => return None,
                     };
                     match effect {
-                        OptionValueEffect::Hide(PathDescription::Base { base, exceptions })
-                            if action_path != Path::new("/") =>
-                        {
+                        OptionValueEffect::RemovePath(PathDescription::Base {
+                            base,
+                            exceptions,
+                        }) if action_path != Path::new("/") => {
                             let mut new_exceptions = Vec::with_capacity(exceptions.len() + 1);
                             new_exceptions.extend(exceptions.iter().cloned());
                             let new_exception_path = if action_path
@@ -1411,19 +1413,19 @@ pub(crate) fn build_options(
                                 return None;
                             }
                             new_exceptions.push(new_exception_path);
-                            Some(OptionValueEffect::Hide(PathDescription::Base {
+                            Some(OptionValueEffect::EmptyPath(PathDescription::Base {
                                 base: base.to_owned(),
                                 exceptions: new_exceptions,
                             }))
                         }
-                        OptionValueEffect::Hide(PathDescription::Pattern(_)) => {
+                        OptionValueEffect::EmptyPath(PathDescription::Pattern(_)) => {
                             unimplemented!()
                         }
                         _ => None,
                     }
                 },
                 options: |effect, hopts| match effect {
-                    OptionValueEffect::Hide(PathDescription::Base { base, exceptions }) => {
+                    OptionValueEffect::EmptyPath(PathDescription::Base { base, exceptions }) => {
                         vec![
                             OptionWithValue {
                                 name: "TemporaryFileSystem",

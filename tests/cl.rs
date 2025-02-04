@@ -25,15 +25,13 @@ fn run_true() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains(
-            if Uid::effective().is_root() {
-                "ProtectHome=tmpfs\n"
-            } else {
-                "ProtectHome=read-only\n"
-            }
-        ).count(1))
+        .stdout(if Uid::effective().is_root() {
+            BoxPredicate::new(predicate::str::contains("ProtectHome=true\n").count(1))
+        } else {
+            BoxPredicate::new(predicate::str::contains("ProtectHome=").not())
+        })
         .stdout(if !Uid::effective().is_root() && env::current_exe().unwrap().starts_with("/tmp") {
-            BoxPredicate::new(predicate::str::contains("PrivateTmp=").count(0))
+            BoxPredicate::new(predicate::str::contains("PrivateTmp=").not())
         } else {
             BoxPredicate::new(predicate::str::contains("PrivateTmp=true\n").count(1).or(predicate::str::contains("PrivateTmp=disconnected\n").count(1)))
         })
@@ -65,15 +63,13 @@ fn run_write_dev_null() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains(
-            if Uid::effective().is_root() && !env::current_exe().unwrap().starts_with("/home") {
-                "ProtectHome=tmpfs\n"
-            } else {
-                "ProtectHome=read-only\n"
-            }
-        ).count(1))
+        .stdout(if Uid::effective().is_root() && env::current_exe().unwrap().starts_with("/tmp") {
+            BoxPredicate::new(predicate::str::contains("ProtectHome=true\n").count(1))
+        } else {
+            BoxPredicate::new(predicate::str::contains("ProtectHome=").not())
+        })
         .stdout(if env::current_exe().unwrap().starts_with("/tmp") {
-            BoxPredicate::new(predicate::str::contains("PrivateTmp=").count(0))
+            BoxPredicate::new(predicate::str::contains("PrivateTmp=").not())
         } else {
             BoxPredicate::new(predicate::str::contains("PrivateTmp=true\n").count(1).or(predicate::str::contains("PrivateTmp=disconnected\n").count(1)))
         })
@@ -105,15 +101,13 @@ fn run_ls_dev() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains(
-            if Uid::effective().is_root() {
-                "ProtectHome=tmpfs\n"
-            } else {
-                "ProtectHome=read-only\n"
-            }
-        ).count(1))
+        .stdout(if Uid::effective().is_root() {
+            BoxPredicate::new(predicate::str::contains("ProtectHome=true\n").count(1))
+        } else {
+            BoxPredicate::new(predicate::str::contains("ProtectHome=").not())
+        })
         .stdout(if !Uid::effective().is_root() && env::current_exe().unwrap().starts_with("/tmp") {
-            BoxPredicate::new(predicate::str::contains("PrivateTmp=").count(0))
+            BoxPredicate::new(predicate::str::contains("PrivateTmp=").not())
         } else {
             BoxPredicate::new(predicate::str::contains("PrivateTmp=true\n").count(1).or(predicate::str::contains("PrivateTmp=disconnected\n").count(1)))
         })
@@ -145,15 +139,13 @@ fn run_ls_proc() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains(
-            if Uid::effective().is_root() {
-                "ProtectHome=tmpfs\n"
-            } else {
-                "ProtectHome=read-only\n"
-            }
-        ).count(1))
+        .stdout(if Uid::effective().is_root() {
+            BoxPredicate::new(predicate::str::contains("ProtectHome=true\n").count(1))
+        } else {
+            BoxPredicate::new(predicate::str::contains("ProtectHome=").not())
+        })
         .stdout(if !Uid::effective().is_root() && env::current_exe().unwrap().starts_with("/tmp") {
-            BoxPredicate::new(predicate::str::contains("PrivateTmp=").count(0))
+            BoxPredicate::new(predicate::str::contains("PrivateTmp=").not())
         } else {
             BoxPredicate::new(predicate::str::contains("PrivateTmp=true\n").count(1).or(predicate::str::contains("PrivateTmp=disconnected\n").count(1)))
         })
@@ -185,15 +177,13 @@ fn run_read_kallsyms() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains(
-            if Uid::effective().is_root() {
-                "ProtectHome=tmpfs\n"
-            } else {
-                "ProtectHome=read-only\n"
-            }
-        ).count(1))
+        .stdout(if Uid::effective().is_root() {
+            BoxPredicate::new(predicate::str::contains("ProtectHome=true\n").count(1))
+        } else {
+            BoxPredicate::new(predicate::str::contains("ProtectHome=").not())
+        })
         .stdout(if !Uid::effective().is_root() && env::current_exe().unwrap().starts_with("/tmp") {
-            BoxPredicate::new(predicate::str::contains("PrivateTmp=").count(0))
+            BoxPredicate::new(predicate::str::contains("PrivateTmp=").not())
         } else {
             BoxPredicate::new(predicate::str::contains("PrivateTmp=true\n").count(1).or(predicate::str::contains("PrivateTmp=disconnected\n").count(1)))
         })
@@ -225,15 +215,13 @@ fn run_ls_modules() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains(
-            if Uid::effective().is_root() {
-                "ProtectHome=tmpfs\n"
-            } else {
-                "ProtectHome=read-only\n"
-            }
-        ).count(1))
+        .stdout(if Uid::effective().is_root() {
+            BoxPredicate::new(predicate::str::contains("ProtectHome=true\n").count(1))
+        } else {
+            BoxPredicate::new(predicate::str::contains("ProtectHome=").not())
+        })
         .stdout(if !Uid::effective().is_root() && env::current_exe().unwrap().starts_with("/tmp") {
-            BoxPredicate::new(predicate::str::contains("PrivateTmp=").count(0))
+            BoxPredicate::new(predicate::str::contains("PrivateTmp=").not())
         } else {
             BoxPredicate::new(predicate::str::contains("PrivateTmp=true\n").count(1).or(predicate::str::contains("PrivateTmp=disconnected\n").count(1)))
         })
@@ -268,7 +256,7 @@ fn run_dmesg() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("ProtectHome=tmpfs\n").count(1))
+        .stdout(predicate::str::contains("ProtectHome=true\n").count(1))
         .stdout(predicate::str::contains("PrivateTmp=true\n").count(1).or(predicate::str::contains("PrivateTmp=disconnected\n").count(1)))
         .stdout(predicate::str::contains("PrivateDevices=").not())
         .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
@@ -301,9 +289,9 @@ fn run_systemctl() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("ProtectHome=read-only\n").count(1))
+        .stdout(predicate::str::contains("ProtectHome=").not())
         .stdout(if env::current_exe().unwrap().starts_with("/tmp") {
-            BoxPredicate::new(predicate::str::contains("PrivateTmp=").count(0))
+            BoxPredicate::new(predicate::str::contains("PrivateTmp=").not())
         } else {
             BoxPredicate::new(predicate::str::contains("PrivateTmp=true\n").count(1).or(predicate::str::contains("PrivateTmp=disconnected\n").count(1)))
         })
@@ -338,15 +326,13 @@ fn run_ss() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains(
-            if Uid::effective().is_root() {
-                "ProtectHome=tmpfs\n"
-            } else {
-                "ProtectHome=read-only\n"
-            }
-        ).count(1))
+        .stdout(if Uid::effective().is_root() {
+            BoxPredicate::new(predicate::str::contains("ProtectHome=true\n").count(1))
+        } else {
+            BoxPredicate::new(predicate::str::contains("ProtectHome=").not())
+        })
         .stdout(if !Uid::effective().is_root() && env::current_exe().unwrap().starts_with("/tmp") {
-            BoxPredicate::new(predicate::str::contains("PrivateTmp=").count(0))
+            BoxPredicate::new(predicate::str::contains("PrivateTmp=").not())
         } else {
             BoxPredicate::new(predicate::str::contains("PrivateTmp=true\n").count(1).or(predicate::str::contains("PrivateTmp=disconnected\n").count(1)))
         })
@@ -378,9 +364,9 @@ fn run_mmap_wx() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("ProtectHome=read-only\n").count(1))
+        .stdout(predicate::str::contains("ProtectHome=").not())
         .stdout(if env::current_exe().unwrap().starts_with("/tmp") {
-            BoxPredicate::new(predicate::str::contains("PrivateTmp=").count(0))
+            BoxPredicate::new(predicate::str::contains("PrivateTmp=").not())
         } else {
             BoxPredicate::new(predicate::str::contains("PrivateTmp=true\n").count(1).or(predicate::str::contains("PrivateTmp=disconnected\n").count(1)))
         })
@@ -409,9 +395,9 @@ fn run_mmap_wx() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("ProtectHome=read-only\n").count(1))
+        .stdout(predicate::str::contains("ProtectHome=").not())
         .stdout(if env::current_exe().unwrap().starts_with("/tmp") {
-            BoxPredicate::new(predicate::str::contains("PrivateTmp=").count(0))
+            BoxPredicate::new(predicate::str::contains("PrivateTmp=").not())
         } else {
             BoxPredicate::new(predicate::str::contains("PrivateTmp=true\n").count(1).or(predicate::str::contains("PrivateTmp=disconnected\n").count(1)))
         })
@@ -446,7 +432,7 @@ fn run_sched_realtime() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("ProtectHome=read-only\n").count(1))
+        .stdout(predicate::str::contains("ProtectHome=").not())
         // Python 3.13 for some reason reads the parent script, which is running under /tmp and breaks PrivateTmp
         .stdout(predicate::str::contains("PrivateDevices=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
@@ -473,7 +459,7 @@ fn run_sched_realtime() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("ProtectHome=read-only\n").count(1))
+        .stdout(predicate::str::contains("ProtectHome=").not())
         // Python 3.13 for some reason reads the parent script, which is running under /tmp and breaks PrivateTmp
         .stdout(predicate::str::contains("PrivateDevices=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
@@ -503,9 +489,9 @@ fn run_bind() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("ProtectHome=read-only\n").count(1))
+        .stdout(predicate::str::contains("ProtectHome=").not())
         .stdout(if env::current_exe().unwrap().starts_with("/tmp") {
-            BoxPredicate::new(predicate::str::contains("PrivateTmp=").count(0))
+            BoxPredicate::new(predicate::str::contains("PrivateTmp=").not())
         } else {
             BoxPredicate::new(predicate::str::contains("PrivateTmp=true\n").count(1).or(predicate::str::contains("PrivateTmp=disconnected\n").count(1)))
         })
@@ -536,9 +522,9 @@ fn run_bind() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("ProtectHome=read-only\n").count(1))
+        .stdout(predicate::str::contains("ProtectHome=").not())
         .stdout(if env::current_exe().unwrap().starts_with("/tmp") {
-            BoxPredicate::new(predicate::str::contains("PrivateTmp=").count(0))
+            BoxPredicate::new(predicate::str::contains("PrivateTmp=").not())
         } else {
             BoxPredicate::new(predicate::str::contains("PrivateTmp=true\n").count(1).or(predicate::str::contains("PrivateTmp=disconnected\n").count(1)))
         })
@@ -575,9 +561,9 @@ fn run_sock_packet() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("ProtectHome=read-only\n").count(1))
+        .stdout(predicate::str::contains("ProtectHome=").not())
         .stdout(if env::current_exe().unwrap().starts_with("/tmp") {
-            BoxPredicate::new(predicate::str::contains("PrivateTmp=").count(0))
+            BoxPredicate::new(predicate::str::contains("PrivateTmp=").not())
         } else {
             BoxPredicate::new(predicate::str::contains("PrivateTmp=true\n").count(1).or(predicate::str::contains("PrivateTmp=disconnected\n").count(1)))
         })
@@ -606,9 +592,9 @@ fn run_sock_packet() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("ProtectHome=read-only\n").count(1))
+        .stdout(predicate::str::contains("ProtectHome=").not())
         .stdout(if env::current_exe().unwrap().starts_with("/tmp") {
-            BoxPredicate::new(predicate::str::contains("PrivateTmp=").count(0))
+            BoxPredicate::new(predicate::str::contains("PrivateTmp=").not())
         } else {
             BoxPredicate::new(predicate::str::contains("PrivateTmp=true\n").count(1).or(predicate::str::contains("PrivateTmp=disconnected\n").count(1)))
         })
@@ -643,7 +629,7 @@ fn run_syslog() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("ProtectHome=tmpfs\n").count(1))
+        .stdout(predicate::str::contains("ProtectHome=true\n").count(1))
         .stdout(predicate::str::contains("PrivateTmp=true\n").count(1).or(predicate::str::contains("PrivateTmp=disconnected\n").count(1)))
         .stdout(predicate::str::contains("PrivateDevices=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
@@ -679,7 +665,7 @@ fn run_mknod() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("ProtectHome=tmpfs\n").count(1))
+        .stdout(predicate::str::contains("ProtectHome=true\n").count(1))
         .stdout(predicate::str::contains("PrivateTmp=true\n").count(1).or(predicate::str::contains("PrivateTmp=disconnected\n").count(1)))
         .stdout(predicate::str::contains("PrivateDevices=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
@@ -707,7 +693,7 @@ fn run_mknod() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("ProtectHome=tmpfs\n").count(1))
+        .stdout(predicate::str::contains("ProtectHome=true\n").count(1))
         .stdout(predicate::str::contains("PrivateTmp=true\n").count(1).or(predicate::str::contains("PrivateTmp=disconnected\n").count(1)))
         .stdout(predicate::str::contains("PrivateDevices=").not())
         .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))

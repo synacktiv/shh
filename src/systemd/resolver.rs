@@ -66,12 +66,18 @@ impl OptionValueEffect {
                 ProgramAction::Exec(path_action) => !noexec_paths.matches(path_action),
                 _ => true,
             },
-            OptionValueEffect::Hide(hidden_paths) => match action {
+            OptionValueEffect::EmptyPath(empty_paths) => match action {
                 ProgramAction::Read(path_action) | ProgramAction::Exec(path_action) => {
-                    !hidden_paths.matches(path_action)
+                    !empty_paths.matches(path_action)
                         || prev_actions.contains(&ProgramAction::Create(path_action.clone()))
                 }
-                ProgramAction::Create(path_action) => !hidden_paths.matches(path_action),
+                _ => true,
+            },
+            OptionValueEffect::RemovePath(removed_paths) => match action {
+                ProgramAction::Read(path_action)
+                | ProgramAction::Write(path_action)
+                | ProgramAction::Exec(path_action)
+                | ProgramAction::Create(path_action) => !removed_paths.matches(path_action),
                 _ => true,
             },
             OptionValueEffect::DenySyscalls(denied) => {
@@ -413,17 +419,16 @@ mod tests {
         let actions = vec![];
         let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 1);
-        assert_eq!(format!("{}", candidates[0]), "ProtectHome=tmpfs");
+        assert_eq!(candidates[0].to_string(), "ProtectHome=true");
 
         let actions = vec![ProgramAction::Write("/home/user/data".into())];
         let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 1);
-        assert_eq!(format!("{}", candidates[0]), "ProtectHome=true");
+        assert_eq!(candidates[0].to_string(), "ProtectHome=tmpfs");
 
         let actions = vec![ProgramAction::Read("/home/user/data".into())];
         let candidates = resolve(&opts, &actions, &hardening_opts);
-        assert_eq!(candidates.len(), 1);
-        assert_eq!(format!("{}", candidates[0]), "ProtectHome=read-only");
+        assert_eq!(candidates.len(), 0);
 
         let actions = vec![
             ProgramAction::Create("/home/user/data".into()),
@@ -431,7 +436,7 @@ mod tests {
         ];
         let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 1);
-        assert_eq!(format!("{}", candidates[0]), "ProtectHome=true");
+        assert_eq!(candidates[0].to_string(), "ProtectHome=tmpfs");
     }
 
     #[test]
