@@ -1338,6 +1338,10 @@ pub(crate) fn build_options(
                     .filter(|e| e.file_type().is_ok_and(|t| !t.is_symlink()))
                     .map(|e| e.path().to_str().map(ToOwned::to_owned))
                     .collect()
+            })
+            .map(|mut v: Vec<_>| {
+                v.sort_unstable();
+                v
             });
         if let Some(base_paths) = base_paths {
             possible_values.insert(
