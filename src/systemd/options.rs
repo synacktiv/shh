@@ -1400,18 +1400,16 @@ pub(crate) fn build_options(
                             {
                                 // systemd follows symlinks, so won't bind mount the symlink,
                                 // add exception for parent instead
-                                let parent = action_path
+                                action_path
                                     .parent()
                                     .map(Path::to_path_buf)
-                                    .unwrap_or(action_path);
-                                if parent == Path::new("/") {
-                                    // An exception for / makes the option useless
-                                    return None;
-                                }
-                                parent
+                                    .unwrap_or(action_path)
                             } else {
                                 action_path
                             };
+                            if new_exception_path.starts_with(base) {
+                                return None;
+                            }
                             new_exceptions.push(new_exception_path);
                             Some(OptionValueEffect::Hide(PathDescription::Base {
                                 base: base.to_owned(),
