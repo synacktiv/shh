@@ -1333,11 +1333,14 @@ pub(crate) fn build_options(
             .ok()
             .and_then(|i| i.collect::<Result<Vec<_>, _>>().ok())
             .and_then(|v| {
+                // Don't make those inaccessible, systemd won't be able to start anything
+                let excluded_run_dirs = [Path::new("/run"), Path::new("/proc")];
                 // Directories in PATH env var need to be accessible, otherwise systemd errors
                 let env_paths: Vec<_> = env::var_os("PATH")
                     .map(|ev| env::split_paths(&ev).collect())
                     .unwrap_or_default();
                 v.into_iter()
+                    .filter(|e| !excluded_run_dirs.contains(&e.path().as_ref()))
                     // systemd follows symlinks when applying option, so exclude them
                     .filter(|e| e.file_type().is_ok_and(|t| !t.is_symlink()))
                     // exclude paths wich are below paths in PATH
