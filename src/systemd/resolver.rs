@@ -71,6 +71,7 @@ impl OptionValueEffect {
                     !hidden_paths.matches(path_action)
                         || prev_actions.contains(&ProgramAction::Create(path_action.clone()))
                 }
+                ProgramAction::Create(path_action) => !hidden_paths.matches(path_action),
                 _ => true,
             },
             OptionValueEffect::DenySyscalls(denied) => {
