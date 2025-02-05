@@ -2,17 +2,16 @@
 
 use std::path::PathBuf;
 
+use super::{
+    options::{merge_similar_paths, OptionUpdater},
+    ListOptionValue,
+};
 use crate::{
     cl::HardeningOptions,
     summarize::{NetworkActivity, ProgramAction},
     systemd::options::{
         ListMode, OptionDescription, OptionEffect, OptionValue, OptionValueEffect, OptionWithValue,
     },
-};
-
-use super::{
-    options::{merge_similar_paths, OptionUpdater},
-    ListOptionValue,
 };
 
 impl OptionValueEffect {
@@ -374,7 +373,6 @@ pub(crate) fn resolve(
 #[cfg(test)]
 mod tests {
     use super::*;
-
     use crate::{
         cl::HardeningOptions,
         systemd::{build_options, KernelVersion, SystemdVersion},
@@ -388,7 +386,7 @@ mod tests {
             ..HardeningOptions::safe()
         };
         (
-            build_options(&sd_version, &kernel_version, &hardening_opts).unwrap(),
+            build_options(&sd_version, &kernel_version, &hardening_opts),
             hardening_opts,
         )
     }
@@ -401,7 +399,7 @@ mod tests {
             ..HardeningOptions::strict()
         };
         (
-            build_options(&sd_version, &kernel_version, &hardening_opts).unwrap(),
+            build_options(&sd_version, &kernel_version, &hardening_opts),
             hardening_opts,
         )
     }

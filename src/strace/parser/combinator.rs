@@ -15,12 +15,11 @@ use nom::{
     IResult,
 };
 
+use super::ParseResult;
 use crate::strace::{
     parser::{SyscallEnd, SyscallStart},
     BufferExpression, BufferType, Expression, IntegerExpression, IntegerExpressionValue, Syscall,
 };
-
-use super::ParseResult;
 
 macro_rules! dbg_parser {
     ($input:expr) => {

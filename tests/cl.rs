@@ -4,9 +4,8 @@
 
 use std::env;
 
-use nix::unistd::Uid;
-
 use assert_cmd::{assert::OutputAssertExt as _, Command};
+use nix::unistd::Uid;
 use predicates::{prelude::*, BoxPredicate};
 
 //

@@ -23,8 +23,8 @@ fn sd_options(
     sd_version: &systemd::SystemdVersion,
     kernel_version: &systemd::KernelVersion,
     hardening_opts: &cl::HardeningOptions,
-) -> anyhow::Result<Vec<systemd::OptionDescription>> {
-    let sd_opts = systemd::build_options(sd_version, kernel_version, hardening_opts)?;
+) -> Vec<systemd::OptionDescription> {
+    let sd_opts = systemd::build_options(sd_version, kernel_version, hardening_opts);
     log::info!(
         "Enabled support for systemd options: {}",
         sd_opts
@@ -33,7 +33,7 @@ fn sd_options(
             .collect::<Vec<_>>()
             .join(", ")
     );
-    Ok(sd_opts)
+    sd_opts
 }
 
 #[cfg(feature = "gen-man-pages")]
@@ -63,9 +63,12 @@ fn main() -> anyhow::Result<()> {
         .context("Failed to setup logger")?;
 
     // Get versions
-    let sd_version = systemd::SystemdVersion::local_system()?;
-    let kernel_version = systemd::KernelVersion::local_system()?;
-    let strace_version = strace::StraceVersion::local_system()?;
+    let sd_version =
+        systemd::SystemdVersion::local_system().context("Failed to get systemd version")?;
+    let kernel_version =
+        systemd::KernelVersion::local_system().context("Failed to get Linux kernel version")?;
+    let strace_version =
+        strace::StraceVersion::local_system().context("Failed to get strace version")?;
     log::info!("Detected versions: Systemd {sd_version}, Linux kernel {kernel_version}, strace {strace_version}");
     if strace_version < strace::StraceVersion::new(6, 4) {
         log::warn!("Strace version >=6.4 is strongly recommended, if you experience strace output parsing errors, please consider upgrading");
@@ -83,18 +86,20 @@ fn main() -> anyhow::Result<()> {
             strace_log_path,
         } => {
             // Build supported systemd options
-            let sd_opts = sd_options(&sd_version, &kernel_version, &hardening_opts)?;
+            let sd_opts = sd_options(&sd_version, &kernel_version, &hardening_opts);
 
             // Run strace
             let cmd = command.iter().map(|a| &**a).collect::<Vec<&str>>();
-            let st = strace::Strace::run(&cmd, strace_log_path)?;
+            let st = strace::Strace::run(&cmd, strace_log_path)
+                .context("Failed to setup strace profiling")?;
 
             // Start signal handling thread
             let mut signals = signal_hook::iterator::Signals::new([
                 signal_hook::consts::signal::SIGINT,
                 signal_hook::consts::signal::SIGQUIT,
                 signal_hook::consts::signal::SIGTERM,
-            ])?;
+            ])
+            .context("Failed to setup signal handlers")?;
             thread::spawn(move || {
                 for sig in signals.forever() {
                     // The strace, and its watched child processes already get the signal, so the iterator will stop naturally
@@ -108,15 +113,19 @@ fn main() -> anyhow::Result<()> {
                 .unwrap_or_default();
 
             // Summarize actions
-            let logs = st.log_lines()?;
-            let actions = summarize::summarize(logs, &env_paths)?;
+            let logs = st
+                .log_lines()
+                .context("Failed to setup strace output reader")?;
+            let actions =
+                summarize::summarize(logs, &env_paths).context("Failed to summarize syscalls")?;
             log::debug!("{actions:?}");
 
             if let Some(profile_data_path) = profile_data_path {
                 // Dump profile data
                 log::info!("Writing profile data into {profile_data_path:?}...");
-                let file = File::create(profile_data_path)?;
-                bincode::serialize_into(file, &actions)?;
+                let file = File::create(&profile_data_path)
+                    .with_context(|| format!("Failed to create {profile_data_path:?}"))?;
+                bincode::serialize_into(file, &actions).context("Failed to serialize profile")?;
             } else {
                 // Resolve
                 let resolved_opts = systemd::resolve(&sd_opts, &actions, &hardening_opts);
@@ -130,14 +139,15 @@ fn main() -> anyhow::Result<()> {
             paths,
         } => {
             // Build supported systemd options
-            let sd_opts = sd_options(&sd_version, &kernel_version, &hardening_opts)?;
+            let sd_opts = sd_options(&sd_version, &kernel_version, &hardening_opts);
 
             // Load and merge profile data
             let mut actions: Vec<summarize::ProgramAction> = Vec::new();
             for path in &paths {
-                let file = File::open(path)?;
+                let file = File::open(path).with_context(|| format!("Failed to open {path:?}"))?;
                 let mut profile_actions: Vec<summarize::ProgramAction> =
-                    bincode::deserialize_from(file)?;
+                    bincode::deserialize_from(file)
+                        .with_context(|| format!("Failed to deserialize profile from {path:?}"))?;
                 actions.append(&mut profile_actions);
             }
             log::debug!("{actions:?}");
@@ -150,7 +160,8 @@ fn main() -> anyhow::Result<()> {
 
             // Remove profile data files
             for path in paths {
-                fs::remove_file(path)?;
+                fs::remove_file(&path)
+                    .with_context(|| format!("Failed to remove profile file {path:?}"))?;
             }
         }
         cl::Action::Service(cl::ServiceAction::StartProfile {
@@ -158,19 +169,25 @@ fn main() -> anyhow::Result<()> {
             hardening_opts,
             no_restart,
         }) => {
-            let service = systemd::Service::new(&service)?;
+            let service = systemd::Service::new(&service).context("Invalid service name")?;
             log::info!(
                 "Current service exposure level: {}",
                 service
                     .get_exposure_level()
                     .context("Failed to get exposure level")?
             );
-            service.add_profile_fragment(&hardening_opts)?;
+            service
+                .add_profile_fragment(&hardening_opts)
+                .context("Failed to write systemd unit profiling fragment")?;
             if no_restart {
                 log::warn!("Profiling config will only be applied when systemd config is reloaded, and service restarted");
             } else {
-                service.reload_unit_config()?;
-                service.action("restart", false)?;
+                service
+                    .reload_unit_config()
+                    .context("Failed to reload systemd config")?;
+                service
+                    .action("restart", false)
+                    .context("Failed to restart service")?;
             }
         }
         cl::Action::Service(cl::ServiceAction::FinishProfile {
@@ -178,9 +195,13 @@ fn main() -> anyhow::Result<()> {
             apply,
             no_restart,
         }) => {
-            let service = systemd::Service::new(&service)?;
-            service.action("stop", true)?;
-            service.remove_profile_fragment()?;
+            let service = systemd::Service::new(&service).context("Invalid service name")?;
+            service
+                .action("stop", true)
+                .context("Failed to stop service")?;
+            service
+                .remove_profile_fragment()
+                .context("Failed to remove systemd unit profiling fragment")?;
             let resolved_opts = service.profiling_result()?;
             log::info!(
                 "Resolved systemd options: {}",
@@ -191,9 +212,13 @@ fn main() -> anyhow::Result<()> {
                     .join(", ")
             );
             if apply && !resolved_opts.is_empty() {
-                service.add_hardening_fragment(resolved_opts)?;
+                service
+                    .add_hardening_fragment(resolved_opts)
+                    .context("Failed to write systemd unit hardening fragment")?;
             }
-            service.reload_unit_config()?;
+            service
+                .reload_unit_config()
+                .context("Failed to reload systemd config")?;
             if apply {
                 log::info!(
                     "New service exposure level: {}",
@@ -203,15 +228,21 @@ fn main() -> anyhow::Result<()> {
                 );
             }
             if !no_restart {
-                service.action("start", false)?;
+                service
+                    .action("start", false)
+                    .context("Failed to start service")?;
             }
         }
         cl::Action::Service(cl::ServiceAction::Reset { service }) => {
             let service = systemd::Service::new(&service)?;
             let _ = service.remove_profile_fragment();
             let _ = service.remove_hardening_fragment();
-            service.reload_unit_config()?;
-            service.action("try-restart", false)?;
+            service
+                .reload_unit_config()
+                .context("Failed to reload systemd config")?;
+            service
+                .action("try-restart", false)
+                .context("Failed to restart service")?;
         }
         cl::Action::ListSystemdOptions => {
             println!("# Supported systemd options\n");
@@ -219,7 +250,7 @@ fn main() -> anyhow::Result<()> {
                 &sd_version,
                 &kernel_version,
                 &cl::HardeningOptions::strict(),
-            )?;
+            );
             sd_opts.sort_unstable_by_key(|o| o.name);
             for sd_opt in sd_opts {
                 println!("- [`{sd_opt}`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#{sd_opt}=)");

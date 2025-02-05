@@ -155,11 +155,10 @@ mod tests {
 
     use pretty_assertions::assert_eq;
 
+    use super::*;
     use crate::strace::{
         BufferExpression, BufferType, Expression, IntegerExpression, IntegerExpressionValue,
     };
-
-    use super::*;
 
     #[test]
     fn test_mmap() {
@@ -2482,9 +2481,9 @@ mod benchs {
 
     use std::io::BufReader;
 
-    use super::*;
-
     use test::Bencher;
+
+    use super::*;
 
     #[bench]
     fn bench_parse_line(b: &mut Bencher) {

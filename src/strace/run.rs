@@ -23,10 +23,11 @@ pub(crate) struct Strace {
 impl Strace {
     pub(crate) fn run(command: &[&str], log_path: Option<PathBuf>) -> anyhow::Result<Self> {
         // Create named pipe
-        let pipe_dir = tempfile::tempdir()?;
+        let pipe_dir = tempfile::tempdir().context("Failed to create temporary directory")?;
         let pipe_path = Self::pipe_path(&pipe_dir);
         #[expect(clippy::unwrap_used)]
-        nix::unistd::mkfifo(&pipe_path, nix::sys::stat::Mode::from_bits(0o600).unwrap())?;
+        nix::unistd::mkfifo(&pipe_path, nix::sys::stat::Mode::from_bits(0o600).unwrap())
+            .context("Failed to create named pipe")?;
 
         // Start process
         // TODO setuid/setgid execution will be broken unless strace runs as root

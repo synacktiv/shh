@@ -1017,16 +1017,12 @@ pub(crate) fn merge_similar_paths(paths: &[PathBuf], threshold: NonZeroUsize) ->
     }
 }
 
-#[expect(
-    clippy::too_many_lines,
-    clippy::unnecessary_wraps,
-    clippy::similar_names
-)]
+#[expect(clippy::too_many_lines, clippy::similar_names)]
 pub(crate) fn build_options(
     systemd_version: &SystemdVersion,
     kernel_version: &KernelVersion,
     hardening_opts: &HardeningOptions,
-) -> anyhow::Result<Vec<OptionDescription>> {
+) -> Vec<OptionDescription> {
     let mut options = Vec::new();
 
     //
@@ -2151,7 +2147,7 @@ pub(crate) fn build_options(
     }
 
     log::debug!("{options:#?}");
-    Ok(options)
+    options
 }
 
 #[cfg(test)]
