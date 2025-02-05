@@ -380,22 +380,24 @@ mod tests {
         systemd::{build_options, KernelVersion, SystemdVersion},
     };
 
-    fn test_options(names: &[&str]) -> Vec<OptionDescription> {
+    fn test_options_safe(names: &[&str]) -> (Vec<OptionDescription>, HardeningOptions) {
         let sd_version = SystemdVersion::new(254, 0);
         let kernel_version = KernelVersion::new(6, 4, 0);
-        build_options(&sd_version, &kernel_version, &HardeningOptions::safe())
-            .unwrap()
-            .into_iter()
-            .filter(|o| names.contains(&o.name))
-            .collect()
+        let hardening_opts = HardeningOptions {
+            systemd_options: Some(names.iter().map(|n| (*n).to_owned()).collect()),
+            ..HardeningOptions::safe()
+        };
+        (
+            build_options(&sd_version, &kernel_version, &hardening_opts).unwrap(),
+            hardening_opts,
+        )
     }
 
     #[test]
     fn test_resolve_protect_system() {
         let _ = simple_logger::SimpleLogger::new().init();
-        let hardening_opts = HardeningOptions::safe();
 
-        let opts = test_options(&["ProtectSystem"]);
+        let (opts, hardening_opts) = test_options_safe(&["ProtectSystem"]);
 
         let actions = vec![];
         let candidates = resolve(&opts, &actions, &hardening_opts);
@@ -425,9 +427,8 @@ mod tests {
     #[test]
     fn test_resolve_protect_home() {
         let _ = simple_logger::SimpleLogger::new().init();
-        let hardening_opts = HardeningOptions::safe();
 
-        let opts = test_options(&["ProtectHome"]);
+        let (opts, hardening_opts) = test_options_safe(&["ProtectHome"]);
 
         let actions = vec![];
         let candidates = resolve(&opts, &actions, &hardening_opts);
@@ -516,9 +517,8 @@ mod tests {
     #[test]
     fn test_resolve_private_tmp() {
         let _ = simple_logger::SimpleLogger::new().init();
-        let hardening_opts = HardeningOptions::safe();
 
-        let opts = test_options(&["PrivateTmp"]);
+        let (opts, hardening_opts) = test_options_safe(&["PrivateTmp"]);
 
         let actions = vec![];
         let candidates = resolve(&opts, &actions, &hardening_opts);

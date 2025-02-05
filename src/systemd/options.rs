@@ -2143,6 +2143,10 @@ pub(crate) fn build_options(
         });
     }
 
+    if let Some(options_to_keep) = &hardening_opts.systemd_options {
+        options.retain(|o| options_to_keep.iter().any(|k| o.name == k));
+    }
+
     log::debug!("{options:#?}");
     Ok(options)
 }

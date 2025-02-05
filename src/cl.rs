@@ -43,6 +43,11 @@ pub(crate) struct HardeningOptions {
     /// try to merge paths with the same parent
     #[arg(long, default_value = "5")]
     pub merge_paths_threshold: NonZeroUsize,
+    /// Disable all systemd options except for these (case sensitive).
+    /// Opther options may be generated when mutating options to make them compatible.
+    /// For testing only
+    #[arg(long, num_args=1..)]
+    pub systemd_options: Option<Vec<String>>,
 }
 
 impl HardeningOptions {
@@ -55,6 +60,7 @@ impl HardeningOptions {
             filesystem_whitelisting: false,
             #[expect(clippy::unwrap_used)]
             merge_paths_threshold: NonZeroUsize::new(1).unwrap(),
+            systemd_options: None,
         }
     }
 
@@ -66,6 +72,7 @@ impl HardeningOptions {
             filesystem_whitelisting: true,
             #[expect(clippy::unwrap_used)]
             merge_paths_threshold: NonZeroUsize::new(usize::MAX).unwrap(),
+            systemd_options: None,
         }
     }
 
