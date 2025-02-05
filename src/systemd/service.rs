@@ -1,13 +1,15 @@
 //! Systemd service actions
 
 use std::{
-    env,
+    env, fmt,
     fs::{self, File},
     io::{self, BufRead as _, BufReader, BufWriter, Write},
+    ops::RangeInclusive,
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
 
+use anyhow::Context as _;
 use itertools::Itertools as _;
 use rand::Rng as _;
 
@@ -26,6 +28,32 @@ const HARDENING_FRAGMENT_NAME: &str = "harden";
 /// Command line prefix for `ExecStartXxx`= that bypasses all hardening options
 /// See <https://www.freedesktop.org/software/systemd/man/255/systemd.service.html#Command%20lines>
 const PRIVILEGED_PREFIX: &str = "+";
+
+/// Systemd "exposure level", to rate service security.
+/// The lower, the better
+pub(crate) struct ExposureLevel(u8);
+
+impl TryFrom<f64> for ExposureLevel {
+    type Error = anyhow::Error;
+
+    fn try_from(value: f64) -> Result<Self, Self::Error> {
+        const RANGE: RangeInclusive<f64> = 0.0..=10.0;
+        anyhow::ensure!(
+            RANGE.contains(&value),
+            "Value not in range [{:.1}; {:.1}]",
+            RANGE.start(),
+            RANGE.end()
+        );
+        #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        Ok(Self((value * 10.0) as u8))
+    }
+}
+
+impl fmt::Display for ExposureLevel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:.1}", f64::from(self.0) / 10.0)
+    }
+}
 
 impl Service {
     pub(crate) fn new(unit: &str) -> anyhow::Result<Self> {
@@ -69,6 +97,35 @@ impl Service {
                 String::new()
             }
         )
+    }
+
+    /// Get systemd "exposure level" for the service (0-100).
+    /// 100 means extremely exposed (no hardening), 0 means so sandboxed it can't do much.
+    /// Although this is a very crude heuristic, below 40-50 is generally good.
+    pub(crate) fn get_exposure_level(&self) -> anyhow::Result<ExposureLevel> {
+        let output = Command::new("systemd-analyze")
+            .arg("security")
+            .arg(self.unit_name())
+            .env("LANG", "C")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()?;
+        if !output.status.success() {
+            anyhow::bail!("systemd-analyze failed: {}", output.status);
+        }
+        let last_line = output
+            .stdout
+            .lines()
+            .map_while(Result::ok)
+            .last()
+            .context("Failed to read systemd-analyze output")?;
+        let val_f = last_line
+            .rsplit(' ')
+            .nth(2)
+            .and_then(|v| v.parse::<f64>().ok())
+            .ok_or_else(|| anyhow::anyhow!("Failed to parse exposure level"))?;
+        val_f.try_into()
     }
 
     pub(crate) fn add_profile_fragment(

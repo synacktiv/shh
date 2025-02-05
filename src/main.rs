@@ -159,6 +159,12 @@ fn main() -> anyhow::Result<()> {
             no_restart,
         }) => {
             let service = systemd::Service::new(&service)?;
+            log::info!(
+                "Current service exposure level: {}",
+                service
+                    .get_exposure_level()
+                    .context("Failed to get exposure level")?
+            );
             service.add_profile_fragment(&hardening_opts)?;
             if no_restart {
                 log::warn!("Profiling config will only be applied when systemd config is reloaded, and service restarted");
@@ -188,6 +194,14 @@ fn main() -> anyhow::Result<()> {
                 service.add_hardening_fragment(resolved_opts)?;
             }
             service.reload_unit_config()?;
+            if apply {
+                log::info!(
+                    "New service exposure level: {}",
+                    service
+                        .get_exposure_level()
+                        .context("Failed to get exposure level")?
+                );
+            }
             if !no_restart {
                 service.action("start", false)?;
             }
