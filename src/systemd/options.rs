@@ -5,7 +5,7 @@
 use std::{
     borrow::ToOwned,
     collections::{HashMap, HashSet},
-    env, fmt, fs, iter,
+    fmt, fs, iter,
     num::NonZeroUsize,
     os::unix::ffi::OsStrExt as _,
     path::{Path, PathBuf},
@@ -1386,16 +1386,10 @@ pub(crate) fn build_options(
             .and_then(|v| {
                 // Don't make those inaccessible, systemd won't be able to start anything
                 let excluded_run_dirs = [Path::new("/run"), Path::new("/proc")];
-                // Directories in PATH env var need to be accessible, otherwise systemd errors
-                let env_paths: Vec<_> = env::var_os("PATH")
-                    .map(|ev| env::split_paths(&ev).collect())
-                    .unwrap_or_default();
                 v.into_iter()
                     .filter(|e| !excluded_run_dirs.contains(&e.path().as_ref()))
                     // systemd follows symlinks when applying option, so exclude them
                     .filter(|e| e.file_type().is_ok_and(|t| !t.is_symlink()))
-                    // exclude paths wich are below paths in PATH
-                    .filter(|e| !env_paths.iter().any(|ep| ep.starts_with(e.path())))
                     .map(|e| e.path().to_str().map(ToOwned::to_owned))
                     .collect()
             })
@@ -1445,7 +1439,7 @@ pub(crate) fn build_options(
                             base,
                             exceptions,
                         }) => {
-                            // This will be reached only when first transforming an initial InacessiblePaths option (RemovePath) into
+                            // This will be reached only when first transforming an initial InaccessiblePaths option (RemovePath) into
                             // less restrictive EmptyPaths + exceptions
                             assert!(exceptions.is_empty());
                             let new_exception_path = if action_path
@@ -1474,6 +1468,53 @@ pub(crate) fn build_options(
                                 base_ro: true,
                                 exceptions_ro,
                                 exceptions_rw,
+                            }))
+                        }
+                        OptionValueEffect::EmptyPath(EmptyPathDescription {
+                            base,
+                            base_ro,
+                            exceptions_ro,
+                            exceptions_rw,
+                        }) => {
+                            let mut new_exceptions_ro =
+                                Vec::with_capacity(exceptions_ro.len() + usize::from(action_ro));
+                            new_exceptions_ro.extend(exceptions_ro.iter().cloned());
+                            let mut new_exceptions_rw =
+                                Vec::with_capacity(exceptions_rw.len() + usize::from(!action_ro));
+                            new_exceptions_rw.extend(exceptions_rw.iter().cloned());
+                            let mut base_ro = *base_ro;
+                            let new_exception_path = if action_path
+                                .symlink_metadata()
+                                .is_ok_and(|m| m.file_type().is_symlink())
+                            {
+                                // systemd follows symlinks, so won't bind mount the symlink,
+                                // add exception for parent instead
+                                action_path
+                                    .parent()
+                                    .map(Path::to_path_buf)
+                                    .unwrap_or(action_path)
+                            } else {
+                                action_path
+                            };
+                            if matches!(action, ProgramAction::Create(_))
+                                && new_exception_path == *base
+                            {
+                                base_ro = false;
+                            } else {
+                                if base.starts_with(&new_exception_path) {
+                                    return None;
+                                }
+                                if action_ro {
+                                    new_exceptions_ro.push(new_exception_path);
+                                } else {
+                                    new_exceptions_rw.push(new_exception_path);
+                                }
+                            }
+                            Some(OptionValueEffect::EmptyPath(EmptyPathDescription {
+                                base: base.to_owned(),
+                                base_ro,
+                                exceptions_ro: new_exceptions_ro,
+                                exceptions_rw: new_exceptions_rw,
                             }))
                         }
                         _ => None,

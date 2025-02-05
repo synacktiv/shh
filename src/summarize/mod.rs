@@ -608,7 +608,7 @@ struct ProgramState {
     cur_dir: Option<PathBuf>,
 }
 
-pub(crate) fn summarize<I>(syscalls: I) -> anyhow::Result<Vec<ProgramAction>>
+pub(crate) fn summarize<I>(syscalls: I, env_paths: &[PathBuf]) -> anyhow::Result<Vec<ProgramAction>>
 where
     I: IntoIterator<Item = anyhow::Result<Syscall>>,
 {
@@ -637,6 +637,9 @@ where
     // Create single action with all syscalls for efficient handling of seccomp filters
     actions.push(ProgramAction::Syscalls(stats.keys().cloned().collect()));
 
+    // Directories in PATH env var need to be accessible, otherwise systemd errors
+    actions.extend(env_paths.iter().cloned().map(ProgramAction::Read));
+
     // Report stats
     let mut syscall_names = stats.keys().collect::<Vec<_>>();
     syscall_names.sort_unstable();
@@ -660,6 +663,11 @@ mod tests {
     #[test]
     fn test_relative_rename() {
         let _ = simple_logger::SimpleLogger::new().init();
+
+        let env_paths = [
+            PathBuf::from("/path/from/env/1"),
+            PathBuf::from("/path/from/env/2"),
+        ];
 
         let temp_dir_src = tempfile::tempdir().unwrap();
         let temp_dir_dst = tempfile::tempdir().unwrap();
@@ -695,13 +703,15 @@ mod tests {
             },
         })];
         assert_eq!(
-            summarize(syscalls).unwrap(),
+            summarize(syscalls, &env_paths).unwrap(),
             vec![
                 ProgramAction::Read(temp_dir_src.path().join("a")),
                 ProgramAction::Write(temp_dir_src.path().join("a")),
                 ProgramAction::Create(temp_dir_dst.path().join("b")),
                 ProgramAction::Write(temp_dir_dst.path().join("b")),
-                ProgramAction::Syscalls(["renameat".to_owned()].into())
+                ProgramAction::Syscalls(["renameat".to_owned()].into()),
+                ProgramAction::Read("/path/from/env/1".into()),
+                ProgramAction::Read("/path/from/env/2".into()),
             ]
         );
     }
@@ -709,6 +719,11 @@ mod tests {
     #[test]
     fn test_connect_uds() {
         let _ = simple_logger::SimpleLogger::new().init();
+
+        let env_paths = [
+            PathBuf::from("/path/from/env/1"),
+            PathBuf::from("/path/from/env/2"),
+        ];
 
         let syscalls = [Ok(Syscall {
             pid: 598056,
@@ -746,10 +761,12 @@ mod tests {
             },
         })];
         assert_eq!(
-            summarize(syscalls).unwrap(),
+            summarize(syscalls, &env_paths).unwrap(),
             vec![
                 ProgramAction::Read("/run/user/1000/systemd/private".into()),
-                ProgramAction::Syscalls(["connect".to_owned()].into())
+                ProgramAction::Syscalls(["connect".to_owned()].into()),
+                ProgramAction::Read("/path/from/env/1".into()),
+                ProgramAction::Read("/path/from/env/2".into()),
             ]
         );
     }

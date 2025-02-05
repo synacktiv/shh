@@ -49,6 +49,8 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(not(feature = "gen-man-pages"))]
 fn main() -> anyhow::Result<()> {
+    use std::env;
+
     // Init logger
     simple_logger::SimpleLogger::new()
         .with_level(if cfg!(debug_assertions) {
@@ -100,9 +102,14 @@ fn main() -> anyhow::Result<()> {
                 }
             });
 
+            // Get & parse PATH env var
+            let env_paths: Vec<_> = env::var_os("PATH")
+                .map(|ev| env::split_paths(&ev).collect())
+                .unwrap_or_default();
+
             // Summarize actions
             let logs = st.log_lines()?;
-            let actions = summarize::summarize(logs)?;
+            let actions = summarize::summarize(logs, &env_paths)?;
             log::debug!("{actions:?}");
 
             if let Some(profile_data_path) = profile_data_path {
