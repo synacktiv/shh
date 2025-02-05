@@ -393,6 +393,19 @@ mod tests {
         )
     }
 
+    fn test_options_strict(names: &[&str]) -> (Vec<OptionDescription>, HardeningOptions) {
+        let sd_version = SystemdVersion::new(254, 0);
+        let kernel_version = KernelVersion::new(6, 4, 0);
+        let hardening_opts = HardeningOptions {
+            systemd_options: Some(names.iter().map(|n| (*n).to_owned()).collect()),
+            ..HardeningOptions::strict()
+        };
+        (
+            build_options(&sd_version, &kernel_version, &hardening_opts).unwrap(),
+            hardening_opts,
+        )
+    }
+
     #[test]
     fn test_resolve_protect_system() {
         let _ = simple_logger::SimpleLogger::new().init();
@@ -402,22 +415,22 @@ mod tests {
         let actions = vec![];
         let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 1);
-        assert_eq!(format!("{}", candidates[0]), "ProtectSystem=strict");
+        assert_eq!(candidates[0].to_string(), "ProtectSystem=strict");
 
         let actions = vec![ProgramAction::Write("/sys/whatever".into())];
         let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 1);
-        assert_eq!(format!("{}", candidates[0]), "ProtectSystem=strict");
+        assert_eq!(candidates[0].to_string(), "ProtectSystem=strict");
 
         let actions = vec![ProgramAction::Write("/var/cache/whatever".into())];
         let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 1);
-        assert_eq!(format!("{}", candidates[0]), "ProtectSystem=full");
+        assert_eq!(candidates[0].to_string(), "ProtectSystem=full");
 
         let actions = vec![ProgramAction::Write("/etc/plop.conf".into())];
         let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 1);
-        assert_eq!(format!("{}", candidates[0]), "ProtectSystem=true");
+        assert_eq!(candidates[0].to_string(), "ProtectSystem=true");
 
         let actions = vec![ProgramAction::Write("/usr/bin/false".into())];
         let candidates = resolve(&opts, &actions, &hardening_opts);
@@ -523,7 +536,7 @@ mod tests {
         let actions = vec![];
         let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 1);
-        assert_eq!(format!("{}", candidates[0]), "PrivateTmp=true");
+        assert_eq!(candidates[0].to_string(), "PrivateTmp=true");
 
         let actions = vec![ProgramAction::Read("/tmp/data".into())];
         let candidates = resolve(&opts, &actions, &hardening_opts);
@@ -536,7 +549,7 @@ mod tests {
         let actions = vec![ProgramAction::Create("/tmp/data".into())];
         let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 1);
-        assert_eq!(format!("{}", candidates[0]), "PrivateTmp=true");
+        assert_eq!(candidates[0].to_string(), "PrivateTmp=true");
 
         let actions = vec![ProgramAction::Exec("/tmp/data".into())];
         let candidates = resolve(&opts, &actions, &hardening_opts);
@@ -548,7 +561,7 @@ mod tests {
         ];
         let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 1);
-        assert_eq!(format!("{}", candidates[0]), "PrivateTmp=true");
+        assert_eq!(candidates[0].to_string(), "PrivateTmp=true");
 
         let actions = vec![
             ProgramAction::Create("/tmp/data".into()),
@@ -556,7 +569,7 @@ mod tests {
         ];
         let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 1);
-        assert_eq!(format!("{}", candidates[0]), "PrivateTmp=true");
+        assert_eq!(candidates[0].to_string(), "PrivateTmp=true");
 
         let actions = vec![
             ProgramAction::Create("/tmp/data".into()),
@@ -564,6 +577,110 @@ mod tests {
         ];
         let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 1);
-        assert_eq!(format!("{}", candidates[0]), "PrivateTmp=true");
+        assert_eq!(candidates[0].to_string(), "PrivateTmp=true");
+    }
+
+    #[test]
+    fn test_resolve_inaccessible_paths() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let (opts, hardening_opts) = test_options_strict(&["InaccessiblePaths"]);
+
+        let actions = vec![];
+        let candidates = resolve(&opts, &actions, &hardening_opts);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].to_string(), "InaccessiblePaths=-/");
+
+        let actions = vec![ProgramAction::Read("/".into())];
+        let candidates = resolve(&opts, &actions, &hardening_opts);
+        assert_eq!(candidates.len(), 1);
+        assert!(candidates[0].to_string().starts_with("InaccessiblePaths="));
+        let OptionValue::List(opt_list) = &candidates[0].value else {
+            panic!();
+        };
+        assert!(opt_list.values.contains(&"/boot".to_owned()));
+        assert!(opt_list.values.contains(&"/dev".to_owned()));
+        assert!(opt_list.values.contains(&"/etc".to_owned()));
+        assert!(opt_list.values.contains(&"/home".to_owned()));
+        assert!(opt_list.values.contains(&"/root".to_owned()));
+        assert!(opt_list.values.contains(&"/sys".to_owned()));
+        assert!(opt_list.values.contains(&"/tmp".to_owned()));
+        assert!(opt_list.values.contains(&"/usr".to_owned()));
+        assert!(opt_list.values.contains(&"/var".to_owned()));
+        assert!(!opt_list.values.contains(&"/proc".to_owned()));
+        assert!(!opt_list.values.contains(&"/run".to_owned()));
+
+        let actions = vec![ProgramAction::Read("/var/data".into())];
+        let candidates = resolve(&opts, &actions, &hardening_opts);
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0].to_string(), "TemporaryFileSystem=/:ro");
+        assert_eq!(candidates[1].to_string(), "BindReadOnlyPaths=-/var/data");
+
+        let actions = vec![
+            ProgramAction::Exec("/usr/bin/prog".into()),
+            ProgramAction::Read("/var/data".into()),
+        ];
+        let candidates = resolve(&opts, &actions, &hardening_opts);
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0].to_string(), "TemporaryFileSystem=/:ro");
+        assert_eq!(
+            candidates[1].to_string(),
+            "BindReadOnlyPaths=-/usr/bin/prog -/var/data"
+        );
+
+        let actions = vec![
+            ProgramAction::Exec("/usr/bin/prog".into()),
+            ProgramAction::Write("/var/data".into()),
+        ];
+        let candidates = resolve(&opts, &actions, &hardening_opts);
+        assert_eq!(candidates.len(), 3);
+        assert_eq!(candidates[0].to_string(), "TemporaryFileSystem=/:ro");
+        assert_eq!(
+            candidates[1].to_string(),
+            "BindReadOnlyPaths=-/usr/bin/prog"
+        );
+        assert_eq!(candidates[2].to_string(), "BindPaths=-/var/data");
+
+        let actions = vec![
+            ProgramAction::Exec("/usr/bin/prog".into()),
+            ProgramAction::Create("/var/data".into()),
+            ProgramAction::Write("/var/data".into()),
+        ];
+        let candidates = resolve(&opts, &actions, &hardening_opts);
+        assert_eq!(candidates.len(), 3);
+        assert_eq!(candidates[0].to_string(), "TemporaryFileSystem=/:ro");
+        assert_eq!(
+            candidates[1].to_string(),
+            "BindReadOnlyPaths=-/usr/bin/prog"
+        );
+        assert_eq!(candidates[2].to_string(), "BindPaths=-/var");
+
+        let actions = vec![
+            ProgramAction::Exec("/usr/bin/prog".into()),
+            ProgramAction::Create("/var/dir/data".into()),
+            ProgramAction::Write("/var/dir/data".into()),
+        ];
+        let candidates = resolve(&opts, &actions, &hardening_opts);
+        assert_eq!(candidates.len(), 3);
+        assert_eq!(candidates[0].to_string(), "TemporaryFileSystem=/:ro");
+        assert_eq!(
+            candidates[1].to_string(),
+            "BindReadOnlyPaths=-/usr/bin/prog"
+        );
+        assert_eq!(candidates[2].to_string(), "BindPaths=-/var/dir");
+
+        let actions = vec![
+            ProgramAction::Exec("/usr/bin/prog".into()),
+            ProgramAction::Read("/var/data".into()),
+            ProgramAction::Write("/var/data".into()),
+        ];
+        let candidates = resolve(&opts, &actions, &hardening_opts);
+        assert_eq!(candidates.len(), 3);
+        assert_eq!(candidates[0].to_string(), "TemporaryFileSystem=/:ro");
+        assert_eq!(
+            candidates[1].to_string(),
+            "BindReadOnlyPaths=-/usr/bin/prog"
+        );
+        assert_eq!(candidates[2].to_string(), "BindPaths=-/var/data");
     }
 }

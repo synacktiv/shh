@@ -1510,6 +1510,10 @@ pub(crate) fn build_options(
                                     new_exceptions_rw.push(new_exception_path);
                                 }
                             }
+                            // Remove exceptions in ro list if in rw
+                            new_exceptions_ro.retain(|ero| {
+                                !new_exceptions_rw.iter().any(|erw| ero.starts_with(erw))
+                            });
                             Some(OptionValueEffect::EmptyPath(EmptyPathDescription {
                                 base: base.to_owned(),
                                 base_ro,
@@ -1535,21 +1539,20 @@ pub(crate) fn build_options(
                         new_opts.push(OptionWithValue {
                             name: "TemporaryFileSystem",
                             value: OptionValue::List(ListOptionValue {
-                                    #[expect(clippy::unwrap_used)] // path is from our option, so unicode safe
-                                    values: vec![if *base_ro {
-                                        format!("{}:ro", base.to_str().unwrap())
-                                    } else {
-                                        base.to_str().unwrap().to_owned()
-                                    }],
-                                    value_if_empty: None,
-                                    option_prefix: "",
-                                    elem_prefix: "",
-                                    repeat_option: false,
-                                    mode: ListMode::BlackList,
-                                    mergeable_paths: true,
-                                }),
+                                #[expect(clippy::unwrap_used)] // path is from our option, so unicode safe
+                                values: vec![if *base_ro {
+                                    format!("{}:ro", base.to_str().unwrap())
+                                } else {
+                                    base.to_str().unwrap().to_owned()
+                                }],
+                                value_if_empty: None,
+                                option_prefix: "",
+                                elem_prefix: "",
+                                repeat_option: false,
+                                mode: ListMode::BlackList,
+                                mergeable_paths: true,
+                            }),
                         });
-                        // TODO remove exceptions in ro list if in rw
                         if !exceptions_ro.is_empty() {
                             new_opts.push(OptionWithValue {
                                 name: "BindReadOnlyPaths",
