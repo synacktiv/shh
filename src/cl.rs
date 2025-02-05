@@ -30,7 +30,7 @@ pub(crate) struct HardeningOptions {
     #[arg(short, long, default_value_t, value_enum)]
     pub mode: HardeningMode,
     /// Enable advanced network firewalling.
-    /// Only use this if you know that the network addresses and ports, of
+    /// Only use this if you know that the network addresses and ports of
     /// local system and remote peers will not change
     #[arg(short = 'f', long, default_value_t)]
     pub network_firewalling: bool,
@@ -43,8 +43,8 @@ pub(crate) struct HardeningOptions {
     /// try to merge paths with the same parent
     #[arg(long, default_value = "5")]
     pub merge_paths_threshold: NonZeroUsize,
-    /// Disable all systemd options except for these (case sensitive).
-    /// Opther options may be generated when mutating options to make them compatible.
+    /// Disable all systemd options except these (case sensitive).
+    /// Other options may be generated when mutating these options to make them compatible with profiling data.
     /// For testing only
     #[arg(long, num_args=1..)]
     pub systemd_options: Option<Vec<String>>,
