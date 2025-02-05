@@ -137,6 +137,54 @@ impl PathDescription {
 }
 
 #[derive(Debug, Clone)]
+pub(crate) struct EmptyPathDescription {
+    /// Base path
+    pub base: PathBuf,
+    /// Whether base path is read only
+    pub base_ro: bool,
+    /// Read only paths below base
+    pub exceptions_ro: Vec<PathBuf>,
+    /// Read/write paths below base
+    pub exceptions_rw: Vec<PathBuf>,
+}
+
+impl EmptyPathDescription {
+    pub(crate) fn base(base: &str) -> Self {
+        Self {
+            base: base.into(),
+            base_ro: false,
+            exceptions_ro: vec![],
+            exceptions_rw: vec![],
+        }
+    }
+
+    pub(crate) fn base_ro(base: &str) -> Self {
+        Self {
+            base: base.into(),
+            base_ro: true,
+            exceptions_ro: vec![],
+            exceptions_rw: vec![],
+        }
+    }
+
+    pub(crate) fn matches(&self, path: &Path, ro: bool) -> bool {
+        assert!(path.is_absolute(), "{path:?}");
+        if !path.starts_with(&self.base) {
+            return false;
+        }
+        if ro {
+            !self
+                .exceptions_ro
+                .iter()
+                .chain(&self.exceptions_rw)
+                .any(|e| path.starts_with(e))
+        } else {
+            !self.exceptions_rw.iter().any(|e| path.starts_with(e))
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub(crate) enum OptionValueEffect {
     /// Deny an action
     DenyAction(ProgramAction),
@@ -145,7 +193,7 @@ pub(crate) enum OptionValueEffect {
     /// Mount path as noexec
     DenyExec(PathDescription),
     /// Mount an empty tmpfs under given directory
-    EmptyPath(PathDescription),
+    EmptyPath(EmptyPathDescription),
     /// Don't mount path in target namespace
     RemovePath(PathDescription),
     /// Deny syscall(s)
@@ -969,7 +1017,11 @@ pub(crate) fn merge_similar_paths(paths: &[PathBuf], threshold: NonZeroUsize) ->
     }
 }
 
-#[expect(clippy::too_many_lines, clippy::unnecessary_wraps)]
+#[expect(
+    clippy::too_many_lines,
+    clippy::unnecessary_wraps,
+    clippy::similar_names
+)]
 pub(crate) fn build_options(
     systemd_version: &SystemdVersion,
     kernel_version: &KernelVersion,
@@ -1032,7 +1084,7 @@ pub(crate) fn build_options(
                 desc: OptionEffect::Simple(OptionValueEffect::Multiple(
                     home_paths
                         .iter()
-                        .map(|p| OptionValueEffect::EmptyPath(PathDescription::base(p)))
+                        .map(|p| OptionValueEffect::EmptyPath(EmptyPathDescription::base(p)))
                         .collect(),
                 )),
             },
@@ -1041,11 +1093,7 @@ pub(crate) fn build_options(
                 desc: OptionEffect::Simple(OptionValueEffect::Multiple(
                     home_paths
                         .iter()
-                        .map(|p| OptionValueEffect::EmptyPath(PathDescription::base(p)))
-                        .chain(
-                            home_paths
-                                .map(|p| OptionValueEffect::DenyWrite(PathDescription::base(p))),
-                        )
+                        .map(|p| OptionValueEffect::EmptyPath(EmptyPathDescription::base_ro(p)))
                         .collect(),
                 )),
             },
@@ -1072,8 +1120,8 @@ pub(crate) fn build_options(
                 OptionValue::Boolean(true)
             },
             desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                OptionValueEffect::EmptyPath(PathDescription::base("/tmp")),
-                OptionValueEffect::EmptyPath(PathDescription::base("/var/tmp")),
+                OptionValueEffect::EmptyPath(EmptyPathDescription::base("/tmp")),
+                OptionValueEffect::EmptyPath(EmptyPathDescription::base("/var/tmp")),
             ])),
         }],
         updater: None,
@@ -1085,10 +1133,12 @@ pub(crate) fn build_options(
         possible_values: vec![OptionValueDescription {
             value: OptionValue::Boolean(true),
             desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                OptionValueEffect::EmptyPath(PathDescription::Base {
+                OptionValueEffect::EmptyPath(EmptyPathDescription {
                     base: "/dev/".into(),
+                    base_ro: true,
+                    exceptions_ro: vec![],
                     // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L912
-                    exceptions: [
+                    exceptions_rw: [
                         "null",
                         "zero",
                         "full",
@@ -1214,9 +1264,9 @@ pub(crate) fn build_options(
             // which user, only support the most restrictive option
             possible_values: vec![OptionValueDescription {
                 value: OptionValue::String("ptraceable".to_owned()),
-                desc: OptionEffect::Simple(OptionValueEffect::EmptyPath(PathDescription::pattern(
-                    "^/proc/[0-9]+(/|$)",
-                ))),
+                desc: OptionEffect::Simple(OptionValueEffect::RemovePath(
+                    PathDescription::pattern("^/proc/[0-9]+(/|$)"),
+                )),
             }],
             updater: None,
         });
@@ -1380,12 +1430,13 @@ pub(crate) fn build_options(
             possible_values,
             updater: Some(OptionUpdater {
                 effect: |effect, action, _| {
-                    let action_path = match action {
-                        ProgramAction::Read(action_path)
-                        | ProgramAction::Write(action_path)
-                        | ProgramAction::Exec(action_path) => action_path.to_owned(),
+                    let (action_path, action_ro) = match action {
+                        ProgramAction::Read(action_path) | ProgramAction::Exec(action_path) => {
+                            (action_path.to_owned(), true)
+                        }
+                        ProgramAction::Write(action_path) => (action_path.to_owned(), false),
                         ProgramAction::Create(action_path) => {
-                            action_path.parent().map(Path::to_path_buf)?
+                            (action_path.parent().map(Path::to_path_buf)?, false)
                         }
                         _ => return None,
                     };
@@ -1393,9 +1444,10 @@ pub(crate) fn build_options(
                         OptionValueEffect::RemovePath(PathDescription::Base {
                             base,
                             exceptions,
-                        }) if action_path != Path::new("/") => {
-                            let mut new_exceptions = Vec::with_capacity(exceptions.len() + 1);
-                            new_exceptions.extend(exceptions.iter().cloned());
+                        }) => {
+                            // This will be reached only when first transforming an initial InacessiblePaths option (RemovePath) into
+                            // less restrictive EmptyPaths + exceptions
+                            assert!(exceptions.is_empty());
                             let new_exception_path = if action_path
                                 .symlink_metadata()
                                 .is_ok_and(|m| m.file_type().is_symlink())
@@ -1412,26 +1464,42 @@ pub(crate) fn build_options(
                             if base.starts_with(&new_exception_path) {
                                 return None;
                             }
-                            new_exceptions.push(new_exception_path);
-                            Some(OptionValueEffect::EmptyPath(PathDescription::Base {
+                            let (exceptions_ro, exceptions_rw) = if action_ro {
+                                (vec![new_exception_path], vec![])
+                            } else {
+                                (vec![], vec![new_exception_path])
+                            };
+                            Some(OptionValueEffect::EmptyPath(EmptyPathDescription {
                                 base: base.to_owned(),
-                                exceptions: new_exceptions,
+                                base_ro: true,
+                                exceptions_ro,
+                                exceptions_rw,
                             }))
-                        }
-                        OptionValueEffect::EmptyPath(PathDescription::Pattern(_)) => {
-                            unimplemented!()
                         }
                         _ => None,
                     }
                 },
                 options: |effect, hopts| match effect {
-                    OptionValueEffect::EmptyPath(PathDescription::Base { base, exceptions }) => {
-                        vec![
-                            OptionWithValue {
-                                name: "TemporaryFileSystem",
-                                value: OptionValue::List(ListOptionValue {
+                    OptionValueEffect::EmptyPath(EmptyPathDescription {
+                        base,
+                        base_ro,
+                        exceptions_ro,
+                        exceptions_rw,
+                    }) => {
+                        // TemporayFileSystem nullifies ReadOnlyPaths, so we must apply read only restrictions here too
+                        let mut new_opts = Vec::with_capacity(
+                            1 + usize::from(!exceptions_ro.is_empty())
+                                + usize::from(!exceptions_rw.is_empty()),
+                        );
+                        new_opts.push(OptionWithValue {
+                            name: "TemporaryFileSystem",
+                            value: OptionValue::List(ListOptionValue {
                                     #[expect(clippy::unwrap_used)] // path is from our option, so unicode safe
-                                    values: vec![base.to_str().unwrap().to_owned()], // TODO :ro?
+                                    values: vec![if *base_ro {
+                                        format!("{}:ro", base.to_str().unwrap())
+                                    } else {
+                                        base.to_str().unwrap().to_owned()
+                                    }],
                                     value_if_empty: None,
                                     option_prefix: "",
                                     elem_prefix: "",
@@ -1439,13 +1507,14 @@ pub(crate) fn build_options(
                                     mode: ListMode::BlackList,
                                     mergeable_paths: true,
                                 }),
-                            },
-                            // TODO BindReadOnlyPaths?
-                            OptionWithValue {
-                                name: "BindPaths",
+                        });
+                        // TODO remove exceptions in ro list if in rw
+                        if !exceptions_ro.is_empty() {
+                            new_opts.push(OptionWithValue {
+                                name: "BindReadOnlyPaths",
                                 value: OptionValue::List(ListOptionValue {
                                     values: merge_similar_paths(
-                                        exceptions,
+                                        exceptions_ro,
                                         hopts.merge_paths_threshold,
                                     )
                                     .iter()
@@ -1458,8 +1527,29 @@ pub(crate) fn build_options(
                                     mode: ListMode::WhiteList,
                                     mergeable_paths: true,
                                 }),
-                            },
-                        ]
+                            });
+                        }
+                        if !exceptions_rw.is_empty() {
+                            new_opts.push(OptionWithValue {
+                                name: "BindPaths",
+                                value: OptionValue::List(ListOptionValue {
+                                    values: merge_similar_paths(
+                                        exceptions_rw,
+                                        hopts.merge_paths_threshold,
+                                    )
+                                    .iter()
+                                    .filter_map(|p| p.to_str().map(ToOwned::to_owned))
+                                    .collect(),
+                                    value_if_empty: None,
+                                    option_prefix: "",
+                                    elem_prefix: "-",
+                                    repeat_option: false,
+                                    mode: ListMode::WhiteList,
+                                    mergeable_paths: true,
+                                }),
+                            });
+                        }
+                        new_opts
                     }
                     OptionValueEffect::DenyWrite(PathDescription::Pattern(_)) => {
                         unimplemented!()

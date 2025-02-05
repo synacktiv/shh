@@ -68,8 +68,21 @@ impl OptionValueEffect {
             },
             OptionValueEffect::EmptyPath(empty_paths) => match action {
                 ProgramAction::Read(path_action) | ProgramAction::Exec(path_action) => {
-                    !empty_paths.matches(path_action)
+                    !empty_paths.matches(path_action, true)
                         || prev_actions.contains(&ProgramAction::Create(path_action.clone()))
+                }
+                ProgramAction::Write(path_action) => {
+                    !empty_paths.matches(path_action, false)
+                        || prev_actions.contains(&ProgramAction::Create(path_action.clone()))
+                }
+                ProgramAction::Create(path_action) => {
+                    !empty_paths.matches(path_action, false)
+                        || (!empty_paths.base_ro
+                            && path_action.parent().is_some_and(|pap| {
+                                (pap == empty_paths.base)
+                                    || prev_actions
+                                        .contains(&ProgramAction::Create(pap.to_path_buf()))
+                            }))
                 }
                 _ => true,
             },
@@ -421,18 +434,79 @@ mod tests {
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].to_string(), "ProtectHome=true");
 
+        let actions = vec![ProgramAction::Read("/home/user/data".into())];
+        let candidates = resolve(&opts, &actions, &hardening_opts);
+        assert_eq!(candidates.len(), 0);
+
         let actions = vec![ProgramAction::Write("/home/user/data".into())];
         let candidates = resolve(&opts, &actions, &hardening_opts);
-        assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].to_string(), "ProtectHome=tmpfs");
+        assert_eq!(candidates.len(), 0);
 
-        let actions = vec![ProgramAction::Read("/home/user/data".into())];
+        let actions = vec![ProgramAction::Create("/home/user/data".into())];
         let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 0);
 
         let actions = vec![
             ProgramAction::Create("/home/user/data".into()),
             ProgramAction::Read("/home/user/data".into()),
+        ];
+        let candidates = resolve(&opts, &actions, &hardening_opts);
+        assert_eq!(candidates.len(), 0);
+
+        let actions = vec![
+            ProgramAction::Create("/home/user".into()),
+            ProgramAction::Create("/home/user/data".into()),
+            ProgramAction::Read("/home/user/data".into()),
+        ];
+        let candidates = resolve(&opts, &actions, &hardening_opts);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].to_string(), "ProtectHome=tmpfs");
+
+        let actions = vec![
+            ProgramAction::Create("/home/user".into()),
+            ProgramAction::Create("/home/user/data".into()),
+            ProgramAction::Write("/home/user/data".into()),
+        ];
+        let candidates = resolve(&opts, &actions, &hardening_opts);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].to_string(), "ProtectHome=tmpfs");
+
+        let actions = vec![ProgramAction::Read("/home/data".into())];
+        let candidates = resolve(&opts, &actions, &hardening_opts);
+        assert_eq!(candidates.len(), 0);
+
+        let actions = vec![ProgramAction::Write("/home/data".into())];
+        let candidates = resolve(&opts, &actions, &hardening_opts);
+        assert_eq!(candidates.len(), 0);
+
+        let actions = vec![ProgramAction::Create("/home/data".into())];
+        let candidates = resolve(&opts, &actions, &hardening_opts);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].to_string(), "ProtectHome=tmpfs");
+
+        let actions = vec![ProgramAction::Exec("/home/data".into())];
+        let candidates = resolve(&opts, &actions, &hardening_opts);
+        assert_eq!(candidates.len(), 0);
+
+        let actions = vec![
+            ProgramAction::Create("/home/data".into()),
+            ProgramAction::Read("/home/data".into()),
+        ];
+        let candidates = resolve(&opts, &actions, &hardening_opts);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].to_string(), "ProtectHome=tmpfs");
+
+        let actions = vec![
+            ProgramAction::Create("/home/data".into()),
+            ProgramAction::Write("/home/data".into()),
+        ];
+        let candidates = resolve(&opts, &actions, &hardening_opts);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].to_string(), "ProtectHome=tmpfs");
+
+        let actions = vec![
+            ProgramAction::Create("/home/data".into()),
+            ProgramAction::Exec("/home/data".into()),
         ];
         let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 1);
@@ -451,18 +525,42 @@ mod tests {
         assert_eq!(candidates.len(), 1);
         assert_eq!(format!("{}", candidates[0]), "PrivateTmp=true");
 
+        let actions = vec![ProgramAction::Read("/tmp/data".into())];
+        let candidates = resolve(&opts, &actions, &hardening_opts);
+        assert_eq!(candidates.len(), 0);
+
         let actions = vec![ProgramAction::Write("/tmp/data".into())];
+        let candidates = resolve(&opts, &actions, &hardening_opts);
+        assert_eq!(candidates.len(), 0);
+
+        let actions = vec![ProgramAction::Create("/tmp/data".into())];
         let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 1);
         assert_eq!(format!("{}", candidates[0]), "PrivateTmp=true");
 
-        let actions = vec![ProgramAction::Read("/tmp/data".into())];
+        let actions = vec![ProgramAction::Exec("/tmp/data".into())];
         let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 0);
 
         let actions = vec![
             ProgramAction::Create("/tmp/data".into()),
             ProgramAction::Read("/tmp/data".into()),
+        ];
+        let candidates = resolve(&opts, &actions, &hardening_opts);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(format!("{}", candidates[0]), "PrivateTmp=true");
+
+        let actions = vec![
+            ProgramAction::Create("/tmp/data".into()),
+            ProgramAction::Write("/tmp/data".into()),
+        ];
+        let candidates = resolve(&opts, &actions, &hardening_opts);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(format!("{}", candidates[0]), "PrivateTmp=true");
+
+        let actions = vec![
+            ProgramAction::Create("/tmp/data".into()),
+            ProgramAction::Exec("/tmp/data".into()),
         ];
         let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 1);
