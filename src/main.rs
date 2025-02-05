@@ -39,7 +39,8 @@ fn sd_options(
 #[cfg(feature = "gen-man-pages")]
 fn main() -> anyhow::Result<()> {
     use clap::CommandFactory as _;
-    let cmd = cl::Args::command();
+    // Use the binary name instead of the default of the package name
+    let cmd = cl::Args::command().name(env!("CARGO_BIN_NAME"));
     let output = std::env::args_os()
         .nth(1)
         .ok_or_else(|| anyhow::anyhow!("Missing output dir argument"))?;
