@@ -1,129 +1,101 @@
 # Supported systemd options
 
-- [`CapabilityBoundingSet`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#CapabilityBoundingSet=)
-  - `CAP_BLOCK_SUSPEND`
-  - `CAP_BPF`
-  - `CAP_CHOWN`
-  - `CAP_MKNOD`
-  - `CAP_NET_RAW`
-  - `CAP_PERFMON`
-  - `CAP_SYS_BOOT`
-  - `CAP_SYS_CHROOT`
-  - `CAP_SYS_MODULE`
-  - `CAP_SYS_NICE`
-  - `CAP_SYS_PACCT`
-  - `CAP_SYS_PTRACE`
-  - `CAP_SYS_TIME`
-  - `CAP_SYS_TTY_CONFIG`
-  - `CAP_SYSLOG`
-  - `CAP_WAKE_ALARM`
-- [`LockPersonality`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#LockPersonality=)
+- [`CapabilityBoundingSet`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#CapabilityBoundingSet=)
+
+  - *dynamic blacklisting*
+
+- [`InaccessiblePaths`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#InaccessiblePaths=)
+
+  - *dynamic path blacklisting*
+  - to support this option, other options may be dynamically enabled:
+    - [`TemporaryFileSystem`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#TemporaryFileSystem=)
+    - [`BindReadOnlyPaths`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#BindReadOnlyPaths=)
+    - [`BindPaths`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#BindPaths=)
+
+- [`LockPersonality`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#LockPersonality=)
+
   - `true`
-- [`MemoryDenyWriteExecute`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#MemoryDenyWriteExecute=)
+
+- [`MemoryDenyWriteExecute`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#MemoryDenyWriteExecute=)
+
   - `true`
-- [`PrivateDevices`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#PrivateDevices=)
+
+- [`NoExecPaths`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#NoExecPaths=)
+
+  - *dynamic path blacklisting*
+  - to support this option, other options may be dynamically enabled:
+    - [`ExecPaths`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#ExecPaths=)
+
+- [`PrivateDevices`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#PrivateDevices=)
+
   - `true`
-- [`PrivateNetwork`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#PrivateNetwork=)
+
+- [`PrivateNetwork`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#PrivateNetwork=)
+
   - `true`
-- [`PrivateTmp`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#PrivateTmp=)
+
+- [`PrivateTmp`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#PrivateTmp=)
+
   - `disconnected`
-- [`ProtectClock`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ProtectClock=)
+
+- [`ProtectClock`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#ProtectClock=)
+
   - `true`
-- [`ProtectControlGroups`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ProtectControlGroups=)
+
+- [`ProtectControlGroups`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#ProtectControlGroups=)
+
   - `true`
-- [`ProtectHome`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ProtectHome=)
+
+- [`ProtectHome`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#ProtectHome=)
+
+  - `tmpfs`
   - `read-only`
   - `true`
-  - `tmpfs`
-- [`ProtectKernelLogs`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ProtectKernelLogs=)
+
+- [`ProtectKernelLogs`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#ProtectKernelLogs=)
+
   - `true`
-- [`ProtectKernelModules`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ProtectKernelModules=)
+
+- [`ProtectKernelModules`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#ProtectKernelModules=)
+
   - `true`
-- [`ProtectKernelTunables`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ProtectKernelTunables=)
+
+- [`ProtectKernelTunables`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#ProtectKernelTunables=)
+
   - `true`
-- [`ProtectProc`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ProtectProc=)
+
+- [`ProtectProc`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#ProtectProc=)
+
   - `ptraceable`
-- [`ProtectSystem`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ProtectSystem=)
+
+- [`ProtectSystem`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#ProtectSystem=)
+
   - `true`
   - `full`
   - `strict`
-- [`RestrictAddressFamilies`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#RestrictAddressFamilies=)
-  - `AF_ALG`
-  - `AF_APPLETALK`
-  - `AF_ATMPVC`
-  - `AF_ATMSVC`
-  - `AF_AX25`
-  - `AF_BLUETOOTH`
-  - `AF_BRIDGE`
-  - `AF_CAIF`
-  - `AF_CAN`
-  - `AF_DECnet`
-  - `AF_ECONET`
-  - `AF_IB`
-  - `AF_IEEE802154`
-  - `AF_INET`
-  - `AF_INET6`
-  - `AF_IPX`
-  - `AF_IRDA`
-  - `AF_ISDN`
-  - `AF_IUCV`
-  - `AF_KCM`
-  - `AF_KEY`
-  - `AF_LLC`
-  - `AF_LOCAL`
-  - `AF_MPLS`
-  - `AF_NETBEUI`
-  - `AF_NETLINK`
-  - `AF_NETROM`
-  - `AF_PACKET`
-  - `AF_PHONET`
-  - `AF_PPPOX`
-  - `AF_QIPCRTR`
-  - `AF_RDS`
-  - `AF_ROSE`
-  - `AF_RXRPC`
-  - `AF_SECURITY`
-  - `AF_SMC`
-  - `AF_TIPC`
-  - `AF_UNIX`
-  - `AF_VSOCK`
-  - `AF_WANPIPE`
-  - `AF_X25`
-  - `AF_XDP`
-- [`RestrictRealtime`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#RestrictRealtime=)
+
+- [`ReadOnlyPaths`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#ReadOnlyPaths=)
+
+  - *dynamic path blacklisting*
+  - to support this option, other options may be dynamically enabled:
+    - [`ReadWritePaths`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#ReadWritePaths=)
+
+- [`RestrictAddressFamilies`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#RestrictAddressFamilies=)
+
+  - *dynamic whitelisting*
+
+- [`RestrictRealtime`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#RestrictRealtime=)
+
   - `true`
-- [`SocketBindDeny`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#SocketBindDeny=)
-  - `ipv4:tcp`
-  - `ipv4:udp`
-  - `ipv6:tcp`
-  - `ipv6:udp`
-- [`SystemCallArchitectures`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#SystemCallArchitectures=)
+
+- [`SocketBindDeny`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#SocketBindDeny=)
+
+  - *dynamic blacklisting*
+
+- [`SystemCallArchitectures`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#SystemCallArchitectures=)
+
   - `native`
-- [`SystemCallFilter`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#SystemCallFilter=)
-  - `@aio:EPERM`
-  - `@basic-io:EPERM`
-  - `@chown:EPERM`
-  - `@clock:EPERM`
-  - `@cpu-emulation:EPERM`
-  - `@debug:EPERM`
-  - `@file-system:EPERM`
-  - `@io-event:EPERM`
-  - `@ipc:EPERM`
-  - `@keyring:EPERM`
-  - `@memlock:EPERM`
-  - `@module:EPERM`
-  - `@mount:EPERM`
-  - `@network-io:EPERM`
-  - `@obsolete:EPERM`
-  - `@pkey:EPERM`
-  - `@privileged:EPERM`
-  - `@process:EPERM`
-  - `@raw-io:EPERM`
-  - `@reboot:EPERM`
-  - `@resources:EPERM`
-  - `@sandbox:EPERM`
-  - `@setuid:EPERM`
-  - `@signal:EPERM`
-  - `@swap:EPERM`
-  - `@sync:EPERM`
-  - `@timer:EPERM`
+
+- [`SystemCallFilter`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#SystemCallFilter=)
+
+  - *dynamic blacklisting*

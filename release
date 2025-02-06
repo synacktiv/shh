@@ -14,7 +14,7 @@ cargo update
 cargo check
 cargo test --bins
 
-RUST_LOG=warn cargo run -- list-systemd-options > systemd_options.md
+RUST_LOG=warn cargo run -- list-systemd-options | head -n -1 > systemd_options.md
 
 git add Cargo.{toml,lock} systemd_options.md
 

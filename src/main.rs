@@ -7,8 +7,9 @@
 )]
 
 use std::{
+    env,
     fs::{self, File},
-    thread,
+    io, thread,
 };
 
 use anyhow::Context as _;
@@ -39,9 +40,10 @@ fn sd_options(
 #[cfg(feature = "gen-man-pages")]
 fn main() -> anyhow::Result<()> {
     use clap::CommandFactory as _;
+
     // Use the binary name instead of the default of the package name
     let cmd = cl::Args::command().name(env!("CARGO_BIN_NAME"));
-    let output = std::env::args_os()
+    let output = env::args_os()
         .nth(1)
         .ok_or_else(|| anyhow::anyhow!("Missing output dir argument"))?;
     clap_mangen::generate_to(cmd, output)?;
@@ -50,8 +52,6 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(not(feature = "gen-man-pages"))]
 fn main() -> anyhow::Result<()> {
-    use std::env;
-
     // Init logger
     simple_logger::SimpleLogger::new()
         .with_level(if cfg!(debug_assertions) {
@@ -253,20 +253,12 @@ fn main() -> anyhow::Result<()> {
                 &cl::HardeningOptions::strict(),
             );
             sd_opts.sort_unstable_by_key(|o| o.name);
-            for sd_opt in sd_opts {
-                println!("- [`{sd_opt}`](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#{sd_opt}=)");
-                for opt_val in sd_opt.possible_values {
-                    match opt_val.value {
-                        systemd::OptionValue::Boolean(v) => {
-                            println!("  - `{}`", if v { "true" } else { "false" });
-                        }
-                        systemd::OptionValue::String(v) => println!("  - `{v}`"),
-                        systemd::OptionValue::List(systemd::ListOptionValue { values, .. }) => {
-                            for val in values {
-                                println!("  - `{val}`");
-                            }
-                        }
-                    }
+            {
+                let mut stdout = io::stdout().lock();
+                for sd_opt in sd_opts {
+                    sd_opt
+                        .write_markdown(&mut stdout)
+                        .context("Failed to write markdown output")?;
                 }
             }
         }
