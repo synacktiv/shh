@@ -1,5 +1,105 @@
 # Changelog
 
+## v2025.2.6
+
+### <!-- 01 -->💡 Features
+
+- Mkdir syscall ([f25364d](https://github.com/desbma/shh/commit/f25364d8a5e00f6e62b8efc1734f7b3d7fef5b01) by desbma)
+- Track current dir ([1d0080b](https://github.com/desbma/shh/commit/1d0080b8c98ff65224e7f02f7276828e1099ceec) by desbma)
+- Use current directory to resolve relative paths ([b486593](https://github.com/desbma/shh/commit/b486593667d9ce3f153469a059358e6230dfa605) by desbma)
+- Log whole syscall when handling fails ([f8402d8](https://github.com/desbma/shh/commit/f8402d818d31afe68fe6b3a655162c21eb4a471e) by desbma)
+- File system deny all + white list ([502ca9d](https://github.com/desbma/shh/commit/502ca9d451bfa72a40559f6503f0bbafaef8eb50) by desbma)
+- Filesystem exception whitelist merging ([2263ab4](https://github.com/desbma/shh/commit/2263ab4e015c82cd6b8286d48626f81e59c72b50) by desbma)
+- InaccessiblePaths systemd option (WIP) ([aa76500](https://github.com/desbma/shh/commit/aa765008c7ef121b7a44ae26a66fee112d64542d) by desbma)
+- InaccessiblePaths dynamic whitelisting + auto merge options ([53a3c10](https://github.com/desbma/shh/commit/53a3c10757761b23429439dd1e06ea94cb6ad3fa) by desbma)
+- Handle exec syscalls ([31814d2](https://github.com/desbma/shh/commit/31814d2eda9caff4352d0790eaba68f947f14380) by desbma)
+- Support NoExecPaths systemd option + ExecPath whitelisting ([dbf32a4](https://github.com/desbma/shh/commit/dbf32a499aeabc45f30370e0215f5fe3822c31c1) by desbma)
+- Handle PROT_EXEC memory mappings ([16345ae](https://github.com/desbma/shh/commit/16345aedbfb03e9ee9bf4e7bd214d800471dfb33) by desbma)
+- Handle intermediate symlinks in all paths ([3015caf](https://github.com/desbma/shh/commit/3015caf90dd98b9abba7607aaa106d6853193193) by desbma)
+- Parse ELF header to get dynamic linker interpreter ([6cef0c0](https://github.com/desbma/shh/commit/6cef0c0f0bc774e3fc9a1e10aaf845988afe8959) by desbma)
+- Parse shebang to handle exec'd scripts ([1175415](https://github.com/desbma/shh/commit/11754157fb36b2c5c93e3b3820edc71dd3a2cbff) by desbma)
+- Disable XxxPaths options if an exception for / makes them useless ([4c97afb](https://github.com/desbma/shh/commit/4c97afb274c31f80796391e3a52225f56939327c) by desbma)
+- Auto remove .service suffix ([1355caf](https://github.com/desbma/shh/commit/1355caf3f50bc12ab568aebddc8ca809b2b28f7f) by desbma)
+- Check for unsupported unit types ([dd09b00](https://github.com/desbma/shh/commit/dd09b00eb4b55cec1c3151b744c01470c82ef911) by desbma)
+- Losslessly simplify paths lists when length is below threshold ([4307ef9](https://github.com/desbma/shh/commit/4307ef92fe8e36c6a3200ae928fde9f025e39398) by desbma)
+- Prevent InaccessiblePaths/TemporaryFilesystem to be too easily disabled when / is read (WIP) ([407876f](https://github.com/desbma/shh/commit/407876f558178a2ed45d088f22fd2e2bf337861f) by desbma)
+- Improve & re-enable InaccessiblePaths second option ([cdba2f5](https://github.com/desbma/shh/commit/cdba2f5c09742b25557ff42f96dd38390502c6ca) by desbma)
+- Improve null effect removal ([f08380d](https://github.com/desbma/shh/commit/f08380d66cff98599c0cfdfd5ccceeecf409a3ef) by desbma)
+- Split option effects EmptyPath/RemovePath ([5c6814c](https://github.com/desbma/shh/commit/5c6814cd71fcbc7bd99a065bc3c021dc6ae07e0d) by desbma)
+- TemporaryFileSystem=xxx:ro & BindReadOnlyPaths=yyy support ([191fb61](https://github.com/desbma/shh/commit/191fb61c9ef399742b30e8d8abf96e84d42afd25) by desbma)
+- Go deeper when whitelisting with TemporaryFileSystem ([d8b6ac5](https://github.com/desbma/shh/commit/d8b6ac51cd796913b56f4be4a6615cd9a6ca12e6) by desbma)
+- Add systemd option whitelist for testing ([1bd3d49](https://github.com/desbma/shh/commit/1bd3d4963691dc6d272f6d6d8d551320b393e981) by desbma)
+- Prevent duplicate BindPaths/BindReadOnlyPaths exceptions + add tests for InaccessiblePaths ([9c952b1](https://github.com/desbma/shh/commit/9c952b130f9713cc05cafcb18d7a039a58738dce) by desbma)
+- Log 'systemd-analyze security' "exposure level" ([60d6309](https://github.com/desbma/shh/commit/60d63096240091f809537589c665cda7fa664120) by desbma)
+- More explicit error reporting ([9d79ae3](https://github.com/desbma/shh/commit/9d79ae357c428e521e2996170f3176a5fc0a6dd9) by desbma)
+- Improve markdown option list output ([f4f4c88](https://github.com/desbma/shh/commit/f4f4c88af499dbe41ad79464aa37c09e954f84a2) by desbma)
+- Detect another case of nullified option effect ([5bd0532](https://github.com/desbma/shh/commit/5bd0532e962fe1246cedfe22df9030556ff8322e) by desbma)
+
+### <!-- 02 -->🐛 Bug fixes
+
+- Absolute path computation ([702ca50](https://github.com/desbma/shh/commit/702ca50f6274ec5cfbe53721193ed6f9779115ae) by desbma)
+- Remove TODO obsolete comment ([0b20d4b](https://github.com/desbma/shh/commit/0b20d4b46a93ddb7594a29458f9bac9907a73824) by desbma)
+- Test for char device defensively ([65e8c74](https://github.com/desbma/shh/commit/65e8c749ac87f1f057e519c852686599f61007c8) by desbma)
+- Bind on port 0 handling ([d81a660](https://github.com/desbma/shh/commit/d81a660bdce40d04808f322f50864a0478bdc2df) by desbma)
+- InaccessiblePaths handling of Create and Exec action whitelisting ([a358de9](https://github.com/desbma/shh/commit/a358de91fe9c2a035ccd40a568ca6125188439e3) by desbma)
+- Open with O_RDONLY ([8014c66](https://github.com/desbma/shh/commit/8014c668392026cb9bef3059b9c4e97cdcff837c) by desbma)
+- Don't follow symlinks when resolving paths ([de0d459](https://github.com/desbma/shh/commit/de0d459873ab6367df867c6bbf273692fef5baf2) by desbma)
+- Open on symlink path ([096fc4f](https://github.com/desbma/shh/commit/096fc4f9436a7261996ba4beee79785fb3be8f88) by desbma)
+- Reading /dev/kmsg requires CAP_SYSLOG ([2df9689](https://github.com/desbma/shh/commit/2df96898e74ffc8f96779d934e07f0ad2bd9efb7) by desbma)
+- ProtectKernelLogs=true denies syslog ([39e2aa4](https://github.com/desbma/shh/commit/39e2aa44982faff79d3354b50e3445a38d9bb662) by desbma)
+- PrivateDevices=true denies mknod and makes /dev noexec ([7f5b3d5](https://github.com/desbma/shh/commit/7f5b3d509dbbcda34b33d28b3f349b349d118707) by desbma)
+- Per option element '-' prefix ([cc6fe8a](https://github.com/desbma/shh/commit/cc6fe8a1699e70c2edfd479b7ec947846e18dc3b) by desbma)
+- Passing of network firewalling option ([6d1a361](https://github.com/desbma/shh/commit/6d1a3618d8d732f12906eb8761f4eab323d018ac) by desbma)
+- Bind port 0 ([153531e](https://github.com/desbma/shh/commit/153531eb14ca400d8b27a06769a5a8014a613dba) by desbma)
+- tests: Dmesg tests depending on system logs ([ed7f5cf](https://github.com/desbma/shh/commit/ed7f5cfa9d65380bb7fe073fd21057d1c88de10c) by desbma)
+- Remove option negated by exception on / ([023bb61](https://github.com/desbma/shh/commit/023bb61dfdeb5ea33300d15d684244186ccd3f80) by desbma)
+- Sort paths ([e2b75d5](https://github.com/desbma/shh/commit/e2b75d596d7a92cd9a83781e6612b5c8fcc99375) by desbma)
+- Ensure paths in PATH env var are accessible ([877f62a](https://github.com/desbma/shh/commit/877f62a5b3f08ea9d37559fe482f07d008e8f392) by desbma)
+- Don't make /proc or /run inaccessible ([e66e342](https://github.com/desbma/shh/commit/e66e34242622356a96bf836539615d9f2013e525) by desbma)
+- Hide effect not incompatible with Create action ([5cce1b1](https://github.com/desbma/shh/commit/5cce1b128a1f03cb31cd199cf2e22706f8013fbb) by desbma)
+- Null effect removal inverted test ([4c228df](https://github.com/desbma/shh/commit/4c228df231676ec6c2084f9d8f9df7349d663ab8) by desbma)
+- Debian man page names ([4136bed](https://github.com/desbma/shh/commit/4136bed351390f6696ae3ce190ca4158bff96eeb) by desbma)
+
+### <!-- 03 -->🏃 Performance
+
+- Sort -> sort_unstable ([a3bfba5](https://github.com/desbma/shh/commit/a3bfba592cfd433c81d5cfe0a9effadeeae949ae) by desbma)
+- More &'static str conversion ([5265b90](https://github.com/desbma/shh/commit/5265b90e2843124120c958733b0bc24d7b9e8fd0) by desbma)
+
+### <!-- 04 -->📗 Documentation
+
+- Add crates.io link & install instructions ([8986cfb](https://github.com/desbma/shh/commit/8986cfb8ab8d5444deb12e97d8cd335c4c47c249) by desbma)
+- Improve description of --network-firewalling and --filesystem-whitelisting options ([4f5a867](https://github.com/desbma/shh/commit/4f5a86792d61a9862340c9cb54d648423bea96b4) by desbma)
+- Add FAQ ([8ab785e](https://github.com/desbma/shh/commit/8ab785e4a979df5fc95211cd20640d1eecb9b0d2) by desbma)
+- Comment typo ([71548b6](https://github.com/desbma/shh/commit/71548b6200c21da31149bfe027553b5ebfe85022) by desbma)
+- Minor option description improvements ([e39c0bc](https://github.com/desbma/shh/commit/e39c0bc6978a1dfcb40de473fc7b078516618ee4) by desbma)
+- README: Add shh run examples ([defe380](https://github.com/desbma/shh/commit/defe380d5ea1fd2b633a22d50ad258007a444521) by desbma)
+
+### <!-- 05 -->🧪 Testing
+
+- Fix sched_realtime integration test broken with Python 3.13 ([4fa9d25](https://github.com/desbma/shh/commit/4fa9d257bf49272396a90b45fb43c53f0e5771b1) by desbma)
+- Add integration tests running systemd-run ([b59c63d](https://github.com/desbma/shh/commit/b59c63dbe862c39d18a353b99ab4da88cc7db0f3) by desbma)
+- systemd-run: Log shh run options ([efa12eb](https://github.com/desbma/shh/commit/efa12eb8db7890218b5629dfb3394dff8bd4d94d) by desbma)
+- Simplify mmap W+X commands ([2c83c5f](https://github.com/desbma/shh/commit/2c83c5fdc65e17019ad2c91706f30f92257faf59) by desbma)
+- Fix passing file via /tmp ([b927803](https://github.com/desbma/shh/commit/b927803e775e4ac227f0003df8dbfd234c116134) by desbma)
+
+### <!-- 06 -->🚜 Refactor
+
+- Simplify OptionValue::List ([0e9a7fc](https://github.com/desbma/shh/commit/0e9a7fc932822857df5ffb6e41b4bd56160dd193) by desbma)
+- Improve error handling for fd type conversions ([db420d3](https://github.com/desbma/shh/commit/db420d3e681bd3c7c5148713fc85db77b0a905cf) by desbma)
+- Add convenience constructors for PathDescription ([f74cf59](https://github.com/desbma/shh/commit/f74cf59fd363e9ed7e1818790021add8a653a07e) by desbma)
+
+### <!-- 09 -->🤖 Continuous integration
+
+- Enable systemd-run integration tests ([c3b4d7f](https://github.com/desbma/shh/commit/c3b4d7fa72611eda4c0fab0b33684dd2e10ff269) by desbma)
+
+### <!-- 10 -->🧰 Miscellaneous tasks
+
+- Add cargo metadata & rename package to publish on crates.io ([1214fee](https://github.com/desbma/shh/commit/1214feeb6a2ffa5b1b74ea1f2be19e91b21f8fe7) by desbma)
+- Lint ([3763bc0](https://github.com/desbma/shh/commit/3763bc072c422e1fc8288f7a3e46d47cba6b6ea0) by desbma)
+- Update lints ([418bb2a](https://github.com/desbma/shh/commit/418bb2ac739a03e9ff34ab44eb9f9fd42012a234) by desbma)
+
+---
+
 ## v2025.1.16
 
 ### <!-- 01 -->💡 Features
