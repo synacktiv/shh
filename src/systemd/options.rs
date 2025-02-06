@@ -1610,17 +1610,23 @@ pub(crate) fn build_options(
                                 mergeable_paths: true,
                             }),
                         });
-                        if !exceptions_ro.is_empty() {
+                        let merged_exceptions_ro: Vec<_> = {
+                            let merged_paths =
+                                merge_similar_paths(exceptions_ro, hopts.merge_paths_threshold);
+                            if merged_paths.iter().any(|p| *base_ro && (p == base)) {
+                                // The exception nullifies the option, bail out
+                                return vec![];
+                            }
+                            merged_paths
+                                .into_iter()
+                                .filter_map(|p| p.to_str().map(ToOwned::to_owned))
+                                .collect()
+                        };
+                        if !merged_exceptions_ro.is_empty() {
                             new_opts.push(OptionWithValue {
                                 name: "BindReadOnlyPaths",
                                 value: OptionValue::List(ListOptionValue {
-                                    values: merge_similar_paths(
-                                        exceptions_ro,
-                                        hopts.merge_paths_threshold,
-                                    )
-                                    .iter()
-                                    .filter_map(|p| p.to_str().map(ToOwned::to_owned))
-                                    .collect(),
+                                    values: merged_exceptions_ro,
                                     value_if_empty: None,
                                     option_prefix: "",
                                     elem_prefix: "-",
@@ -1630,17 +1636,23 @@ pub(crate) fn build_options(
                                 }),
                             });
                         }
-                        if !exceptions_rw.is_empty() {
+                        let merged_exceptions_rw: Vec<_> = {
+                            let merged_paths =
+                                merge_similar_paths(exceptions_rw, hopts.merge_paths_threshold);
+                            if merged_paths.iter().any(|p| (p == base)) {
+                                // The exception nullifies the option, bail out
+                                return vec![];
+                            }
+                            merged_paths
+                                .into_iter()
+                                .filter_map(|p| p.to_str().map(ToOwned::to_owned))
+                                .collect()
+                        };
+                        if !merged_exceptions_rw.is_empty() {
                             new_opts.push(OptionWithValue {
                                 name: "BindPaths",
                                 value: OptionValue::List(ListOptionValue {
-                                    values: merge_similar_paths(
-                                        exceptions_rw,
-                                        hopts.merge_paths_threshold,
-                                    )
-                                    .iter()
-                                    .filter_map(|p| p.to_str().map(ToOwned::to_owned))
-                                    .collect(),
+                                    values: merged_exceptions_rw,
                                     value_if_empty: None,
                                     option_prefix: "",
                                     elem_prefix: "-",

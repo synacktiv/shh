@@ -344,7 +344,7 @@ pub(crate) fn resolve(
         }
     }
 
-    // Merge paths in compatible options
+    // Merge paths in compatible options, post option merging
     for option in &mut candidates {
         if let OptionValue::List(ListOptionValue {
             values,
@@ -352,6 +352,10 @@ pub(crate) fn resolve(
             ..
         }) = &mut option.value
         {
+            // Note: this can simplify paths to a point where that negates another option, for example:
+            // TemporaryFileSystem=/dev:ro
+            // BindReadOnlyPaths=/dev
+            // but at this point we lost the logical link between the two
             *values = merge_similar_paths(
                 values
                     .iter()
