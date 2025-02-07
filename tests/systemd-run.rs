@@ -356,3 +356,15 @@ fn systemd_run_script() {
         asrt.stdout(predicate::str::contains("from a script"));
     }
 }
+
+#[test]
+#[cfg_attr(not(feature = "as-root"), ignore)]
+fn systemd_run_curl() {
+    let cmd = ["curl", "https://example.com"];
+    for shh_opts in &*ALL_SHH_RUN_OPTS {
+        eprintln!("shh run option: {}", shh_opts.join(" "));
+        let sd_opts = generate_options(&cmd, shh_opts);
+        let asrt = systemd_run(&cmd, &sd_opts);
+        asrt.stdout(predicate::str::contains("<html>"));
+    }
+}
