@@ -1328,6 +1328,74 @@ pub(crate) fn build_options(
         });
     }
 
+    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#LockPersonality=
+    options.push(OptionDescription {
+        name: "LockPersonality",
+        possible_values: vec![OptionValueDescription {
+            value: OptionValue::Boolean(true),
+            // In practice, the option allows the call if the default personality is set, but we don't
+            // need to model that level of precision.
+            // The "deny" model prevents false positives
+            desc: OptionEffect::Simple(OptionValueEffect::DenySyscalls(DenySyscalls::Single(
+                "personality",
+            ))),
+        }],
+        updater: None,
+    });
+
+    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#RestrictRealtime=
+    options.push(OptionDescription {
+        name: "RestrictRealtime",
+        possible_values: vec![OptionValueDescription {
+            value: OptionValue::Boolean(true),
+            desc: OptionEffect::Simple(OptionValueEffect::DenyAction(
+                ProgramAction::SetRealtimeScheduler,
+            )),
+        }],
+        updater: None,
+    });
+
+    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectClock=
+    options.push(OptionDescription {
+        name: "ProtectClock",
+        possible_values: vec![OptionValueDescription {
+            value: OptionValue::Boolean(true),
+            // This option essentially does the same thing as deny @clock
+            desc: OptionEffect::Simple(OptionValueEffect::DenySyscalls(DenySyscalls::Class(
+                "clock",
+            ))),
+        }],
+        updater: None,
+    });
+
+    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#MemoryDenyWriteExecute=
+    // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L1721
+    options.push(OptionDescription {
+        name: "MemoryDenyWriteExecute",
+        possible_values: vec![OptionValueDescription {
+            value: OptionValue::Boolean(true),
+            desc: OptionEffect::Simple(OptionValueEffect::DenyAction(
+                ProgramAction::WriteExecuteMemoryMapping,
+            )),
+        }],
+        updater: None,
+    });
+
+    if let HardeningMode::Aggressive = hardening_opts.mode {
+        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#SystemCallArchitectures=
+        //
+        // This is actually very safe to enable, but since we don't currently support checking for its
+        // compatibility during profiling, only enable it in aggressive mode
+        options.push(OptionDescription {
+            name: "SystemCallArchitectures",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::String("native".to_owned()),
+                desc: OptionEffect::None,
+            }],
+            updater: None,
+        });
+    }
+
     // https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ReadWritePaths=
     if hardening_opts.filesystem_whitelisting {
         options.push(OptionDescription {
@@ -1745,19 +1813,6 @@ pub(crate) fn build_options(
         });
     }
 
-    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#MemoryDenyWriteExecute=
-    // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L1721
-    options.push(OptionDescription {
-        name: "MemoryDenyWriteExecute",
-        possible_values: vec![OptionValueDescription {
-            value: OptionValue::Boolean(true),
-            desc: OptionEffect::Simple(OptionValueEffect::DenyAction(
-                ProgramAction::WriteExecuteMemoryMapping,
-            )),
-        }],
-        updater: None,
-    });
-
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#RestrictAddressFamilies=
     // https://man7.org/linux/man-pages/man7/address_families.7.html
     // curl https://man7.org/linux/man-pages/man7/address_families.7.html | grep -o 'AF_[A-Za-z0-9]*' | sort -u | xargs -I'{}' echo \"'{}'\",
@@ -2034,46 +2089,6 @@ pub(crate) fn build_options(
         });
     }
 
-    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#LockPersonality=
-    options.push(OptionDescription {
-        name: "LockPersonality",
-        possible_values: vec![OptionValueDescription {
-            value: OptionValue::Boolean(true),
-            // In practice, the option allows the call if the default personality is set, but we don't
-            // need to model that level of precision.
-            // The "deny" model prevents false positives
-            desc: OptionEffect::Simple(OptionValueEffect::DenySyscalls(DenySyscalls::Single(
-                "personality",
-            ))),
-        }],
-        updater: None,
-    });
-
-    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#RestrictRealtime=
-    options.push(OptionDescription {
-        name: "RestrictRealtime",
-        possible_values: vec![OptionValueDescription {
-            value: OptionValue::Boolean(true),
-            desc: OptionEffect::Simple(OptionValueEffect::DenyAction(
-                ProgramAction::SetRealtimeScheduler,
-            )),
-        }],
-        updater: None,
-    });
-
-    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectClock=
-    options.push(OptionDescription {
-        name: "ProtectClock",
-        possible_values: vec![OptionValueDescription {
-            value: OptionValue::Boolean(true),
-            // This option essentially does the same thing as deny @clock
-            desc: OptionEffect::Simple(OptionValueEffect::DenySyscalls(DenySyscalls::Class(
-                "clock",
-            ))),
-        }],
-        updater: None,
-    });
-
     // https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#CapabilityBoundingSet=
     // Note: we don't want to duplicate the kernel permission checking logic here, which would be
     // a maintenance nightmare, so in most case we over (never under!) simplify the capability's effect
@@ -2274,21 +2289,6 @@ pub(crate) fn build_options(
         }],
         updater: None,
     });
-
-    if let HardeningMode::Aggressive = hardening_opts.mode {
-        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#SystemCallArchitectures=
-        //
-        // This is actually very safe to enable, but since we don't currently support checking for its
-        // compatibility during profiling, only enable it in aggressive mode
-        options.push(OptionDescription {
-            name: "SystemCallArchitectures",
-            possible_values: vec![OptionValueDescription {
-                value: OptionValue::String("native".to_owned()),
-                desc: OptionEffect::None,
-            }],
-            updater: None,
-        });
-    }
 
     if let Some(options_to_keep) = &hardening_opts.systemd_options {
         options.retain(|o| options_to_keep.iter().any(|k| o.name == k));
