@@ -20,9 +20,7 @@ use strum::IntoEnumIterator as _;
 
 use crate::{
     cl::{HardeningMode, HardeningOptions},
-    summarize::{
-        CountableSetSpecifier, NetworkActivity, NetworkActivityKind, ProgramAction, SetSpecifier,
-    },
+    summarize::{NetworkActivity, NetworkActivityKind, ProgramAction, SetSpecifier},
     systemd::{KernelVersion, SystemdVersion},
 };
 
@@ -1881,8 +1879,8 @@ pub(crate) fn build_options(
                                 af: SetSpecifier::One(af.parse().unwrap()),
                                 proto: SetSpecifier::All,
                                 kind: SetSpecifier::All,
-                                local_port: CountableSetSpecifier::All,
-                                address: CountableSetSpecifier::All,
+                                local_port: SetSpecifier::All,
+                                address: SetSpecifier::All,
                             },
                         ))
                     })
@@ -1907,8 +1905,8 @@ pub(crate) fn build_options(
                         af: SetSpecifier::All,
                         proto: SetSpecifier::All,
                         kind: SetSpecifier::All,
-                        local_port: CountableSetSpecifier::All,
-                        address: CountableSetSpecifier::All,
+                        local_port: SetSpecifier::All,
+                        address: SetSpecifier::All,
                     }),
                 )),
             }],
@@ -1945,8 +1943,8 @@ pub(crate) fn build_options(
                                 af: SetSpecifier::One(af),
                                 proto: SetSpecifier::One(proto),
                                 kind: SetSpecifier::One(NetworkActivityKind::Bind),
-                                local_port: CountableSetSpecifier::All,
-                                address: CountableSetSpecifier::All,
+                                local_port: SetSpecifier::All,
+                                address: SetSpecifier::All,
                             },
                         ))
                     })
@@ -1960,7 +1958,7 @@ pub(crate) fn build_options(
                     unreachable!();
                 };
                 let ProgramAction::NetworkActivity(NetworkActivity {
-                    local_port: CountableSetSpecifier::One(local_port),
+                    local_port: SetSpecifier::One(local_port),
                     ..
                 }) = a
                 else {
@@ -2021,8 +2019,8 @@ pub(crate) fn build_options(
                         af: SetSpecifier::Some(vec![SocketFamily::Ipv4, SocketFamily::Ipv6]),
                         proto: SetSpecifier::All,
                         kind: SetSpecifier::Some(NetworkActivityKind::ADDRESSED.to_vec()),
-                        local_port: CountableSetSpecifier::All,
-                        address: CountableSetSpecifier::All,
+                        local_port: SetSpecifier::All,
+                        address: SetSpecifier::All,
                     }),
                 )),
             }],
@@ -2035,7 +2033,7 @@ pub(crate) fn build_options(
                     };
                     let ProgramAction::NetworkActivity(NetworkActivity {
                         af: SetSpecifier::One(SocketFamily::Ipv4),
-                        address: CountableSetSpecifier::One(action_addr),
+                        address: SetSpecifier::One(action_addr),
                         ..
                     }) = action
                     else {
@@ -2134,8 +2132,8 @@ pub(crate) fn build_options(
                         af: SetSpecifier::One(SocketFamily::Other("AF_PACKET".into())),
                         proto: SetSpecifier::All,
                         kind: SetSpecifier::All,
-                        local_port: CountableSetSpecifier::All,
-                        address: CountableSetSpecifier::All,
+                        local_port: SetSpecifier::All,
+                        address: SetSpecifier::All,
                     }),
                 ))
                 .chain(
@@ -2147,8 +2145,8 @@ pub(crate) fn build_options(
                                 af: SetSpecifier::One(af.parse().unwrap()),
                                 proto: SetSpecifier::One(SocketProtocol::Other("SOCK_RAW".into())),
                                 kind: SetSpecifier::All,
-                                local_port: CountableSetSpecifier::All,
-                                address: CountableSetSpecifier::All,
+                                local_port: SetSpecifier::All,
+                                address: SetSpecifier::All,
                             },
                         ))
                     }),

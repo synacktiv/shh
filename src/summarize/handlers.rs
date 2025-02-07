@@ -20,10 +20,9 @@ use goblin::elf;
 use path_clean::PathClean as _;
 
 use super::{
-    BufferExpression, BufferType, CountableSetSpecifier, Expression, FdOrPath, IntegerExpression,
-    IntegerExpressionValue, NetworkActivity, NetworkActivityKind, NetworkPort, ProgramAction,
-    ProgramState, SetSpecifier, SocketFamily, SocketProtocol, Syscall, SyscallArgs,
-    SyscallArgsInfo,
+    BufferExpression, BufferType, Expression, FdOrPath, IntegerExpression, IntegerExpressionValue,
+    NetworkActivity, NetworkActivityKind, NetworkPort, ProgramAction, ProgramState, SetSpecifier,
+    SocketFamily, SocketProtocol, Syscall, SyscallArgs, SyscallArgsInfo,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -360,11 +359,11 @@ fn handle_network(
                         type_src: type_name_of_val(ip_str),
                         type_dst: type_name::<Ipv4Addr>(),
                     })?;
-                CountableSetSpecifier::One(ip.into())
+                SetSpecifier::One(ip.into())
             }
             _ => todo!(),
         },
-        _ => CountableSetSpecifier::None,
+        _ => SetSpecifier::None,
     };
 
     let local_port = if name == "bind" {
@@ -383,9 +382,9 @@ fn handle_network(
                     if *port_val == 0 {
                         // 0 means bind random port, we don't know which one, but this is not
                         // denied by SocketBindDeny
-                        CountableSetSpecifier::None
+                        SetSpecifier::None
                     } else {
-                        CountableSetSpecifier::One(NetworkPort(
+                        SetSpecifier::One(NetworkPort(
                             TryInto::<u16>::try_into(*port_val)
                                 .ok()
                                 .and_then(|i| i.try_into().ok())
@@ -399,10 +398,10 @@ fn handle_network(
                 }
                 _ => todo!(),
             },
-            _ => CountableSetSpecifier::None,
+            _ => SetSpecifier::None,
         }
     } else {
-        CountableSetSpecifier::All
+        SetSpecifier::All
     };
 
     if let Some(proto) = state.known_sockets_proto.get(&(
@@ -652,8 +651,8 @@ fn handle_socket(
         af: SetSpecifier::One(af),
         proto: SetSpecifier::One(proto),
         kind: SetSpecifier::One(NetworkActivityKind::SocketCreation),
-        local_port: CountableSetSpecifier::All,
-        address: CountableSetSpecifier::All,
+        local_port: SetSpecifier::All,
+        address: SetSpecifier::All,
     }));
     Ok(())
 }
