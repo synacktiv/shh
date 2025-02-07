@@ -1972,13 +1972,12 @@ pub(crate) fn build_options(
     // https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html#IPAddressAllow=ADDRESS%5B/PREFIXLENGTH%5D%E2%80%A6
     if hardening_opts.network_firewalling {
         options.push(OptionDescription {
-            // Use this option as a simple "deny all" (not a list), and the updater will do the hard work of whitelisting with IPAddressAllow
             name: "IPAddressDeny",
             possible_values: vec![OptionValueDescription {
                 value: OptionValue::String("any".into()),
                 desc: OptionEffect::Simple(OptionValueEffect::DenyAction(
                     ProgramAction::NetworkActivity(NetworkActivity {
-                        af: SetSpecifier::All,
+                        af: SetSpecifier::Some(vec![SocketFamily::Ipv4, SocketFamily::Ipv6]),
                         proto: SetSpecifier::All,
                         kind: SetSpecifier::Some(NetworkActivityKind::ADDRESSED.to_vec()),
                         local_port: CountableSetSpecifier::All,
@@ -1986,7 +1985,61 @@ pub(crate) fn build_options(
                     }),
                 )),
             }],
-            updater: None, // TODO
+            updater: Some(OptionUpdater {
+                effect: |effect, action, _| {
+                    let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(effect_na)) =
+                        effect
+                    else {
+                        return None;
+                    };
+                    let ProgramAction::NetworkActivity(NetworkActivity {
+                        af: SetSpecifier::One(SocketFamily::Ipv4),
+                        address: CountableSetSpecifier::One(action_addr),
+                        ..
+                    }) = action
+                    else {
+                        return None;
+                    };
+                    let mut new_effect_address = effect_na.address.clone();
+                    new_effect_address.remove(action_addr);
+                    Some(OptionValueEffect::DenyAction(
+                        ProgramAction::NetworkActivity(NetworkActivity {
+                            address: new_effect_address,
+                            ..effect_na.to_owned()
+                        }),
+                    ))
+                },
+                options: |effect, _| match effect {
+                    OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(
+                        NetworkActivity { address, .. },
+                    )) => {
+                        vec![
+                            OptionWithValue {
+                                name: "IPAddressDeny",
+                                value: OptionValue::String("any".into()),
+                            },
+                            OptionWithValue {
+                                name: "IPAddressAllow",
+                                value: OptionValue::List(ListOptionValue {
+                                    values: address
+                                        .excluded_elements()
+                                        .into_iter()
+                                        .map(|e| e.to_string())
+                                        .collect(),
+                                    value_if_empty: None,
+                                    option_prefix: "",
+                                    elem_prefix: "",
+                                    repeat_option: false,
+                                    mode: ListMode::WhiteList,
+                                    mergeable_paths: false,
+                                }),
+                            },
+                        ]
+                    }
+                    _ => vec![],
+                },
+                dynamic_option_names: vec!["IPAddressDeny", "IPAddressAllow"],
+            }),
         });
     }
 

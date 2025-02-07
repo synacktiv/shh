@@ -111,6 +111,7 @@ pub(crate) trait ValueCounted {
     fn one() -> Self;
 }
 
+// TODO merge this with SetSpecifier
 /// Quantify something that is done or denied
 #[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum CountableSetSpecifier<T> {
@@ -212,6 +213,13 @@ impl<T: Eq + Ord + Clone + Display + ValueCounted + Sub<Output = T> + Add<Output
                 ranges
             }
             CountableSetSpecifier::All => vec![T::min_value()..=T::max_value()],
+        }
+    }
+
+    pub(crate) fn excluded_elements(&self) -> Vec<T> {
+        match self {
+            CountableSetSpecifier::AllExcept(vec) => vec.to_owned(),
+            _ => todo!(),
         }
     }
 }
