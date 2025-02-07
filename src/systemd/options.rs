@@ -1979,37 +1979,32 @@ pub(crate) fn build_options(
                 ))
             },
             options: |e, _| {
-                let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(denied_na)) = e
+                let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(
+                    NetworkActivity {
+                        af: SetSpecifier::One(af),
+                        proto: SetSpecifier::One(proto),
+                        local_port,
+                        ..
+                    },
+                )) = e
                 else {
                     unreachable!();
                 };
-                vec![OptionWithValue {
+                let port_exceptions = local_port.excluded_elements();
+                let mut opts = Vec::with_capacity(1 + port_exceptions.len());
+                opts.push(OptionWithValue {
                     name: "SocketBindDeny",
-                    value: OptionValue::List(ListOptionValue {
-                        values: denied_na
-                            .af
-                            .elements()
-                            .iter()
-                            .cartesian_product(denied_na.proto.elements())
-                            .cartesian_product(denied_na.local_port.ranges())
-                            .map(|((af, proto), port_range)| {
-                                format!(
-                                    "{}:{}:{}-{}",
-                                    af,
-                                    proto,
-                                    port_range.start(),
-                                    port_range.end()
-                                )
-                            })
-                            .collect(),
-                        value_if_empty: None,
-                        option_prefix: "",
-                        elem_prefix: "",
-                        repeat_option: true,
-                        mode: ListMode::BlackList,
-                        mergeable_paths: false,
-                    }),
-                }]
+                    value: OptionValue::String(format!("{af}:{proto}")),
+                });
+                opts.extend(
+                    port_exceptions
+                        .iter()
+                        .map(|port_exception| OptionWithValue {
+                            name: "SocketBindAllow",
+                            value: OptionValue::String(format!("{af}:{proto}:{port_exception}")),
+                        }),
+                );
+                opts
             },
             dynamic_option_names: Vec::from(["SocketBindDeny"]),
         }),
