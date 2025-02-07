@@ -241,9 +241,7 @@ fn main() -> anyhow::Result<()> {
             service
                 .reload_unit_config()
                 .context("Failed to reload systemd config")?;
-            service
-                .action("try-restart", false)
-                .context("Failed to restart service")?;
+            let _ = service.action("try-restart", true);
         }
         cl::Action::ListSystemdOptions => {
             println!("# Supported systemd options\n");
