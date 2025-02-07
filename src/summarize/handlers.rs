@@ -6,11 +6,13 @@ use std::{
     ffi::OsStr,
     fs::{self, File},
     io::{self, BufRead as _, BufReader},
+    net::Ipv4Addr,
     os::{
         fd::RawFd,
         unix::{ffi::OsStrExt as _, fs::FileTypeExt as _},
     },
     path::{Path, PathBuf},
+    str::{self, FromStr as _},
     sync::LazyLock,
 };
 
@@ -372,6 +374,33 @@ fn handle_network(
             },
             _ => CountableSetSpecifier::None,
         };
+        let ip = match addr
+            .iter()
+            .find_map(|(k, v)| (k == "sin_addr").then_some(v))
+        {
+            Some(Expression::Macro {
+                name: macro_name,
+                args,
+            }) if macro_name == "inet_addr" => match args.first() {
+                Some(Expression::Buffer(BufferExpression { value, .. })) => {
+                    let ip = Ipv4Addr::from_str(str::from_utf8(value).map_err(|_| {
+                        HandlerError::ConversionFailed {
+                            src: format!("{value:?}"),
+                            type_src: type_name_of_val(value),
+                            type_dst: type_name::<Ipv4Addr>(),
+                        }
+                    })?)
+                    .map_err(|_| HandlerError::ConversionFailed {
+                        src: fd_val.to_string(),
+                        type_src: type_name_of_val(fd_val),
+                        type_dst: type_name::<RawFd>(),
+                    })?;
+                    CountableSetSpecifier::One(ip.into())
+                }
+                _ => todo!(),
+            },
+            _ => CountableSetSpecifier::None,
+        };
         if let Some(proto) = state.known_sockets_proto.get(&(
             pid,
             TryInto::<RawFd>::try_into(*fd_val).map_err(|_| HandlerError::ConversionFailed {
@@ -385,6 +414,7 @@ fn handle_network(
                 proto: SetSpecifier::One(proto.to_owned()),
                 kind: SetSpecifier::One(NetworkActivityKind::Bind),
                 local_port,
+                address: ip,
             }));
         }
     }
@@ -619,6 +649,7 @@ fn handle_socket(
         proto: SetSpecifier::One(proto),
         kind: SetSpecifier::One(NetworkActivityKind::SocketCreation),
         local_port: CountableSetSpecifier::All,
+        address: CountableSetSpecifier::All,
     }));
     Ok(())
 }

@@ -1836,6 +1836,7 @@ pub(crate) fn build_options(
                                 proto: SetSpecifier::All,
                                 kind: SetSpecifier::All,
                                 local_port: CountableSetSpecifier::All,
+                                address: CountableSetSpecifier::All,
                             },
                         ))
                     })
@@ -1861,6 +1862,7 @@ pub(crate) fn build_options(
                         proto: SetSpecifier::All,
                         kind: SetSpecifier::All,
                         local_port: CountableSetSpecifier::All,
+                        address: CountableSetSpecifier::All,
                     }),
                 )),
             }],
@@ -1901,6 +1903,7 @@ pub(crate) fn build_options(
                                 proto: SetSpecifier::One(proto),
                                 kind: SetSpecifier::One(NetworkActivityKind::Bind),
                                 local_port: CountableSetSpecifier::All,
+                                address: CountableSetSpecifier::All,
                             },
                         ))
                     })
@@ -1928,6 +1931,7 @@ pub(crate) fn build_options(
                         proto: effect_na.proto.clone(),
                         kind: effect_na.kind.clone(),
                         local_port: new_eff_local_port,
+                        address: effect_na.address.clone(),
                     }),
                 ))
             },
@@ -2059,6 +2063,7 @@ pub(crate) fn build_options(
                         proto: SetSpecifier::All,
                         kind: SetSpecifier::All,
                         local_port: CountableSetSpecifier::All,
+                        address: CountableSetSpecifier::All,
                     }),
                 ))
                 .chain(
@@ -2071,6 +2076,7 @@ pub(crate) fn build_options(
                                 proto: SetSpecifier::One(SocketProtocol::Other("SOCK_RAW".into())),
                                 kind: SetSpecifier::All,
                                 local_port: CountableSetSpecifier::All,
+                                address: CountableSetSpecifier::All,
                             },
                         ))
                     }),

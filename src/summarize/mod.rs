@@ -3,6 +3,7 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt::{self, Display},
+    net::Ipv4Addr,
     num::NonZeroU16,
     ops::{Add, RangeInclusive, Sub},
     os::fd::RawFd,
@@ -58,6 +59,8 @@ pub(crate) struct NetworkActivity {
     pub proto: SetSpecifier<SocketProtocol>,
     pub kind: SetSpecifier<NetworkActivityKind>,
     pub local_port: CountableSetSpecifier<NetworkPort>,
+    // Note: this account for source and destination addresses
+    pub address: CountableSetSpecifier<NetworkAddress>,
 }
 
 /// Quantify something that is done or denied
@@ -270,6 +273,55 @@ impl Add<NetworkPort> for NetworkPort {
 impl Display for NetworkPort {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
+    }
+}
+
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct NetworkAddress(Ipv4Addr); // TODO enum with IPv6
+
+impl From<Ipv4Addr> for NetworkAddress {
+    fn from(value: Ipv4Addr) -> Self {
+        Self(value)
+    }
+}
+
+impl ValueCounted for NetworkAddress {
+    fn value_count() -> usize {
+        2_usize.pow(u32::BITS)
+    }
+
+    fn one() -> Self {
+        Self(Ipv4Addr::from_bits(1))
+    }
+
+    fn min_value() -> Self {
+        Self(Ipv4Addr::from_bits(0))
+    }
+
+    fn max_value() -> Self {
+        Self(Ipv4Addr::from_bits(u32::MAX))
+    }
+}
+
+impl Add<NetworkAddress> for NetworkAddress {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self(Ipv4Addr::from_bits(self.0.to_bits() + rhs.0.to_bits()))
+    }
+}
+
+impl Sub<NetworkAddress> for NetworkAddress {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self(Ipv4Addr::from_bits(self.0.to_bits() - rhs.0.to_bits()))
+    }
+}
+
+impl Display for NetworkAddress {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 

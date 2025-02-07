@@ -30,13 +30,15 @@ impl OptionValueEffect {
                         proto,
                         kind,
                         local_port,
+                        address,
                     }) = action
                     {
                         let af_match = denied.af.intersects(af);
                         let proto_match = denied.proto.intersects(proto);
                         let kind_match = denied.kind.intersects(kind);
                         let local_port_match = denied.local_port.intersects(local_port);
-                        !af_match || !proto_match || !kind_match || !local_port_match
+                        let addr_match = denied.address.intersects(address);
+                        !af_match || !proto_match || !kind_match || !local_port_match || !addr_match
                     } else {
                         true
                     }
