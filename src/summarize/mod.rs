@@ -221,15 +221,31 @@ impl<T: Eq + Ord + Clone + Display + ValueCounted + Sub<Output = T> + Add<Output
 pub(crate) enum NetworkActivityKind {
     SocketCreation,
     Bind,
-    // TODO
-    // Connect,
-    // Send,
-    // Recv,
+    Connect,
+    Accept,
+    SendRecv,
 }
 
 impl NetworkActivityKind {
     /// All kinds that are linked with one or more addresses
-    pub(crate) const ADDRESSED: [Self; 1] = [NetworkActivityKind::Bind];
+    pub(crate) const ADDRESSED: [Self; 4] = [
+        NetworkActivityKind::Bind,
+        NetworkActivityKind::Connect,
+        NetworkActivityKind::Accept,
+        NetworkActivityKind::SendRecv,
+    ];
+
+    /// Get kind from syscall name, panic if it fails
+    fn from_sc_name(sc: &str) -> Self {
+        match sc {
+            "socket" => NetworkActivityKind::SocketCreation,
+            "bind" => NetworkActivityKind::Bind,
+            "connect" => NetworkActivityKind::Connect,
+            "accept" | "accept4" => NetworkActivityKind::Accept,
+            "sendto" | "recvfrom" => NetworkActivityKind::SendRecv,
+            _ => unreachable!("{:?}", sc),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -562,12 +578,14 @@ static SYSCALL_MAP: LazyLock<HashMap<&'static str, SyscallArgsIndex>> = LazyLock
             SyscallArgsIndex::Mmap { prot: 2, fd: None },
         ),
         // network
-        ("connect", SyscallArgsIndex::Network { fd: 0, sockaddr: 1 }),
+        // We don't track other send/recv variants because, we can track activity we need
+        // from other syscalls
+        ("accept", SyscallArgsIndex::Network { fd: 0, sockaddr: 1 }),
+        ("accept4", SyscallArgsIndex::Network { fd: 0, sockaddr: 1 }),
         ("bind", SyscallArgsIndex::Network { fd: 0, sockaddr: 1 }),
+        ("connect", SyscallArgsIndex::Network { fd: 0, sockaddr: 1 }),
         ("recvfrom", SyscallArgsIndex::Network { fd: 0, sockaddr: 4 }),
         ("sendto", SyscallArgsIndex::Network { fd: 0, sockaddr: 4 }),
-        // TODO send/recv/recvmsg/sendmsg
-
         // open
         (
             "open",

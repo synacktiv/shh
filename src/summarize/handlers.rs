@@ -299,7 +299,7 @@ fn handle_network(
     actions: &mut Vec<ProgramAction>,
     state: &mut ProgramState,
 ) -> Result<(), HandlerError> {
-    let (af, addr) = if let Expression::Struct(members) = sockaddr {
+    let (af_str, addr_struct) = if let Expression::Struct(members) = sockaddr {
         let Some(Expression::Integer(IntegerExpression {
             value: IntegerExpressionValue::NamedConst(af),
             ..
@@ -315,33 +315,60 @@ fn handle_network(
         // Can be NULL in some cases, ie AF_NETLINK sockets
         return Ok(());
     };
-
     #[expect(clippy::single_match)]
-    match af {
+    match af_str {
         "AF_UNIX" => {
-            if let Some(path) = socket_address_uds_path(addr, state.cur_dir.as_ref()) {
+            if let Some(path) = socket_address_uds_path(addr_struct, state.cur_dir.as_ref()) {
                 actions.push(ProgramAction::Read(path));
             };
         }
         _ => (),
     }
+    let af = af_str.parse().map_err(|()| HandlerError::ParsingFailed {
+        src: af_str.to_owned(),
+        type_: type_name::<SocketFamily>(),
+    })?;
 
-    if name == "bind" {
-        let Expression::Integer(IntegerExpression {
-            value: IntegerExpressionValue::Literal(fd_val),
-            ..
-        }) = fd
-        else {
-            return Err(HandlerError::ArgTypeMismatch {
-                sc_name: name.to_owned(),
-                arg: fd.to_owned(),
-            });
-        };
-        let af = af.parse().map_err(|()| HandlerError::ParsingFailed {
-            src: af.to_owned(),
-            type_: type_name::<SocketFamily>(),
-        })?;
-        let local_port = match addr
+    let Expression::Integer(IntegerExpression {
+        value: IntegerExpressionValue::Literal(fd_val),
+        ..
+    }) = fd
+    else {
+        return Err(HandlerError::ArgTypeMismatch {
+            sc_name: name.to_owned(),
+            arg: fd.to_owned(),
+        });
+    };
+
+    let ip_addr = match addr_struct
+        .iter()
+        .find_map(|(k, v)| (k == "sin_addr").then_some(v))
+    {
+        Some(Expression::Macro {
+            name: macro_name,
+            args,
+        }) if macro_name == "inet_addr" => match args.first() {
+            Some(Expression::Buffer(BufferExpression { value, .. })) => {
+                let ip_str = str::from_utf8(value).map_err(|_| HandlerError::ConversionFailed {
+                    src: format!("{value:?}"),
+                    type_src: type_name_of_val(value),
+                    type_dst: type_name::<&str>(),
+                })?;
+                let ip =
+                    Ipv4Addr::from_str(ip_str).map_err(|_| HandlerError::ConversionFailed {
+                        src: ip_str.to_owned(),
+                        type_src: type_name_of_val(ip_str),
+                        type_dst: type_name::<Ipv4Addr>(),
+                    })?;
+                CountableSetSpecifier::One(ip.into())
+            }
+            _ => todo!(),
+        },
+        _ => CountableSetSpecifier::None,
+    };
+
+    let local_port = if name == "bind" {
+        match addr_struct
             .iter()
             .find_map(|(k, v)| k.ends_with("_port").then_some(v))
         {
@@ -373,51 +400,28 @@ fn handle_network(
                 _ => todo!(),
             },
             _ => CountableSetSpecifier::None,
-        };
-        let ip = match addr
-            .iter()
-            .find_map(|(k, v)| (k == "sin_addr").then_some(v))
-        {
-            Some(Expression::Macro {
-                name: macro_name,
-                args,
-            }) if macro_name == "inet_addr" => match args.first() {
-                Some(Expression::Buffer(BufferExpression { value, .. })) => {
-                    let ip = Ipv4Addr::from_str(str::from_utf8(value).map_err(|_| {
-                        HandlerError::ConversionFailed {
-                            src: format!("{value:?}"),
-                            type_src: type_name_of_val(value),
-                            type_dst: type_name::<Ipv4Addr>(),
-                        }
-                    })?)
-                    .map_err(|_| HandlerError::ConversionFailed {
-                        src: fd_val.to_string(),
-                        type_src: type_name_of_val(fd_val),
-                        type_dst: type_name::<RawFd>(),
-                    })?;
-                    CountableSetSpecifier::One(ip.into())
-                }
-                _ => todo!(),
-            },
-            _ => CountableSetSpecifier::None,
-        };
-        if let Some(proto) = state.known_sockets_proto.get(&(
-            pid,
-            TryInto::<RawFd>::try_into(*fd_val).map_err(|_| HandlerError::ConversionFailed {
-                src: fd_val.to_string(),
-                type_src: type_name_of_val(fd_val),
-                type_dst: type_name::<RawFd>(),
-            })?,
-        )) {
-            actions.push(ProgramAction::NetworkActivity(NetworkActivity {
-                af: SetSpecifier::One(af),
-                proto: SetSpecifier::One(proto.to_owned()),
-                kind: SetSpecifier::One(NetworkActivityKind::Bind),
-                local_port,
-                address: ip,
-            }));
         }
+    } else {
+        CountableSetSpecifier::All
+    };
+
+    if let Some(proto) = state.known_sockets_proto.get(&(
+        pid,
+        TryInto::<RawFd>::try_into(*fd_val).map_err(|_| HandlerError::ConversionFailed {
+            src: fd_val.to_string(),
+            type_src: type_name_of_val(fd_val),
+            type_dst: type_name::<RawFd>(),
+        })?,
+    )) {
+        actions.push(ProgramAction::NetworkActivity(NetworkActivity {
+            af: SetSpecifier::One(af),
+            proto: SetSpecifier::One(proto.to_owned()),
+            kind: SetSpecifier::One(NetworkActivityKind::from_sc_name(name)),
+            local_port,
+            address: ip_addr,
+        }));
     }
+
     Ok(())
 }
 
