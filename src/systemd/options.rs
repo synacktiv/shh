@@ -1871,9 +1871,6 @@ pub(crate) fn build_options(
     }
 
     // https://www.freedesktop.org/software/systemd/man/systemd.resource-control.html#SocketBindAllow=bind-rule
-    //
-    // We don't go as far as allowing/denying individual ports, as that would easily break for example if a port is changed
-    // in a server configuration
     let deny_binds: Vec<_> = SocketFamily::iter()
         .take(2)
         .cartesian_product(SocketProtocol::iter().take(2))
@@ -1971,6 +1968,27 @@ pub(crate) fn build_options(
             dynamic_option_names: Vec::from(["SocketBindDeny"]),
         }),
     });
+
+    // https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html#IPAddressAllow=ADDRESS%5B/PREFIXLENGTH%5D%E2%80%A6
+    if hardening_opts.network_firewalling {
+        options.push(OptionDescription {
+            // Use this option as a simple "deny all" (not a list), and the updater will do the hard work of whitelisting with IPAddressAllow
+            name: "IPAddressDeny",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::String("any".into()),
+                desc: OptionEffect::Simple(OptionValueEffect::DenyAction(
+                    ProgramAction::NetworkActivity(NetworkActivity {
+                        af: SetSpecifier::All,
+                        proto: SetSpecifier::All,
+                        kind: SetSpecifier::Some(NetworkActivityKind::ADDRESSED.to_vec()),
+                        local_port: CountableSetSpecifier::All,
+                        address: CountableSetSpecifier::All,
+                    }),
+                )),
+            }],
+            updater: None, // TODO
+        });
+    }
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#LockPersonality=
     options.push(OptionDescription {

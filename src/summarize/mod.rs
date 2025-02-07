@@ -227,6 +227,11 @@ pub(crate) enum NetworkActivityKind {
     // Recv,
 }
 
+impl NetworkActivityKind {
+    /// All kinds that are linked with one or more addresses
+    pub(crate) const ADDRESSED: [Self; 1] = [NetworkActivityKind::Bind];
+}
+
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct NetworkPort(NonZeroU16);
 
