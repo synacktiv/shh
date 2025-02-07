@@ -9,7 +9,10 @@
 use std::{
     env,
     fs::{self, File},
-    io, thread,
+    io,
+    path::Path,
+    process::Command,
+    thread,
 };
 
 use anyhow::Context as _;
@@ -35,6 +38,29 @@ fn sd_options(
             .join(", ")
     );
     sd_opts
+}
+
+fn edit_file(path: &Path) -> anyhow::Result<()> {
+    let editor = env::var("VISUAL")
+        .or_else(|_| env::var("EDITOR"))
+        .unwrap_or_else(|_| {
+            log::warn!("Neither VISUAL or EDITOR environment variable is set, defaulting to nano");
+            "nano".into()
+        });
+    let editor_args = shlex::split(&editor)
+        .ok_or_else(|| anyhow::anyhow!("Unable to parse environment variable value {editor:?}"))?;
+    let status = Command::new(
+        editor_args
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("Empty editor environment variable value"))?,
+    )
+    .args(&editor_args[1..])
+    .arg(path)
+    .status()?;
+    if !status.success() {
+        anyhow::bail!("Editor failed with status {}", status);
+    }
+    Ok(())
 }
 
 #[cfg(feature = "gen-man-pages")]
@@ -194,6 +220,7 @@ fn main() -> anyhow::Result<()> {
         cl::Action::Service(cl::ServiceAction::FinishProfile {
             service,
             apply,
+            edit,
             no_restart,
         }) => {
             let service = systemd::Service::new(&service).context("Invalid service name")?;
@@ -205,17 +232,22 @@ fn main() -> anyhow::Result<()> {
                 .context("Failed to remove systemd unit profiling fragment")?;
             let resolved_opts = service.profiling_result()?;
             log::info!(
-                "Resolved systemd options: {}",
+                "Resolved systemd options:\n{}",
                 resolved_opts
                     .iter()
                     .map(|o| format!("{o}"))
                     .collect::<Vec<_>>()
-                    .join(", ")
+                    .join("\n")
             );
             if apply && !resolved_opts.is_empty() {
-                service
+                let fragment_path = service
                     .add_hardening_fragment(resolved_opts)
                     .context("Failed to write systemd unit hardening fragment")?;
+                if edit {
+                    edit_file(&fragment_path).with_context(|| {
+                        format!("Failed to edit geneted frament {fragment_path:?}")
+                    })?;
+                }
             }
             service
                 .reload_unit_config()

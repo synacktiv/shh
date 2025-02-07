@@ -142,6 +142,9 @@ pub(crate) enum ServiceAction {
         /// Automatically apply hardening config
         #[arg(short, long, default_value_t = false)]
         apply: bool,
+        /// Edit generated options before applying them
+        #[arg(short, long, default_value_t = false)]
+        edit: bool,
         /// Disable immediate service restart
         #[arg(short, long, default_value_t = false)]
         no_restart: bool,

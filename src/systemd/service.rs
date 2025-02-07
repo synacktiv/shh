@@ -262,7 +262,7 @@ impl Service {
     pub(crate) fn add_hardening_fragment(
         &self,
         opts: Vec<OptionWithValue<String>>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<PathBuf> {
         let fragment_path = self.fragment_path(HARDENING_FRAGMENT_NAME, true);
         #[expect(clippy::unwrap_used)]
         fs::create_dir_all(fragment_path.parent().unwrap())?;
@@ -275,7 +275,7 @@ impl Service {
         }
 
         log::info!("Config fragment written in {fragment_path:?}");
-        Ok(())
+        Ok(fragment_path)
     }
 
     fn write_fragment_header<W: Write>(writer: &mut W) -> io::Result<()> {
