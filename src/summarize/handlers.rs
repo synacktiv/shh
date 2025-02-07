@@ -6,13 +6,13 @@ use std::{
     ffi::OsStr,
     fs::{self, File},
     io::{self, BufRead as _, BufReader},
-    net::Ipv4Addr,
+    net::IpAddr,
     os::{
         fd::RawFd,
         unix::{ffi::OsStrExt as _, fs::FileTypeExt as _},
     },
     path::{Path, PathBuf},
-    str::{self, FromStr as _},
+    str,
     sync::LazyLock,
 };
 
@@ -341,7 +341,7 @@ fn handle_network(
 
     let ip_addr = match addr_struct
         .iter()
-        .find_map(|(k, v)| (k == "sin_addr").then_some(v))
+        .find_map(|(k, v)| ["sin_addr", "sin6_addr"].contains(&k.as_str()).then_some(v))
     {
         Some(Expression::Macro {
             name: macro_name,
@@ -353,15 +353,37 @@ fn handle_network(
                     type_src: type_name_of_val(value),
                     type_dst: type_name::<&str>(),
                 })?;
-                let ip =
-                    Ipv4Addr::from_str(ip_str).map_err(|_| HandlerError::ConversionFailed {
+                let ip = ip_str
+                    .parse::<IpAddr>()
+                    .map_err(|_| HandlerError::ConversionFailed {
                         src: ip_str.to_owned(),
                         type_src: type_name_of_val(ip_str),
-                        type_dst: type_name::<Ipv4Addr>(),
+                        type_dst: type_name::<IpAddr>(),
                     })?;
                 SetSpecifier::One(ip.into())
             }
-            _ => todo!(),
+            _ => unreachable!(),
+        },
+        Some(Expression::Macro {
+            name: macro_name,
+            args,
+        }) if macro_name == "inet_pton" => match args.get(1) {
+            Some(Expression::Buffer(BufferExpression { value, .. })) => {
+                let ip_str = str::from_utf8(value).map_err(|_| HandlerError::ConversionFailed {
+                    src: format!("{value:?}"),
+                    type_src: type_name_of_val(value),
+                    type_dst: type_name::<&str>(),
+                })?;
+                let ip = ip_str
+                    .parse::<IpAddr>()
+                    .map_err(|_| HandlerError::ConversionFailed {
+                        src: ip_str.to_owned(),
+                        type_src: type_name_of_val(ip_str),
+                        type_dst: type_name::<IpAddr>(),
+                    })?;
+                SetSpecifier::One(ip.into())
+            }
+            _ => unreachable!(),
         },
         _ => SetSpecifier::None,
     };
@@ -396,7 +418,7 @@ fn handle_network(
                         ))
                     }
                 }
-                _ => todo!(),
+                _ => unreachable!(),
             },
             _ => SetSpecifier::None,
         }

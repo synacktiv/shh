@@ -3,7 +3,7 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt::{self, Display},
-    net::Ipv4Addr,
+    net::IpAddr,
     num::NonZeroU16,
     os::fd::RawFd,
     path::PathBuf,
@@ -173,10 +173,10 @@ impl Display for NetworkPort {
 }
 
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct NetworkAddress(Ipv4Addr); // TODO enum with IPv6
+pub(crate) struct NetworkAddress(IpAddr);
 
-impl From<Ipv4Addr> for NetworkAddress {
-    fn from(value: Ipv4Addr) -> Self {
+impl From<IpAddr> for NetworkAddress {
+    fn from(value: IpAddr) -> Self {
         Self(value)
     }
 }

@@ -2032,7 +2032,6 @@ pub(crate) fn build_options(
                         unreachable!()
                     };
                     let ProgramAction::NetworkActivity(NetworkActivity {
-                        af: SetSpecifier::One(SocketFamily::Ipv4),
                         address: SetSpecifier::One(action_addr),
                         ..
                     }) = action
