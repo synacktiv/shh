@@ -4,6 +4,12 @@
 
   - *dynamic blacklisting*
 
+- [`IPAddressDeny`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#IPAddressDeny=)
+
+  - `any`
+  - to support this option, other options may be dynamically enabled:
+    - [`IPAddressAllow`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#IPAddressAllow=)
+
 - [`InaccessiblePaths`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#InaccessiblePaths=)
 
   - *dynamic path blacklisting*

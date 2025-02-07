@@ -1,5 +1,36 @@
 # Changelog
 
+## v2025.2.7
+
+### <!-- 01 -->💡 Features
+
+- Track IPv4 addresses ([b4dc2c1](https://github.com/desbma/shh/commit/b4dc2c19178fa649bccac386f732351532c05de3) by desbma)
+- IpAddressDeny (WIP) ([8df9a0c](https://github.com/desbma/shh/commit/8df9a0c55c0ee45e0fd7efe9f2c598ebec23c5b8) by desbma)
+- Improve network activity coverage ([d8aa8b5](https://github.com/desbma/shh/commit/d8aa8b53947606f4d2666834aeafe066fa02de33) by desbma)
+- Dynamic IpAddressAllow ([4928a4c](https://github.com/desbma/shh/commit/4928a4ca81e5a4ed941a6e7ccc91d1dce6c7a6be) by desbma)
+- Reorder options ([2f94302](https://github.com/desbma/shh/commit/2f94302149dea5a66fe7489f44cb7decf22fd8cb) by desbma)
+- Greatly simplify SocketBindDeny handling ([25c9bf7](https://github.com/desbma/shh/commit/25c9bf730a435ec5156854eefef3a8aecaece65b) by desbma)
+- IPv6 support for IPAddressAllow ([9dc0376](https://github.com/desbma/shh/commit/9dc0376ccb246ef511e3cad8987aa9d42646741f) by desbma)
+- Make service reset block ([d95f533](https://github.com/desbma/shh/commit/d95f53397fb8cbec48eada4ab658574b923ac77a) by desbma)
+- Add option to edit fragment before applying it ([a83c7ab](https://github.com/desbma/shh/commit/a83c7ab29f35a4b9e92a5d7f7e67f9961bc85d55) by desbma)
+
+### <!-- 04 -->📗 Documentation
+
+- FAQ: Fix typos + mention --merge-paths-threshold option ([9fc6412](https://github.com/desbma/shh/commit/9fc6412b026ca9e957d025e45e6003d043c084d2) by desbma)
+
+### <!-- 05 -->🧪 Testing
+
+- systemd-run: Add curl test ([8cecf59](https://github.com/desbma/shh/commit/8cecf59084077ac74e1e35695e24c9a5b5d27dbe) by desbma)
+- Add ping IPv4 & IPv6 tests ([2c96a3f](https://github.com/desbma/shh/commit/2c96a3f8d78ef6f9063bef15b78ddc82450b2ef1) by desbma)
+
+### <!-- 06 -->🚜 Refactor
+
+- Mark unreachable code paths as such ([827e88c](https://github.com/desbma/shh/commit/827e88c6bf1480de626b48c15686c76f75f49dab) by desbma)
+- Remove now unneeded CountableSetSpecifier ([975a9af](https://github.com/desbma/shh/commit/975a9af6c0a370fd133b678fe5961defd7cd7386) by desbma)
+- Update panic macro usage ([4cc7328](https://github.com/desbma/shh/commit/4cc73288d9d25bc387a8ffa6f2143ada209753a8) by desbma)
+
+---
+
 ## v2025.2.6
 
 ### <!-- 01 -->💡 Features
