@@ -106,7 +106,7 @@ impl OptionValueEffect {
             OptionValueEffect::Multiple(effects) => effects.iter().all(|e| {
                 match e.compatible(action, prev_actions, None, hardening_opts) {
                     ActionOptionEffectCompatibility::Compatible => true,
-                    ActionOptionEffectCompatibility::CompatibleIfChanged(_) => todo!(),
+                    ActionOptionEffectCompatibility::CompatibleIfChanged(_) => unimplemented!(),
                     ActionOptionEffectCompatibility::Incompatible => false,
                 }
             }),

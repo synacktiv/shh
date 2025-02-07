@@ -107,11 +107,11 @@ impl<T: Eq + Clone> SetSpecifier<T> {
 
     /// Remove a single element from the set
     /// The element to remove **must** be in the set, otherwise may panic
-    #[expect(clippy::unwrap_used)]
+    #[expect(clippy::unwrap_used, clippy::panic)]
     pub(crate) fn remove(&mut self, to_rm: &T) {
         debug_assert!(self.contains_one(to_rm));
         match self {
-            Self::None => unreachable!(),
+            Self::None => panic!(),
             Self::One(_) => {
                 *self = Self::None;
             }
