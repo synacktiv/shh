@@ -1357,7 +1357,7 @@ pub(crate) fn build_options(
                                 return None;
                             }
                         }
-                        _ => return None,
+                        _ => unreachable!(),
                     };
                     match effect {
                         OptionValueEffect::DenyWrite(PathDescription::Base {
@@ -1372,10 +1372,7 @@ pub(crate) fn build_options(
                                 exceptions: new_exceptions,
                             }))
                         }
-                        OptionValueEffect::DenyWrite(PathDescription::Pattern(_)) => {
-                            unimplemented!()
-                        }
-                        _ => None,
+                        _ => unreachable!(),
                     }
                 },
                 options: |effect, hopts| match effect {
@@ -1388,7 +1385,7 @@ pub(crate) fn build_options(
                                     values: vec![base.to_str().unwrap().to_owned()],
                                     value_if_empty: None,
                                     option_prefix: "",
-                    elem_prefix: "-",
+                                    elem_prefix: "-",
                                     repeat_option: false,
                                     mode: ListMode::BlackList,
                                     mergeable_paths: true,
@@ -1413,9 +1410,6 @@ pub(crate) fn build_options(
                                 }),
                             },
                         ]
-                    }
-                    OptionValueEffect::DenyWrite(PathDescription::Pattern(_)) => {
-                        unimplemented!()
                     }
                     _ => unreachable!(),
                 },
@@ -1489,7 +1483,7 @@ pub(crate) fn build_options(
                         ProgramAction::Create(action_path) => {
                             (action_path.parent().map(Path::to_path_buf)?, false)
                         }
-                        _ => return None,
+                        _ => unreachable!(),
                     };
                     match effect {
                         OptionValueEffect::RemovePath(PathDescription::Base {
@@ -1578,7 +1572,7 @@ pub(crate) fn build_options(
                                 exceptions_rw: new_exceptions_rw,
                             }))
                         }
-                        _ => None,
+                        _ => unreachable!(),
                     }
                 },
                 options: |effect, hopts| match effect {
@@ -1664,9 +1658,6 @@ pub(crate) fn build_options(
                         }
                         new_opts
                     }
-                    OptionValueEffect::DenyWrite(PathDescription::Pattern(_)) => {
-                        unimplemented!()
-                    }
                     _ => unreachable!(),
                 },
                 dynamic_option_names: Vec::from([
@@ -1694,7 +1685,7 @@ pub(crate) fn build_options(
             updater: Some(OptionUpdater {
                 effect: |effect, action, _| {
                     let ProgramAction::Exec(action_path) = action else {
-                        return None;
+                        unreachable!();
                     };
                     match effect {
                         OptionValueEffect::DenyExec(PathDescription::Base { base, exceptions })
@@ -1990,7 +1981,7 @@ pub(crate) fn build_options(
                     let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(effect_na)) =
                         effect
                     else {
-                        return None;
+                        unreachable!()
                     };
                     let ProgramAction::NetworkActivity(NetworkActivity {
                         af: SetSpecifier::One(SocketFamily::Ipv4),
@@ -2036,7 +2027,7 @@ pub(crate) fn build_options(
                             },
                         ]
                     }
-                    _ => vec![],
+                    _ => unreachable!(),
                 },
                 dynamic_option_names: vec!["IPAddressDeny", "IPAddressAllow"],
             }),
