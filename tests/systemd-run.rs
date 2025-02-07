@@ -70,7 +70,7 @@ fn systemd_run(cmd: &[&str], sd_opts: &[String]) -> Assert {
         };
         sd_cmd.extend(["-p", sd_opt]);
     }
-    sd_cmd.push("--");
+    sd_cmd.extend(["-p", "Environment=LANG=c", "--"]);
     sd_cmd.extend(cmd);
     eprintln!("{}", shlex::try_join(sd_cmd.clone()).unwrap());
     Command::new(sd_cmd[0])
@@ -366,5 +366,35 @@ fn systemd_run_curl() {
         let sd_opts = generate_options(&cmd, shh_opts);
         let asrt = systemd_run(&cmd, &sd_opts);
         asrt.stdout(predicate::str::contains("<html>"));
+    }
+}
+
+#[test]
+#[cfg_attr(not(feature = "as-root"), ignore)]
+fn systemd_run_ping_4() {
+    let cmd = ["ping", "-c", "1", "-4", "127.0.0.1"];
+    for shh_opts in &*ALL_SHH_RUN_OPTS {
+        eprintln!("shh run option: {}", shh_opts.join(" "));
+        let sd_opts = generate_options(&cmd, shh_opts);
+        let _ = systemd_run(&cmd, &sd_opts);
+        let asrt = systemd_run(&cmd, &sd_opts);
+        asrt.stdout(predicate::str::contains(
+            "127.0.0.1 ping statistics ---\n1 packets transmitted, 1 received, 0% packet loss",
+        ));
+    }
+}
+
+#[test]
+#[cfg_attr(not(feature = "as-root"), ignore)]
+fn systemd_run_ping_6() {
+    let cmd = ["ping", "-c", "1", "-6", "::1"];
+    for shh_opts in &*ALL_SHH_RUN_OPTS {
+        eprintln!("shh run option: {}", shh_opts.join(" "));
+        let sd_opts = generate_options(&cmd, shh_opts);
+        let _ = systemd_run(&cmd, &sd_opts);
+        let asrt = systemd_run(&cmd, &sd_opts);
+        asrt.stdout(predicate::str::contains(
+            "::1 ping statistics ---\n1 packets transmitted, 1 received, 0% packet loss",
+        ));
     }
 }

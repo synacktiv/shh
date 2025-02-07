@@ -709,3 +709,37 @@ fn run_mknod() {
         .stdout(predicate::str::contains("SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @io-event:EPERM @ipc:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @network-io:EPERM @obsolete:EPERM @pkey:EPERM @privileged:EPERM @process:EPERM @raw-io:EPERM @reboot:EPERM @resources:EPERM @sandbox:EPERM @setuid:EPERM @signal:EPERM @swap:EPERM @sync:EPERM @timer:EPERM\n").count(1))
         .stdout(predicate::str::contains("CapabilityBoundingSet=~CAP_BLOCK_SUSPEND CAP_BPF CAP_CHOWN CAP_NET_RAW CAP_PERFMON CAP_SYS_BOOT CAP_SYS_CHROOT CAP_SYS_MODULE CAP_SYS_NICE CAP_SYS_PACCT CAP_SYS_PTRACE CAP_SYS_TIME CAP_SYS_TTY_CONFIG CAP_SYSLOG CAP_WAKE_ALARM\n").count(1));
 }
+
+#[test]
+fn run_ping_4() {
+    Command::cargo_bin("shh")
+        .unwrap()
+        .args(["run", "-f", "--", "ping", "-4", "-c", "1", "127.0.0.1"])
+        .unwrap()
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("RestrictAddressFamilies=AF_INET\n").count(1))
+        .stdout(predicate::str::contains("SocketBindDeny=ipv4:tcp\n").count(1))
+        .stdout(predicate::str::contains("SocketBindDeny=ipv4:udp\n").count(1))
+        .stdout(predicate::str::contains("SocketBindDeny=ipv6:tcp\n").count(1))
+        .stdout(predicate::str::contains("SocketBindDeny=ipv6:udp\n").count(1))
+        .stdout(predicate::str::contains("IPAddressDeny=any\n").count(1))
+        .stdout(predicate::str::contains("IPAddressAllow=127.0.0.1\n").count(1));
+}
+
+#[test]
+fn run_ping_6() {
+    Command::cargo_bin("shh")
+        .unwrap()
+        .args(["run", "-f", "--", "ping", "-6", "-c", "1", "::1"])
+        .unwrap()
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("RestrictAddressFamilies=AF_INET6\n").count(1))
+        .stdout(predicate::str::contains("SocketBindDeny=ipv4:tcp\n").count(1))
+        .stdout(predicate::str::contains("SocketBindDeny=ipv4:udp\n").count(1))
+        .stdout(predicate::str::contains("SocketBindDeny=ipv6:tcp\n").count(1))
+        .stdout(predicate::str::contains("SocketBindDeny=ipv6:udp\n").count(1))
+        .stdout(predicate::str::contains("IPAddressDeny=any\n").count(1))
+        .stdout(predicate::str::contains("IPAddressAllow=::1\n").count(1));
+}
