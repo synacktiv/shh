@@ -1,4 +1,4 @@
-//! Command line tests
+//! Integration tests for generated options
 
 #![expect(clippy::tests_outside_test_module)]
 
