@@ -811,7 +811,6 @@ fn path_symlinks(in_path: &mut PathBuf) -> io::Result<Vec<PathBuf>> {
     let mut links = Vec::new();
 
     let mut cur_level_path: Option<PathBuf> = None;
-    let mut leaf_is_link = false;
     for component in in_path.components() {
         let mut cur_path = if let Some(cur_level_path) = &cur_level_path {
             cur_level_path.join(component).clean()
@@ -839,12 +838,10 @@ fn path_symlinks(in_path: &mut PathBuf) -> io::Result<Vec<PathBuf>> {
             link_count += 1;
         }
         cur_level_path = Some(cur_path);
-        leaf_is_link = link_count > 0;
     }
 
-    #[expect(clippy::unwrap_used)]
-    if leaf_is_link {
-        *in_path = cur_level_path.unwrap();
+    if let Some(cur_level_path) = cur_level_path {
+        *in_path = cur_level_path;
     }
 
     Ok(links)
@@ -948,6 +945,6 @@ mod tests {
             path_symlinks(&mut in_path).unwrap(),
             vec![tmp_dir.path().join("a/b/c"),]
         );
-        assert_eq!(in_path, tmp_dir.path().join("a/b/c/e"));
+        assert_eq!(in_path, tmp_dir.path().join("a/e"));
     }
 }
