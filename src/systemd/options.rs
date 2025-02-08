@@ -1326,6 +1326,22 @@ pub(crate) fn build_options(
         });
     }
 
+    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProcSubset=
+    if (systemd_version >= &SystemdVersion::new(247, 0))
+        && (kernel_version >= &KernelVersion::new(5, 8, 0))
+    {
+        options.push(OptionDescription {
+            name: "ProcSubset",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::String("pid".to_owned()),
+                desc: OptionEffect::Simple(OptionValueEffect::RemovePath(
+                    PathDescription::pattern("^/proc/[^/]*[^0-9/]+[^/]*"),
+                )),
+            }],
+            updater: None,
+        });
+    }
+
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#LockPersonality=
     options.push(OptionDescription {
         name: "LockPersonality",
