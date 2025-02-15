@@ -4,7 +4,7 @@
 
 See [here](https://www.synacktiv.com/publications/systemd-hardening-made-easy-with-shh) for a high level introduction.
 
-## How secure is the hardening produced byt SHH?
+## How secure is the hardening produced by SHH?
 
 It relies on systemd to apply service unit options, and the Linux kernel to enforce them.
 For a hardening setting to be circumvented or broken, a vulnerability would have to be exploited in either of those.
