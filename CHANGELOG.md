@@ -1,5 +1,13 @@
 # Changelog
 
+## v2025.3.13
+
+### <!-- 10 -->🧰 Miscellaneous tasks
+
+- Lint ([5bf6fd2](https://github.com/desbma/shh/commit/5bf6fd20af840846bc8b29bba8e0c8721134f263) by desbma)
+
+---
+
 ## v2025.3.12
 
 ### <!-- 01 -->💡 Features

@@ -691,7 +691,7 @@ dependencies = [
 
 [[package]]
 name = "systemd-hardening-helper"
-version = "2025.3.12"
+version = "2025.3.13"
 dependencies = [
  "anyhow",
  "assert_cmd",
