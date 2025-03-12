@@ -1,5 +1,31 @@
 # Changelog
 
+## v2025.3.12
+
+### <!-- 01 -->💡 Features
+
+- ProcSubset systemd option ([365f76d](https://github.com/desbma/shh/commit/365f76d02de48dce433b8ce88f9cc35ec57f7bc2) by desbma)
+
+### <!-- 02 -->🐛 Bug fixes
+
+- Non leaf symlinks not being canonicalized ([6e90c41](https://github.com/desbma/shh/commit/6e90c418b4a484a31d00193bf4ae682df7642aa9) by desbma)
+
+### <!-- 04 -->📗 Documentation
+
+- README: Update shh run example output ([7ba62e3](https://github.com/desbma/shh/commit/7ba62e32e73fcc947853bf1d7e3cc7c19e950a32) by desbma)
+- README: Split crates.io installation instructions + minor tweaks ([7312ae4](https://github.com/desbma/shh/commit/7312ae4dca2bf7c58354b02cc5a261c90385cf2e) by desbma)
+- FAQ: Minor typo fix ([9176a6d](https://github.com/desbma/shh/commit/9176a6d095dd3e73ebdefbf16a7ff66598c84aa0) by desbma)
+
+### <!-- 05 -->🧪 Testing
+
+- Add ProcSubset integration test ([4ca7a12](https://github.com/desbma/shh/commit/4ca7a129251a632650f6241abe2382df3b8a26d4) by desbma)
+
+### <!-- 06 -->🚜 Refactor
+
+- Rename 'cl' integration tests to 'options' ([b7e6478](https://github.com/desbma/shh/commit/b7e64789ec90637f6268cbd1ae0d13848fdec980) by desbma)
+
+---
+
 ## v2025.2.7
 
 ### <!-- 01 -->💡 Features

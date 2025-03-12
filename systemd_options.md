@@ -44,6 +44,10 @@
 
   - `disconnected`
 
+- [`ProcSubset`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#ProcSubset=)
+
+  - `pid`
+
 - [`ProtectClock`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#ProtectClock=)
 
   - `true`
