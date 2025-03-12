@@ -258,7 +258,6 @@ type SyscallArgs<'a> = SyscallArgsInfo<&'a Expression>;
 
 impl SyscallArgsIndex {
     /// Extract arguments from indexes
-    #[expect(clippy::shadow_unrelated)]
     fn extract_args<'a>(&self, sc: &'a Syscall) -> anyhow::Result<SyscallArgs<'a>> {
         let args = match self {
             Self::Chdir(p) => SyscallArgsInfo::Chdir(match p {
