@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 
 use super::{
-    options::{merge_similar_paths, OptionUpdater},
     ListOptionValue,
+    options::{OptionUpdater, merge_similar_paths},
 };
 use crate::{
     cl::HardeningOptions,
@@ -183,23 +183,21 @@ fn actions_compatible(
     let mut changed_desc: Option<ChangedOptionValueDescription> = None;
     for i in 0..actions.len() {
         let cur_eff = changed_desc.as_ref().map_or(eff, |d| &d.effect);
-        match cur_eff.compatible(&actions[i], &actions[..i], updater, hardening_opts) {
+        #[expect(clippy::unwrap_used, clippy::indexing_slicing)]
+        let (cur_action, previous_actions) = actions[..=i].split_last().unwrap();
+        match cur_eff.compatible(cur_action, previous_actions, updater, hardening_opts) {
             ActionOptionEffectCompatibility::Compatible => {}
             ActionOptionEffectCompatibility::CompatibleIfChanged(new_desc) => {
                 log::debug!(
                     "Option effect {:?} is incompatible with {:?}, changing effect to {:?}",
                     cur_eff,
-                    actions[i],
+                    cur_action,
                     new_desc.effect
                 );
                 changed_desc = Some(new_desc);
             }
             ActionOptionEffectCompatibility::Incompatible => {
-                log::debug!(
-                    "Option effect {:?} is incompatible with {:?}",
-                    cur_eff,
-                    actions[i]
-                );
+                log::debug!("Option effect {cur_eff:?} is incompatible with {cur_action:?}");
                 return ActionOptionEffectCompatibility::Incompatible;
             }
         }
@@ -312,36 +310,32 @@ pub(crate) fn resolve(
                         ActionOptionEffectCompatibility::Incompatible => {}
                     }
                 }
-                OptionEffect::Cumulative(effects) => {
-                    match &opt_value_desc.value {
-                        OptionValue::List(lv) => {
-                            match actions_compatible_list(
-                                opt.name,
-                                lv,
-                                effects,
-                                actions,
-                                opt.updater.as_ref(),
-                                hardening_opts,
-                            ) {
-                                ActionOptionEffectCompatibility::Compatible => {
-                                    candidates.push(OptionWithValue {
-                                        name: opt.name,
-                                        value: opt_value_desc.value.clone(),
-                                    });
-                                    break;
-                                }
-                                ActionOptionEffectCompatibility::CompatibleIfChanged(
-                                    opt_new_desc,
-                                ) => {
-                                    candidates.extend(opt_new_desc.new_options);
-                                    break;
-                                }
-                                ActionOptionEffectCompatibility::Incompatible => {}
+                OptionEffect::Cumulative(effects) => match &opt_value_desc.value {
+                    OptionValue::List(lv) => {
+                        match actions_compatible_list(
+                            opt.name,
+                            lv,
+                            effects,
+                            actions,
+                            opt.updater.as_ref(),
+                            hardening_opts,
+                        ) {
+                            ActionOptionEffectCompatibility::Compatible => {
+                                candidates.push(OptionWithValue {
+                                    name: opt.name,
+                                    value: opt_value_desc.value.clone(),
+                                });
+                                break;
                             }
+                            ActionOptionEffectCompatibility::CompatibleIfChanged(opt_new_desc) => {
+                                candidates.extend(opt_new_desc.new_options);
+                                break;
+                            }
+                            ActionOptionEffectCompatibility::Incompatible => {}
                         }
-                        _ => unreachable!(),
-                    };
-                }
+                    }
+                    _ => unreachable!(),
+                },
             }
         }
     }
@@ -381,7 +375,7 @@ mod tests {
     use super::*;
     use crate::{
         cl::HardeningOptions,
-        systemd::{build_options, KernelVersion, SystemdVersion},
+        systemd::{KernelVersion, SystemdVersion, build_options},
     };
 
     fn test_options_safe(names: &[&str]) -> (Vec<OptionDescription>, HardeningOptions) {

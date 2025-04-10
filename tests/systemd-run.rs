@@ -15,8 +15,8 @@ use std::{
 };
 
 use assert_cmd::{
-    assert::{Assert, OutputAssertExt as _},
     Command,
+    assert::{Assert, OutputAssertExt as _},
 };
 use predicates::prelude::predicate;
 
@@ -73,6 +73,7 @@ fn systemd_run(cmd: &[&str], sd_opts: &[String]) -> Assert {
     sd_cmd.extend(["-p", "Environment=LANG=c", "--"]);
     sd_cmd.extend(cmd);
     eprintln!("{}", shlex::try_join(sd_cmd.clone()).unwrap());
+    #[expect(clippy::indexing_slicing)]
     Command::new(sd_cmd[0])
         .args(sd_cmd)
         .unwrap()
@@ -228,7 +229,11 @@ fn systemd_run_mmap_wx() {
 #[test]
 #[cfg_attr(not(feature = "as-root"), ignore)]
 fn systemd_run_sched_realtime() {
-    let cmd = ["python3", "-c", "import os; os.sched_setscheduler(0, os.SCHED_RR, os.sched_param(os.sched_get_priority_min(os.SCHED_RR)))"];
+    let cmd = [
+        "python3",
+        "-c",
+        "import os; os.sched_setscheduler(0, os.SCHED_RR, os.sched_param(os.sched_get_priority_min(os.SCHED_RR)))",
+    ];
     for shh_opts in &*ALL_SHH_RUN_OPTS {
         eprintln!("shh run option: {}", shh_opts.join(" "));
         let sd_opts = generate_options(&cmd, shh_opts);
@@ -239,7 +244,11 @@ fn systemd_run_sched_realtime() {
 #[test]
 #[cfg_attr(not(feature = "as-root"), ignore)]
 fn systemd_run_bind() {
-    let cmd = ["python3", "-c", "import socket; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.bind((\"127.0.0.1\", 1234))"];
+    let cmd = [
+        "python3",
+        "-c",
+        "import socket; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.bind((\"127.0.0.1\", 1234))",
+    ];
     for shh_opts in &*ALL_SHH_RUN_OPTS {
         eprintln!("shh run option: {}", shh_opts.join(" "));
         let sd_opts = generate_options(&cmd, shh_opts);
@@ -329,10 +338,12 @@ fn systemd_run_mknod() {
         }
 
         let _ = systemd_run(&cmd, &sd_opts);
-        assert!(fs::metadata(&dev_path)
-            .unwrap()
-            .file_type()
-            .is_block_device());
+        assert!(
+            fs::metadata(&dev_path)
+                .unwrap()
+                .file_type()
+                .is_block_device()
+        );
         fs::remove_file(&dev_path).unwrap();
     }
 }

@@ -47,7 +47,11 @@ pub(crate) struct OptionDescription {
 impl OptionDescription {
     pub(crate) fn write_markdown<W: Write>(&self, w: &mut W) -> io::Result<()> {
         const MARKDOWN_IDENT: &str = "  ";
-        writeln!(w, "- [`{}`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#{}=)\n", self.name, self.name)?;
+        writeln!(
+            w,
+            "- [`{}`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#{}=)\n",
+            self.name, self.name
+        )?;
         for opt_val in &self.possible_values {
             if let OptionValue::List(list) = &opt_val.value {
                 writeln!(
@@ -93,7 +97,10 @@ impl OptionDescription {
                     )?;
                     first = false;
                 }
-                writeln!(w, "{MARKDOWN_IDENT}{MARKDOWN_IDENT}- [`{new_opt_name}`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#{new_opt_name}=)")?;
+                writeln!(
+                    w,
+                    "{MARKDOWN_IDENT}{MARKDOWN_IDENT}- [`{new_opt_name}`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#{new_opt_name}=)"
+                )?;
             }
         }
         writeln!(w)

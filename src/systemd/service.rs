@@ -15,7 +15,7 @@ use rand::Rng as _;
 
 use crate::{
     cl::HardeningOptions,
-    systemd::{options::OptionWithValue, END_OPTION_OUTPUT_SNIPPET, START_OPTION_OUTPUT_SNIPPET},
+    systemd::{END_OPTION_OUTPUT_SNIPPET, START_OPTION_OUTPUT_SNIPPET, options::OptionWithValue},
 };
 
 pub(crate) struct Service {
@@ -298,7 +298,7 @@ impl Service {
 
     pub(crate) fn action(&self, verb: &str, block: bool) -> anyhow::Result<()> {
         let unit_name = self.unit_name();
-        log::info!("{} {}", verb, unit_name);
+        log::info!("{verb} {unit_name}");
         let mut cmd = vec![verb];
         if !block {
             cmd.push("--no-block");
@@ -357,6 +357,7 @@ impl Service {
         // The output with '-r' flag is in reverse chronological order
         // (to get the end as fast as possible), so reverse it, after we have
         // removed marker lines
+        #[expect(clippy::indexing_slicing)]
         let opts = snippet_lines[1..snippet_lines.len() - 1]
             .iter()
             .rev()
@@ -415,8 +416,14 @@ impl Service {
                     file_vals.push(val);
                 }
             }
-            while let Some(clear_idx) = file_vals.iter().position(String::is_empty) {
-                file_vals = file_vals[clear_idx + 1..].to_vec();
+            // Handles lines that reset previously set options
+            if let Some((last, _)) = file_vals
+                .split_inclusive(String::is_empty)
+                .rev()
+                .take(2)
+                .collect_tuple()
+            {
+                file_vals = last.to_vec();
                 vals.clear();
             }
             vals.extend(file_vals);
@@ -528,8 +535,8 @@ mod tests {
         writeln!(
             cfg_file,
             r#"ExecStartPre=/bin/sh -c "[ ! -e /usr/bin/galera_recovery ] && VAR= || \
- VAR=`cd /usr/bin/..; /usr/bin/galera_recovery`; [ $? -eq 0 ] \
- && systemctl set-environment _WSREP_START_POSITION=$VAR || exit 1""#
+VAR=`cd /usr/bin/..; /usr/bin/galera_recovery`; [ $? -eq 0 ] \
+&& systemctl set-environment _WSREP_START_POSITION=$VAR || exit 1""#
         )
         .unwrap();
 

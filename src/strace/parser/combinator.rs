@@ -3,22 +3,22 @@
 use std::iter;
 
 use nom::{
+    IResult, Parser as _,
     branch::alt,
     bytes::complete::{tag, take, take_until},
     character::complete::{
         self, alpha1, alphanumeric1, char, digit1, hex_digit1, oct_digit1, space1,
     },
     combinator::{map, map_opt, map_res, opt, recognize},
-    multi::{many0_count, many_till, separated_list0, separated_list1},
+    multi::{many_till, many0_count, separated_list0, separated_list1},
     number::complete::double,
     sequence::{delimited, pair, preceded, separated_pair, terminated},
-    IResult, Parser as _,
 };
 
 use super::ParseResult;
 use crate::strace::{
-    parser::{SyscallEnd, SyscallStart},
     BufferExpression, BufferType, Expression, IntegerExpression, IntegerExpressionValue, Syscall,
+    parser::{SyscallEnd, SyscallStart},
 };
 
 macro_rules! dbg_parser {
@@ -519,6 +519,8 @@ fn parse_buffer_byte(i: &str) -> IResult<&str, u8> {
         map_res(preceded(tag("\\x"), take(2_usize)), |s| {
             u8::from_str_radix(s, 16)
         }),
+        #[expect(clippy::indexing_slicing)]
+        // first elem is guaranteed to be here by take(1) parser
         map(take(1_usize), |s: &str| s.as_bytes()[0]),
     ))
     .parse(i)

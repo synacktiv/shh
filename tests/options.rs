@@ -4,9 +4,9 @@
 
 use std::env;
 
-use assert_cmd::{assert::OutputAssertExt as _, Command};
+use assert_cmd::{Command, assert::OutputAssertExt as _};
 use nix::unistd::Uid;
-use predicates::{prelude::*, BoxPredicate};
+use predicates::{BoxPredicate, prelude::*};
 
 //
 // Important: these tests have expectations strongly linked to the the environment they run on.

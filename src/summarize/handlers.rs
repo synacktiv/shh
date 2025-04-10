@@ -319,7 +319,7 @@ fn handle_network(
         "AF_UNIX" => {
             if let Some(path) = socket_address_uds_path(addr_struct, state.cur_dir.as_ref()) {
                 actions.push(ProgramAction::Read(path));
-            };
+            }
         }
         _ => (),
     }
@@ -565,7 +565,7 @@ fn handle_rename(
             return Err(HandlerError::ArgTypeMismatch {
                 sc_name: name.to_owned(),
                 arg: other.to_owned(),
-            })
+            });
         }
         None => false,
     };
@@ -696,7 +696,7 @@ fn handle_stat_fd(
     if let Some(mut path) = resolve_path(&path, None, state.cur_dir.as_ref()) {
         traverse_symlinks(&mut path, actions);
         actions.push(ProgramAction::Read(path));
-    };
+    }
     Ok(())
 }
 

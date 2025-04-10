@@ -49,14 +49,13 @@ fn edit_file(path: &Path) -> anyhow::Result<()> {
         });
     let editor_args = shlex::split(&editor)
         .ok_or_else(|| anyhow::anyhow!("Unable to parse environment variable value {editor:?}"))?;
-    let status = Command::new(
-        editor_args
-            .first()
-            .ok_or_else(|| anyhow::anyhow!("Empty editor environment variable value"))?,
-    )
-    .args(&editor_args[1..])
-    .arg(path)
-    .status()?;
+    let (first_arg, other_args) = editor_args
+        .split_first()
+        .ok_or_else(|| anyhow::anyhow!("Empty editor environment variable value"))?;
+    let status = Command::new(first_arg)
+        .args(other_args)
+        .arg(path)
+        .status()?;
     if !status.success() {
         anyhow::bail!("Editor failed with status {}", status);
     }
@@ -96,9 +95,13 @@ fn main() -> anyhow::Result<()> {
         systemd::KernelVersion::local_system().context("Failed to get Linux kernel version")?;
     let strace_version =
         strace::StraceVersion::local_system().context("Failed to get strace version")?;
-    log::info!("Detected versions: Systemd {sd_version}, Linux kernel {kernel_version}, strace {strace_version}");
+    log::info!(
+        "Detected versions: Systemd {sd_version}, Linux kernel {kernel_version}, strace {strace_version}"
+    );
     if strace_version < strace::StraceVersion::new(6, 4) {
-        log::warn!("Strace version >=6.4 is strongly recommended, if you experience strace output parsing errors, please consider upgrading");
+        log::warn!(
+            "Strace version >=6.4 is strongly recommended, if you experience strace output parsing errors, please consider upgrading"
+        );
     }
 
     // Parse cl args
@@ -213,7 +216,9 @@ fn main() -> anyhow::Result<()> {
                 .add_profile_fragment(&hardening_opts)
                 .context("Failed to write systemd unit profiling fragment")?;
             if no_restart {
-                log::warn!("Profiling config will only be applied when systemd config is reloaded, and service restarted");
+                log::warn!(
+                    "Profiling config will only be applied when systemd config is reloaded, and service restarted"
+                );
             } else {
                 service
                     .reload_unit_config()
