@@ -494,20 +494,23 @@ fn handle_open(
         .map(|b| PathBuf::from(OsStr::from_bytes(b)));
     path = ret_path.unwrap_or(path);
 
-    // Set actions from flags
-    if flags_val.is_flag_set("O_CREAT") {
-        actions.push(ProgramAction::Create(path.clone()));
-    }
-    if (flags_val.is_flag_set("O_WRONLY")
+    if !is_pseudo_path(&path) {
+        // Set actions from flags
+        if flags_val.is_flag_set("O_CREAT") {
+            actions.push(ProgramAction::Create(path.clone()));
+        }
+        if (flags_val.is_flag_set("O_WRONLY")
         || flags_val.is_flag_set("O_RDWR")
         || flags_val.is_flag_set("O_TRUNC"))
         // char devices can be written to, even if filesystem is mounted read only
         && !path.metadata().ok().is_some_and(|m| m.file_type().is_char_device())
-    {
-        actions.push(ProgramAction::Write(path.clone()));
-    }
-    if flags_val.is_flag_set("O_RDONLY") || !flags_val.is_flag_set("O_WRONLY") {
-        actions.push(ProgramAction::Read(path.clone()));
+        {
+            actions.push(ProgramAction::Write(path.clone()));
+        }
+        if flags_val.is_flag_set("O_RDONLY") || !flags_val.is_flag_set("O_WRONLY") {
+            assert!(!path.to_str().is_some_and(|p| p.starts_with("net:")));
+            actions.push(ProgramAction::Read(path.clone()));
+        }
     }
 
     Ok(())
@@ -825,6 +828,10 @@ fn path_symlinks(in_path: &mut PathBuf) -> io::Result<Vec<PathBuf>> {
             }
             links.push(cur_path.clone());
 
+            if is_pseudo_path(&link_target) {
+                // Pseudo file, ie /proc/[PID]/ns/net
+                return Ok(links);
+            }
             #[expect(clippy::unwrap_used)]
             if link_target.is_relative() {
                 link_target = cur_path
@@ -847,12 +854,19 @@ fn path_symlinks(in_path: &mut PathBuf) -> io::Result<Vec<PathBuf>> {
     Ok(links)
 }
 
-#[expect(clippy::unwrap_used)]
-static FD_PSEUDO_PATH_REGEX: LazyLock<regex::bytes::Regex> =
-    LazyLock::new(|| regex::bytes::Regex::new(r"^[a-z]+:\[[0-9a-z]+\]/?$").unwrap());
-
 fn is_fd_pseudo_path(path: &[u8]) -> bool {
-    FD_PSEUDO_PATH_REGEX.is_match(path)
+    #[expect(clippy::unwrap_used)]
+    static FD_PSEUDO_PATH_REGEX_BYTES: LazyLock<regex::bytes::Regex> =
+        LazyLock::new(|| regex::bytes::Regex::new(r"^[a-z]+:\[[0-9a-z]+\]/?$").unwrap());
+    FD_PSEUDO_PATH_REGEX_BYTES.is_match(path)
+}
+
+fn is_pseudo_path(path: &Path) -> bool {
+    #[expect(clippy::unwrap_used)]
+    static FD_PSEUDO_PATH_REGEX_STR: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r"^[a-z]+:\[[0-9a-z]+\]/?$").unwrap());
+    path.to_str()
+        .is_some_and(|p| FD_PSEUDO_PATH_REGEX_STR.is_match(p))
 }
 
 /// Parse ELF and return interpreter path if we can
