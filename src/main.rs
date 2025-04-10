@@ -150,9 +150,14 @@ fn main() -> anyhow::Result<()> {
             if let Some(profile_data_path) = profile_data_path {
                 // Dump profile data
                 log::info!("Writing profile data into {profile_data_path:?}...");
-                let file = File::create(&profile_data_path)
+                let mut file = File::create(&profile_data_path)
                     .with_context(|| format!("Failed to create {profile_data_path:?}"))?;
-                bincode::serialize_into(file, &actions).context("Failed to serialize profile")?;
+                bincode::serde::encode_into_std_write(
+                    &actions,
+                    &mut file,
+                    bincode::config::standard(),
+                )
+                .context("Failed to serialize profile")?;
             } else {
                 // Resolve
                 let resolved_opts = systemd::resolve(&sd_opts, &actions, &hardening_opts);
@@ -171,9 +176,10 @@ fn main() -> anyhow::Result<()> {
             // Load and merge profile data
             let mut actions: Vec<summarize::ProgramAction> = Vec::new();
             for path in &paths {
-                let file = File::open(path).with_context(|| format!("Failed to open {path:?}"))?;
+                let mut file =
+                    File::open(path).with_context(|| format!("Failed to open {path:?}"))?;
                 let mut profile_actions: Vec<summarize::ProgramAction> =
-                    bincode::deserialize_from(file)
+                    bincode::serde::decode_from_std_read(&mut file, bincode::config::standard())
                         .with_context(|| format!("Failed to deserialize profile from {path:?}"))?;
                 actions.append(&mut profile_actions);
             }

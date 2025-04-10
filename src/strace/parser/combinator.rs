@@ -11,8 +11,8 @@ use nom::{
     combinator::{map, map_opt, map_res, opt, recognize},
     multi::{many0_count, many_till, separated_list0, separated_list1},
     number::complete::double,
-    sequence::{delimited, pair, preceded, separated_pair, terminated, tuple},
-    IResult,
+    sequence::{delimited, pair, preceded, separated_pair, terminated},
+    IResult, Parser as _,
 };
 
 use super::ParseResult;
@@ -43,13 +43,13 @@ fn parse_syscall_line(i: &str) -> IResult<&str, ParseResult> {
     alt((
         // Complete syscall
         map(
-            tuple((
+            (
                 parse_pid,
                 parse_rel_ts,
                 parse_name,
                 parse_args_complete,
                 parse_ret_val,
-            )),
+            ),
             |(pid, rel_ts, name, args, ret_val)| {
                 ParseResult::Syscall(Syscall {
                     pid,
@@ -62,7 +62,7 @@ fn parse_syscall_line(i: &str) -> IResult<&str, ParseResult> {
         ),
         // Syscall start
         map(
-            tuple((parse_pid, parse_rel_ts, parse_name, parse_args_incomplete)),
+            (parse_pid, parse_rel_ts, parse_name, parse_args_incomplete),
             |(pid, rel_ts, name, args)| {
                 ParseResult::SyscallStart(SyscallStart {
                     pid,
@@ -74,16 +74,12 @@ fn parse_syscall_line(i: &str) -> IResult<&str, ParseResult> {
         ),
         // Syscall end
         map(
-            tuple((
+            (
                 parse_pid,
                 parse_rel_ts,
-                delimited(
-                    tag("<... "),
-                    parse_name,
-                    tuple((tag(" resumed> )"), space1)),
-                ),
+                delimited(tag("<... "), parse_name, (tag(" resumed> )"), space1)),
                 parse_ret_val,
-            )),
+            ),
             |(pid, rel_ts, name, ret_val)| {
                 ParseResult::SyscallEnd(SyscallEnd {
                     pid,
@@ -93,19 +89,20 @@ fn parse_syscall_line(i: &str) -> IResult<&str, ParseResult> {
                 })
             },
         ),
-    ))(i)
+    ))
+    .parse(i)
 }
 
 #[function_name::named]
 fn parse_pid(i: &str) -> IResult<&str, u32> {
     dbg_parser!(i);
-    terminated(map_res(digit1, str::parse), space1)(i)
+    terminated(map_res(digit1, str::parse), space1).parse(i)
 }
 
 #[function_name::named]
 fn parse_rel_ts(i: &str) -> IResult<&str, f64> {
     dbg_parser!(i);
-    terminated(double, space1)(i)
+    terminated(double, space1).parse(i)
 }
 
 #[function_name::named]
@@ -117,13 +114,13 @@ fn parse_name(i: &str) -> IResult<&str, &str> {
 #[function_name::named]
 fn parse_args_complete(i: &str) -> IResult<&str, Vec<Expression>> {
     dbg_parser!(i);
-    delimited(char('('), parse_args_inner, terminated(char(')'), space1))(i)
+    delimited(char('('), parse_args_inner, terminated(char(')'), space1)).parse(i)
 }
 
 #[function_name::named]
 fn parse_args_incomplete(i: &str) -> IResult<&str, Vec<Expression>> {
     dbg_parser!(i);
-    delimited(char('('), parse_args_inner, tag(" <unfinished ...>"))(i)
+    delimited(char('('), parse_args_inner, tag(" <unfinished ...>")).parse(i)
 }
 
 #[function_name::named]
@@ -137,7 +134,8 @@ fn parse_args_inner(i: &str) -> IResult<&str, Vec<Expression>> {
             )]
         }),
         separated_list0(tag(", "), alt((parse_in_out_argument, parse_expression))),
-    ))(i)
+    ))
+    .parse(i)
 }
 
 #[function_name::named]
@@ -153,13 +151,14 @@ fn parse_in_out_argument(i: &str) -> IResult<&str, Expression> {
             ),
         )),
         |(ia, _oa)| ia,
-    )(i)
+    )
+    .parse(i)
 }
 
 #[function_name::named]
 fn parse_ret_val(i: &str) -> IResult<&str, IntegerExpression> {
     dbg_parser!(i);
-    preceded(terminated(char('='), space1), parse_int_literal)(i)
+    preceded(terminated(char('='), space1), parse_int_literal).parse(i)
 }
 
 // Shared parsers
@@ -170,13 +169,14 @@ fn parse_symbol(i: &str) -> IResult<&str, &str> {
     recognize(pair(
         alt((alpha1, tag("_"))),
         many0_count(alt((alphanumeric1, tag("_")))),
-    ))(i)
+    ))
+    .parse(i)
 }
 
 #[function_name::named]
 fn parse_comment(i: &str) -> IResult<&str, Option<&str>> {
     dbg_parser!(i);
-    opt(delimited(tag(" /* "), take_until(" */"), tag(" */")))(i)
+    opt(delimited(tag(" /* "), take_until(" */"), tag(" */"))).parse(i)
 }
 
 // Expression
@@ -197,7 +197,8 @@ fn parse_expression(i: &str) -> IResult<&str, Expression> {
             parse_comment,
         ),
         |(u, _)| u,
-    )(i)
+    )
+    .parse(i)
 }
 
 #[function_name::named]
@@ -219,7 +220,8 @@ fn parse_expression_macro(i: &str) -> IResult<&str, Expression> {
             name: n.to_owned(),
             args,
         },
-    )(i)
+    )
+    .parse(i)
 }
 
 #[function_name::named]
@@ -227,13 +229,14 @@ fn parse_expression_macro_pseudo_address(i: &str) -> IResult<&str, Expression> {
     dbg_parser!(i);
     map(preceded(char('&'), parse_symbol), |s| {
         Expression::DestinationAddress(s.to_owned())
-    })(i)
+    })
+    .parse(i)
 }
 
 #[function_name::named]
 fn parse_expression_int(i: &str) -> IResult<&str, Expression> {
     dbg_parser!(i);
-    map(parse_int, Expression::Integer)(i)
+    map(parse_int, Expression::Integer).parse(i)
 }
 
 #[function_name::named]
@@ -261,16 +264,17 @@ fn parse_expression_struct(i: &str) -> IResult<&str, Expression> {
                     }),
                 )),
             ),
-            tuple((opt(tag(", ...")), char('}'))),
+            (opt(tag(", ...")), char('}')),
         ),
         |m| Expression::Struct(m.into_iter().collect()),
-    )(i)
+    )
+    .parse(i)
 }
 
 #[function_name::named]
 fn parse_expression_buf(i: &str) -> IResult<&str, Expression> {
     dbg_parser!(i);
-    map(parse_buffer, Expression::Buffer)(i)
+    map(parse_buffer, Expression::Buffer).parse(i)
 }
 
 #[function_name::named]
@@ -282,7 +286,7 @@ fn parse_expression_set(i: &str) -> IResult<&str, Expression> {
             delimited(
                 char('['),
                 separated_list0(char(' '), parse_int),
-                tuple((opt(tag(" ...")), char(']'))),
+                (opt(tag(" ...")), char(']')),
             ),
         ),
         |(neg, values)| Expression::Collection {
@@ -292,7 +296,8 @@ fn parse_expression_set(i: &str) -> IResult<&str, Expression> {
                 .map(|ie| (None, Expression::Integer(ie)))
                 .collect(),
         },
-    )(i)
+    )
+    .parse(i)
 }
 
 #[function_name::named]
@@ -303,13 +308,13 @@ fn parse_expression_array(i: &str) -> IResult<&str, Expression> {
             char('['),
             separated_list0(
                 tag(", "),
-                tuple((
+                (
                     opt(terminated(
                         delimited(char('['), parse_int, char(']')),
                         char('='),
                     )),
                     parse_expression,
-                )),
+                ),
             ),
             char(']'),
         ),
@@ -317,7 +322,8 @@ fn parse_expression_array(i: &str) -> IResult<&str, Expression> {
             complement: false,
             values,
         },
-    )(i)
+    )
+    .parse(i)
 }
 
 // Int expression
@@ -331,7 +337,8 @@ fn parse_int(i: &str) -> IResult<&str, IntegerExpression> {
         parse_int_left_shift,
         parse_int_literal,
         parse_int_named,
-    ))(i)
+    ))
+    .parse(i)
 }
 
 #[function_name::named]
@@ -358,7 +365,8 @@ fn parse_int_bit_or(i: &str) -> IResult<&str, IntegerExpression> {
             ),
             metadata: None,
         },
-    )(i)
+    )
+    .parse(i)
 }
 
 #[function_name::named]
@@ -385,26 +393,28 @@ fn parse_int_multiplication(i: &str) -> IResult<&str, IntegerExpression> {
             ),
             metadata: None,
         },
-    )(i)
+    )
+    .parse(i)
 }
 
 #[function_name::named]
 fn parse_int_literal(i: &str) -> IResult<&str, IntegerExpression> {
     dbg_parser!(i);
     map(
-        tuple((
+        (
             alt((
                 parse_int_literal_hexa,
                 parse_int_literal_oct,
                 parse_int_literal_dec,
             )),
             parse_int_metadata,
-        )),
+        ),
         |(v, m)| IntegerExpression {
             value: IntegerExpressionValue::Literal(v),
             metadata: m,
         },
-    )(i)
+    )
+    .parse(i)
 }
 
 #[function_name::named]
@@ -419,19 +429,20 @@ fn parse_int_left_shift(i: &str) -> IResult<&str, IntegerExpression> {
             },
             metadata: None,
         },
-    )(i)
+    )
+    .parse(i)
 }
 
 #[function_name::named]
 fn parse_int_named(i: &str) -> IResult<&str, IntegerExpression> {
     dbg_parser!(i);
-    map(
-        tuple((parse_symbol, parse_int_metadata)),
-        |(e, metadata)| IntegerExpression {
+    map((parse_symbol, parse_int_metadata), |(e, metadata)| {
+        IntegerExpression {
             value: IntegerExpressionValue::NamedConst(e.to_owned()),
             metadata,
-        },
-    )(i)
+        }
+    })
+    .parse(i)
 }
 
 #[function_name::named]
@@ -441,7 +452,8 @@ fn parse_int_metadata(i: &str) -> IResult<&str, Option<Vec<u8>>> {
         char('<'),
         map(many_till(parse_buffer_byte, char('>')), |r| r.0),
         opt(tag("(deleted)")),
-    ))(i)
+    ))
+    .parse(i)
 }
 
 // Int literal
@@ -452,7 +464,8 @@ fn parse_int_literal_hexa(i: &str) -> IResult<&str, i128> {
     preceded(
         tag("0x"),
         map_res(hex_digit1, |s| i128::from_str_radix(s, 16)),
-    )(i)
+    )
+    .parse(i)
 }
 
 #[function_name::named]
@@ -461,7 +474,8 @@ fn parse_int_literal_oct(i: &str) -> IResult<&str, i128> {
     preceded(
         char('0'),
         map_res(oct_digit1, |s| i128::from_str_radix(s, 8)),
-    )(i)
+    )
+    .parse(i)
 }
 
 #[function_name::named]
@@ -494,7 +508,8 @@ fn parse_buffer(i: &str) -> IResult<&str, BufferExpression> {
                 BufferType::Unknown
             },
         },
-    )(i)
+    )
+    .parse(i)
 }
 
 #[function_name::named]
@@ -505,7 +520,8 @@ fn parse_buffer_byte(i: &str) -> IResult<&str, u8> {
             u8::from_str_radix(s, 16)
         }),
         map(take(1_usize), |s: &str| s.as_bytes()[0]),
-    ))(i)
+    ))
+    .parse(i)
 }
 
 // Struct
@@ -513,5 +529,5 @@ fn parse_buffer_byte(i: &str) -> IResult<&str, u8> {
 #[function_name::named]
 fn parse_struct_member(i: &str) -> IResult<&str, (&str, Expression)> {
     dbg_parser!(i);
-    separated_pair(parse_symbol, char('='), parse_expression)(i)
+    separated_pair(parse_symbol, char('='), parse_expression).parse(i)
 }

@@ -171,11 +171,11 @@ impl Service {
         writeln!(fragment_file, "StandardOutput=journal")?;
 
         // Profile data dir
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let profile_data_dir = PathBuf::from(format!(
             "/run/{}-profile-data_{:08x}",
             env!("CARGO_BIN_NAME"),
-            rng.gen::<u32>()
+            rng.random::<u32>()
         ));
         #[expect(clippy::unwrap_used)]
         writeln!(

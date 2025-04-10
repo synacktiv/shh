@@ -22,24 +22,24 @@ strip = true
 
 [dependencies]
 anyhow = { version = "1.0.97", default-features = false, features = ["std", "backtrace"] }
-bincode = { version = "1.3.3", default-features = false }
-clap = { version = "4.5.32", default-features = false, features = ["std", "color", "help", "usage", "error-context", "suggestions", "derive"] }
+bincode = { version = "2.0.1", default-features = false, features = ["std", "serde"] }
+clap = { version = "4.5.35", default-features = false, features = ["std", "color", "help", "usage", "error-context", "suggestions", "derive"] }
 clap_mangen = { version = "0.2.26", default-features = false, optional = true }
 function_name = { version = "0.3.0", default-features = false }
 goblin = { version = "0.9.3", default-features = false, features = ["std", "elf32", "elf64", "endian_fd"] }
-itertools = { version = "0.13.0", default-features = false, features = ["use_std"] }
-log = { version = "0.4.26", default-features = false, features = ["max_level_trace", "release_max_level_info"] }
+itertools = { version = "0.14.0", default-features = false, features = ["use_std"] }
+log = { version = "0.4.27", default-features = false, features = ["max_level_trace", "release_max_level_info"] }
 nix = { version = "0.29.0", default-features = false, features = ["fs"] }
-nom = { version = "7.1.3", default-features = false, features = ["std"] }
+nom = { version = "8.0.0", default-features = false, features = ["std"] }
 path-clean = { version = "1.0.1", default-features = false }
-rand = { version = "0.8.5", default-features = false, features = ["std", "std_rng"] }
+rand = { version = "0.9.0", default-features = false, features = ["std", "thread_rng"] }
 regex = { version = "1.11.1", default-features = false, features = ["std", "perf"] }
 serde = { version = "1.0.219", default-features = false, features = ["std", "derive"] }
 shlex = { version = "1.3.0", default-features = false, features = ["std"] }
 signal-hook = { version = "0.3.17", default-features = false, features = ["iterator"] }
 simple_logger = { version = "5.0.0", default-features = false, features = ["colors", "stderr"] }
-strum = { version = "0.26.3", default-features = false, features = ["std", "derive"] }
-tempfile = { version = "3.18.0", default-features = false }
+strum = { version = "0.27.1", default-features = false, features = ["std", "derive"] }
+tempfile = { version = "3.19.1", default-features = false }
 thiserror = { version = "2.0.12", default-features = false, features = ["std"] }
 
 [dev-dependencies]
