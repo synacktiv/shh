@@ -11,6 +11,7 @@ use std::{
     fs::{self, Permissions},
     io::{BufRead as _, Write as _},
     os::unix::fs::{FileTypeExt as _, PermissionsExt as _},
+    process,
     sync::LazyLock,
 };
 
@@ -407,5 +408,27 @@ fn systemd_run_ping_6() {
         asrt.stdout(predicate::str::contains(
             "::1 ping statistics ---\n1 packets transmitted, 1 received, 0% packet loss",
         ));
+    }
+}
+
+fn del_netns(ns: &str) {
+    let mut cmd = process::Command::new("ip");
+    cmd.args(["netns", "del", ns]);
+    assert!(cmd.status().unwrap().success());
+}
+
+#[test]
+#[cfg_attr(not(feature = "as-root"), ignore)]
+fn systemd_netns_create() {
+    let ns = format!("t{}", rand::random::<u16>());
+    let cmd = ["ip", "netns", "add", &ns];
+    for shh_opts in &*ALL_SHH_RUN_OPTS {
+        eprintln!("shh run option: {}", shh_opts.join(" "));
+        let sd_opts = generate_options(&cmd, shh_opts);
+        assert!(fs::exists(format!("/run/netns/{ns}")).unwrap());
+        del_netns(&ns);
+        let _ = systemd_run(&cmd, &sd_opts);
+        assert!(fs::exists(format!("/run/netns/{ns}")).unwrap());
+        del_netns(&ns);
     }
 }
