@@ -34,6 +34,8 @@ pub(crate) enum ProgramAction {
     Create(PathBuf),
     /// Path was exec'd
     Exec(PathBuf),
+    /// Mount propagated to host
+    MountToHost,
     /// Network (socket) activity
     NetworkActivity(NetworkActivity),
     /// Memory mapping with write and execute bits
@@ -216,6 +218,9 @@ enum SyscallArgsInfo<T> {
         prot: T,
         fd: Option<T>,
     },
+    Mount {
+        flags: T,
+    },
     Network {
         fd: T,
         sockaddr: T,
@@ -286,6 +291,9 @@ impl SyscallArgsIndex {
             Self::Mmap { prot, fd } => SyscallArgs::Mmap {
                 prot: Self::extract_arg(sc, *prot)?,
                 fd: fd.map(|fd| Self::extract_arg(sc, fd)).transpose()?,
+            },
+            Self::Mount { flags } => SyscallArgs::Mount {
+                flags: Self::extract_arg(sc, *flags)?,
             },
             Self::Network { fd, sockaddr } => SyscallArgs::Network {
                 fd: Self::extract_arg(sc, *fd)?,
@@ -417,6 +425,8 @@ static SYSCALL_MAP: LazyLock<HashMap<&'static str, SyscallArgsIndex>> = LazyLock
             "pkey_mprotect",
             SyscallArgsIndex::Mmap { prot: 2, fd: None },
         ),
+        // mount
+        ("mount", SyscallArgsIndex::Mount { flags: 3 }),
         // network
         // We don't track other send/recv variants because, we can track activity we need
         // from other syscalls

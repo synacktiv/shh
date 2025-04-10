@@ -28,6 +28,7 @@ use crate::{
 #[derive(Debug)]
 pub(crate) struct OptionUpdater {
     /// Generate a new option effect compatible with the previously incompatible action
+    /// If effect contains multiple ones, updater is called once per sub effect
     pub effect:
         fn(&OptionValueEffect, &ProgramAction, &HardeningOptions) -> Option<OptionValueEffect>,
     /// Generate new options from the new effect
@@ -290,6 +291,14 @@ impl OptionValueEffect {
                     *eff = OptionValueEffect::Multiple(vec![eff.to_owned(), oeff.to_owned()]);
                 }
             },
+        }
+    }
+
+    /// Get an iterator over effects
+    pub(crate) fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Self> + 'a> {
+        match self {
+            OptionValueEffect::Multiple(effs) => Box::new(effs.iter()),
+            _ => Box::new(iter::once(self)),
         }
     }
 }
@@ -1103,7 +1112,7 @@ pub(crate) fn build_options(
     // which we need to model
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectSystem=
-    let protect_system_yes_nowrite: Vec<_> = [
+    let mut protect_system_yes_nowrite: Vec<_> = [
         "/usr/", "/boot/", "/efi/", "/lib/", "/lib64/", "/bin/", "/sbin/",
     ]
     .iter()
@@ -1111,6 +1120,8 @@ pub(crate) fn build_options(
     .collect();
     let mut protect_system_full_nowrite = protect_system_yes_nowrite.clone();
     protect_system_full_nowrite.push(OptionValueEffect::DenyWrite(PathDescription::base("/etc/")));
+    protect_system_yes_nowrite.push(OptionValueEffect::DenyAction(ProgramAction::MountToHost));
+    protect_system_full_nowrite.push(OptionValueEffect::DenyAction(ProgramAction::MountToHost));
     options.push(OptionDescription {
         name: "ProtectSystem",
         possible_values: vec![
@@ -1126,10 +1137,13 @@ pub(crate) fn build_options(
             },
             OptionValueDescription {
                 value: OptionValue::String("strict".to_owned()),
-                desc: OptionEffect::Simple(OptionValueEffect::DenyWrite(PathDescription::Base {
-                    base: "/".into(),
-                    exceptions: vec!["/dev/".into(), "/proc/".into(), "/sys/".into()],
-                })),
+                desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                    OptionValueEffect::DenyWrite(PathDescription::Base {
+                        base: "/".into(),
+                        exceptions: vec!["/dev/".into(), "/proc/".into(), "/sys/".into()],
+                    }),
+                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                ])),
             },
         ],
         updater: None,
@@ -1146,6 +1160,9 @@ pub(crate) fn build_options(
                     home_paths
                         .iter()
                         .map(|p| OptionValueEffect::EmptyPath(EmptyPathDescription::base(p)))
+                        .chain(iter::once(OptionValueEffect::DenyAction(
+                            ProgramAction::MountToHost,
+                        )))
                         .collect(),
                 )),
             },
@@ -1155,6 +1172,9 @@ pub(crate) fn build_options(
                     home_paths
                         .iter()
                         .map(|p| OptionValueEffect::EmptyPath(EmptyPathDescription::base_ro(p)))
+                        .chain(iter::once(OptionValueEffect::DenyAction(
+                            ProgramAction::MountToHost,
+                        )))
                         .collect(),
                 )),
             },
@@ -1164,6 +1184,9 @@ pub(crate) fn build_options(
                     home_paths
                         .iter()
                         .map(|p| OptionValueEffect::RemovePath(PathDescription::base(p)))
+                        .chain(iter::once(OptionValueEffect::DenyAction(
+                            ProgramAction::MountToHost,
+                        )))
                         .collect(),
                 )),
             },
@@ -1183,6 +1206,7 @@ pub(crate) fn build_options(
             desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
                 OptionValueEffect::EmptyPath(EmptyPathDescription::base("/tmp")),
                 OptionValueEffect::EmptyPath(EmptyPathDescription::base("/var/tmp")),
+                OptionValueEffect::DenyAction(ProgramAction::MountToHost),
             ])),
         }],
         updater: None,
@@ -1220,10 +1244,13 @@ pub(crate) fn build_options(
                 OptionValueEffect::DenySyscalls(DenySyscalls::Class("raw-io")),
                 OptionValueEffect::DenyAction(ProgramAction::MknodSpecial),
                 OptionValueEffect::DenyExec(PathDescription::base("/dev")),
+                OptionValueEffect::DenyAction(ProgramAction::MountToHost),
             ])),
         }],
         updater: None,
     });
+
+    // TODO PrivateMounts
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelTunables=
     options.push(OptionDescription {
@@ -1263,6 +1290,9 @@ pub(crate) fn build_options(
                     // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L130
                     iter::once(OptionValueEffect::DenyWrite(PathDescription::base("/sys"))),
                 )
+                .chain(iter::once(OptionValueEffect::DenyAction(
+                    ProgramAction::MountToHost,
+                )))
                 .collect(),
             )),
         }],
@@ -1279,6 +1309,7 @@ pub(crate) fn build_options(
                 OptionValueEffect::RemovePath(PathDescription::base("/lib/modules/")),
                 OptionValueEffect::RemovePath(PathDescription::base("/usr/lib/modules/")),
                 OptionValueEffect::DenySyscalls(DenySyscalls::Class("module")),
+                OptionValueEffect::DenyAction(ProgramAction::MountToHost),
             ])),
         }],
         updater: None,
@@ -1294,6 +1325,8 @@ pub(crate) fn build_options(
                 OptionValueEffect::RemovePath(PathDescription::base("/proc/kmsg")),
                 OptionValueEffect::RemovePath(PathDescription::base("/dev/kmsg")),
                 OptionValueEffect::DenySyscalls(DenySyscalls::Single("syslog")),
+                // TODO figure out about this one, systemd doc says it doesn't but tests seem to say otherwise?
+                OptionValueEffect::DenyAction(ProgramAction::MountToHost),
             ])),
         }],
         updater: None,
@@ -1305,9 +1338,10 @@ pub(crate) fn build_options(
         name: "ProtectControlGroups",
         possible_values: vec![OptionValueDescription {
             value: OptionValue::Boolean(true),
-            desc: OptionEffect::Simple(OptionValueEffect::DenyWrite(PathDescription::base(
-                "/sys/fs/cgroup/",
-            ))),
+            desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                OptionValueEffect::DenyWrite(PathDescription::base("/sys/fs/cgroup/")),
+                OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+            ])),
         }],
         updater: None,
     });
@@ -1325,9 +1359,10 @@ pub(crate) fn build_options(
             // which user, only support the most restrictive option
             possible_values: vec![OptionValueDescription {
                 value: OptionValue::String("ptraceable".to_owned()),
-                desc: OptionEffect::Simple(OptionValueEffect::RemovePath(
-                    PathDescription::pattern("^/proc/[0-9]+(/|$)"),
-                )),
+                desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                    OptionValueEffect::RemovePath(PathDescription::pattern("^/proc/[0-9]+(/|$)")),
+                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                ])),
             }],
             updater: None,
         });
@@ -1341,9 +1376,12 @@ pub(crate) fn build_options(
             name: "ProcSubset",
             possible_values: vec![OptionValueDescription {
                 value: OptionValue::String("pid".to_owned()),
-                desc: OptionEffect::Simple(OptionValueEffect::RemovePath(
-                    PathDescription::pattern("^/proc/[^/]*[^0-9/]+[^/]*"),
-                )),
+                desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                    OptionValueEffect::RemovePath(PathDescription::pattern(
+                        "^/proc/[^/]*[^0-9/]+[^/]*",
+                    )),
+                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                ])),
             }],
             updater: None,
         });
@@ -1431,9 +1469,10 @@ pub(crate) fn build_options(
                     mode: ListMode::BlackList,
                     mergeable_paths: true,
                 }),
-                desc: OptionEffect::Simple(OptionValueEffect::DenyWrite(PathDescription::base(
-                    "/",
-                ))),
+                desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                    OptionValueEffect::DenyWrite(PathDescription::base("/")),
+                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                ])),
             }],
             updater: Some(OptionUpdater {
                 effect: |effect, action, _| {
@@ -1446,7 +1485,7 @@ pub(crate) fn build_options(
                                 return None;
                             }
                         }
-                        _ => unreachable!(),
+                        _ => return None,
                     };
                     match effect {
                         OptionValueEffect::DenyWrite(PathDescription::Base {
@@ -1500,9 +1539,19 @@ pub(crate) fn build_options(
                             },
                         ]
                     }
+                    OptionValueEffect::DenyAction(ProgramAction::MountToHost) => {
+                        vec![OptionWithValue {
+                            name: "PrivateMounts",
+                            value: OptionValue::Boolean(true),
+                        }]
+                    }
                     _ => unreachable!(),
                 },
-                dynamic_option_names: Vec::from(["ReadOnlyPaths", "ReadWritePaths"]),
+                dynamic_option_names: Vec::from([
+                    "PrivateMounts",
+                    "ReadOnlyPaths",
+                    "ReadWritePaths",
+                ]),
             }),
         });
 
@@ -1516,7 +1565,10 @@ pub(crate) fn build_options(
                 mode: ListMode::BlackList,
                 mergeable_paths: true,
             }),
-            desc: OptionEffect::Simple(OptionValueEffect::RemovePath(PathDescription::base("/"))),
+            desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                OptionValueEffect::RemovePath(PathDescription::base("/")),
+                OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+            ])),
         }];
         // To avoid InaccessiblePaths being completely disabled simply because of the equivalent of 'ls /',
         // we set another option value for each dir directly under /
@@ -1553,7 +1605,12 @@ pub(crate) fn build_options(
                     desc: OptionEffect::Cumulative(
                         base_paths
                             .iter()
-                            .map(|p| OptionValueEffect::RemovePath(PathDescription::base(p)))
+                            .map(|p| {
+                                OptionValueEffect::Multiple(vec![
+                                    OptionValueEffect::RemovePath(PathDescription::base(p)),
+                                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                                ])
+                            })
                             .collect(),
                     ),
                 },
@@ -1572,7 +1629,7 @@ pub(crate) fn build_options(
                         ProgramAction::Create(action_path) => {
                             (action_path.parent().map(Path::to_path_buf)?, false)
                         }
-                        _ => unreachable!(),
+                        _ => return None,
                     };
                     match effect {
                         OptionValueEffect::RemovePath(PathDescription::Base {
@@ -1747,9 +1804,32 @@ pub(crate) fn build_options(
                         }
                         new_opts
                     }
+                    OptionValueEffect::DenyAction(ProgramAction::MountToHost) => {
+                        vec![OptionWithValue {
+                            name: "PrivateMounts",
+                            value: OptionValue::Boolean(true),
+                        }]
+                    }
+                    #[expect(clippy::unwrap_used)]
+                    OptionValueEffect::RemovePath(PathDescription::Base { base, exceptions }) => {
+                        assert!(exceptions.is_empty());
+                        vec![OptionWithValue {
+                            name: "InaccessiblePaths",
+                            value: OptionValue::List(ListOptionValue {
+                                values: vec![base.to_str().unwrap().to_owned()],
+                                value_if_empty: None,
+                                option_prefix: "",
+                                elem_prefix: "-",
+                                repeat_option: false,
+                                mode: ListMode::BlackList,
+                                mergeable_paths: true,
+                            }),
+                        }]
+                    }
                     _ => unreachable!(),
                 },
                 dynamic_option_names: Vec::from([
+                    "PrivateMounts",
                     "TemporaryFileSystem",
                     "BindReadOnlyPaths",
                     "BindPaths",
@@ -1769,12 +1849,15 @@ pub(crate) fn build_options(
                     mode: ListMode::BlackList,
                     mergeable_paths: true,
                 }),
-                desc: OptionEffect::Simple(OptionValueEffect::DenyExec(PathDescription::base("/"))),
+                desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                    OptionValueEffect::DenyExec(PathDescription::base("/")),
+                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                ])),
             }],
             updater: Some(OptionUpdater {
                 effect: |effect, action, _| {
                     let ProgramAction::Exec(action_path) = action else {
-                        unreachable!();
+                        return None;
                     };
                     match effect {
                         OptionValueEffect::DenyExec(PathDescription::Base { base, exceptions })
@@ -1827,9 +1910,15 @@ pub(crate) fn build_options(
                             },
                         ]
                     }
+                    OptionValueEffect::DenyAction(ProgramAction::MountToHost) => {
+                        vec![OptionWithValue {
+                            name: "PrivateMounts",
+                            value: OptionValue::Boolean(true),
+                        }]
+                    }
                     _ => unreachable!(),
                 },
-                dynamic_option_names: Vec::from(["NoExecPaths", "ExecPaths"]),
+                dynamic_option_names: Vec::from(["NoExecPaths", "PrivateMounts", "ExecPaths"]),
             }),
         });
     }

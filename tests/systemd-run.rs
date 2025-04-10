@@ -415,6 +415,7 @@ fn del_netns(ns: &str) {
     let mut cmd = process::Command::new("ip");
     cmd.args(["netns", "del", ns]);
     assert!(cmd.status().unwrap().success());
+    assert!(!fs::exists(format!("/run/netns/{ns}")).unwrap());
 }
 
 #[test]

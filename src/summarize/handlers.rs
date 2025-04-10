@@ -61,6 +61,7 @@ pub(crate) fn summarize_syscall(
         }
         SyscallArgsInfo::Mknod { mode } => handle_mknod(&sc.name, mode, actions),
         SyscallArgsInfo::Mmap { prot, fd } => handle_mmap(&sc.name, prot, fd, actions),
+        SyscallArgsInfo::Mount { flags } => handle_mount(&sc.name, flags, actions),
         SyscallArgsInfo::Network { fd, sockaddr } => {
             handle_network(&sc.name, sc.pid, fd, sockaddr, actions, state)
         }
@@ -285,6 +286,27 @@ fn handle_mmap(
         if prot_val.is_flag_set("PROT_WRITE") {
             actions.push(ProgramAction::WriteExecuteMemoryMapping);
         }
+    }
+    Ok(())
+}
+
+/// Handle mount
+fn handle_mount(
+    name: &str,
+    flags: &Expression,
+    actions: &mut Vec<ProgramAction>,
+) -> Result<(), HandlerError> {
+    let Expression::Integer(IntegerExpression {
+        value: mount_flags, ..
+    }) = flags
+    else {
+        return Err(HandlerError::ArgTypeMismatch {
+            sc_name: name.to_owned(),
+            arg: flags.to_owned(),
+        });
+    };
+    if mount_flags.is_flag_set("MS_SHARED") {
+        actions.push(ProgramAction::MountToHost);
     }
     Ok(())
 }

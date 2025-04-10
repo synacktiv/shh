@@ -22,7 +22,7 @@ impl OptionValueEffect {
         updater: Option<&OptionUpdater>,
         hardening_opts: &HardeningOptions,
     ) -> ActionOptionEffectCompatibility {
-        let compatible = match self {
+        let compatible: Vec<bool> = match self {
             OptionValueEffect::DenyAction(denied) => match denied {
                 ProgramAction::NetworkActivity(denied) => {
                     if let ProgramAction::NetworkActivity(NetworkActivity {
@@ -38,9 +38,15 @@ impl OptionValueEffect {
                         let kind_match = denied.kind.intersects(kind);
                         let local_port_match = denied.local_port.intersects(local_port);
                         let addr_match = denied.address.intersects(address);
-                        !af_match || !proto_match || !kind_match || !local_port_match || !addr_match
+                        vec![
+                            !af_match
+                                || !proto_match
+                                || !kind_match
+                                || !local_port_match
+                                || !addr_match,
+                        ]
                     } else {
-                        true
+                        vec![true]
                     }
                 }
                 ProgramAction::Read(_)
@@ -48,7 +54,8 @@ impl OptionValueEffect {
                 | ProgramAction::SetRealtimeScheduler
                 | ProgramAction::Wakeup
                 | ProgramAction::MknodSpecial
-                | ProgramAction::SetAlarm => action != denied,
+                | ProgramAction::SetAlarm
+                | ProgramAction::MountToHost => vec![action != denied],
                 ProgramAction::Syscalls(_)
                 | ProgramAction::Write(_)
                 | ProgramAction::Create(_)
@@ -59,71 +66,105 @@ impl OptionValueEffect {
             },
             OptionValueEffect::DenyWrite(ro_paths) => match action {
                 ProgramAction::Write(path_action) | ProgramAction::Create(path_action) => {
-                    !ro_paths.matches(path_action)
+                    vec![!ro_paths.matches(path_action)]
                 }
-                _ => true,
+                _ => vec![true],
             },
             OptionValueEffect::DenyExec(noexec_paths) => match action {
-                ProgramAction::Exec(path_action) => !noexec_paths.matches(path_action),
-                _ => true,
+                ProgramAction::Exec(path_action) => vec![!noexec_paths.matches(path_action)],
+                _ => vec![true],
             },
             OptionValueEffect::EmptyPath(empty_paths) => match action {
                 ProgramAction::Read(path_action) | ProgramAction::Exec(path_action) => {
-                    !empty_paths.matches(path_action, true)
-                        || prev_actions.contains(&ProgramAction::Create(path_action.clone()))
+                    vec![
+                        !empty_paths.matches(path_action, true)
+                            || prev_actions.contains(&ProgramAction::Create(path_action.clone())),
+                    ]
                 }
                 ProgramAction::Write(path_action) => {
-                    !empty_paths.matches(path_action, false)
-                        || prev_actions.contains(&ProgramAction::Create(path_action.clone()))
+                    vec![
+                        !empty_paths.matches(path_action, false)
+                            || prev_actions.contains(&ProgramAction::Create(path_action.clone())),
+                    ]
                 }
                 ProgramAction::Create(path_action) => {
-                    !empty_paths.matches(path_action, false)
-                        || (!empty_paths.base_ro
-                            && path_action.parent().is_some_and(|pap| {
-                                (pap == empty_paths.base)
-                                    || prev_actions
-                                        .contains(&ProgramAction::Create(pap.to_path_buf()))
-                            }))
+                    vec![
+                        !empty_paths.matches(path_action, false)
+                            || (!empty_paths.base_ro
+                                && path_action.parent().is_some_and(|pap| {
+                                    (pap == empty_paths.base)
+                                        || prev_actions
+                                            .contains(&ProgramAction::Create(pap.to_path_buf()))
+                                })),
+                    ]
                 }
-                _ => true,
+                _ => vec![true],
             },
             OptionValueEffect::RemovePath(removed_paths) => match action {
                 ProgramAction::Read(path_action)
                 | ProgramAction::Write(path_action)
                 | ProgramAction::Exec(path_action)
-                | ProgramAction::Create(path_action) => !removed_paths.matches(path_action),
-                _ => true,
+                | ProgramAction::Create(path_action) => vec![!removed_paths.matches(path_action)],
+                _ => vec![true],
             },
             OptionValueEffect::DenySyscalls(denied) => {
                 if let ProgramAction::Syscalls(syscalls) = action {
                     let denied_syscalls = denied.syscalls();
                     let syscalls = syscalls.iter().map(String::as_str).collect();
-                    denied_syscalls.intersection(&syscalls).next().is_none()
+                    vec![denied_syscalls.intersection(&syscalls).next().is_none()]
                 } else {
-                    true
+                    vec![true]
                 }
             }
-            OptionValueEffect::Multiple(effects) => effects.iter().all(|e| {
-                match e.compatible(action, prev_actions, None, hardening_opts) {
-                    ActionOptionEffectCompatibility::Compatible => true,
-                    ActionOptionEffectCompatibility::CompatibleIfChanged(_) => unimplemented!(),
-                    ActionOptionEffectCompatibility::Incompatible => false,
-                }
-            }),
-        };
-        if compatible {
-            ActionOptionEffectCompatibility::Compatible
-        } else if let Some(updater) = updater {
-            if let Some(new_eff) = (updater.effect)(self, action, hardening_opts) {
-                ActionOptionEffectCompatibility::CompatibleIfChanged(
-                    ChangedOptionValueDescription {
-                        new_options: (updater.options)(&new_eff, hardening_opts),
-                        effect: new_eff,
+            OptionValueEffect::Multiple(effects) => effects
+                .iter()
+                .map(
+                    |e| match e.compatible(action, prev_actions, None, hardening_opts) {
+                        ActionOptionEffectCompatibility::Compatible => true,
+                        ActionOptionEffectCompatibility::CompatibleIfChanged(_) => unimplemented!(),
+                        ActionOptionEffectCompatibility::Incompatible => false,
                     },
                 )
-            } else {
-                ActionOptionEffectCompatibility::Incompatible
+                .collect(),
+        };
+        if compatible.iter().all(|c| *c) {
+            ActionOptionEffectCompatibility::Compatible
+        } else if let Some(updater) = updater {
+            let mut changed_opt_desc = None;
+            for (subeff, subeff_compatible) in self.iter().zip(compatible) {
+                if subeff_compatible {
+                    let newopt_desc = ChangedOptionValueDescription {
+                        new_options: (updater.options)(subeff, hardening_opts),
+                        effect: subeff.to_owned(),
+                    };
+                    changed_opt_desc = Some(changed_opt_desc.map_or_else(
+                        || newopt_desc.clone(),
+                        |mut prev: ChangedOptionValueDescription| {
+                            prev.merge(&newopt_desc);
+                            prev
+                        },
+                    ));
+                } else if let Some(new_subeff) = (updater.effect)(subeff, action, hardening_opts) {
+                    let newopt_desc = ChangedOptionValueDescription {
+                        new_options: (updater.options)(&new_subeff, hardening_opts),
+                        effect: new_subeff,
+                    };
+                    changed_opt_desc = Some(changed_opt_desc.map_or_else(
+                        || newopt_desc.clone(),
+                        |mut prev: ChangedOptionValueDescription| {
+                            prev.merge(&newopt_desc);
+                            prev
+                        },
+                    ));
+                } else {
+                    changed_opt_desc = None;
+                    break;
+                }
             }
+            changed_opt_desc.map_or(
+                ActionOptionEffectCompatibility::Incompatible,
+                ActionOptionEffectCompatibility::CompatibleIfChanged,
+            )
         } else {
             ActionOptionEffectCompatibility::Incompatible
         }
@@ -131,7 +172,7 @@ impl OptionValueEffect {
 }
 
 /// A systemd option value and its effect, altered from original
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct ChangedOptionValueDescription {
     pub new_options: Vec<OptionWithValue<&'static str>>,
     pub effect: OptionValueEffect,
@@ -610,34 +651,37 @@ mod tests {
 
         let actions = vec![ProgramAction::Read("/var/data".into())];
         let candidates = resolve(&opts, &actions, &hardening_opts);
-        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates.len(), 3);
         assert_eq!(candidates[0].to_string(), "TemporaryFileSystem=/:ro");
         assert_eq!(candidates[1].to_string(), "BindReadOnlyPaths=-/var/data");
+        assert_eq!(candidates[2].to_string(), "PrivateMounts=true");
 
         let actions = vec![
             ProgramAction::Exec("/usr/bin/prog".into()),
             ProgramAction::Read("/var/data".into()),
         ];
         let candidates = resolve(&opts, &actions, &hardening_opts);
-        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates.len(), 3);
         assert_eq!(candidates[0].to_string(), "TemporaryFileSystem=/:ro");
         assert_eq!(
             candidates[1].to_string(),
             "BindReadOnlyPaths=-/usr/bin/prog -/var/data"
         );
+        assert_eq!(candidates[2].to_string(), "PrivateMounts=true");
 
         let actions = vec![
             ProgramAction::Exec("/usr/bin/prog".into()),
             ProgramAction::Write("/var/data".into()),
         ];
         let candidates = resolve(&opts, &actions, &hardening_opts);
-        assert_eq!(candidates.len(), 3);
+        assert_eq!(candidates.len(), 4);
         assert_eq!(candidates[0].to_string(), "TemporaryFileSystem=/:ro");
         assert_eq!(
             candidates[1].to_string(),
             "BindReadOnlyPaths=-/usr/bin/prog"
         );
         assert_eq!(candidates[2].to_string(), "BindPaths=-/var/data");
+        assert_eq!(candidates[3].to_string(), "PrivateMounts=true");
 
         let actions = vec![
             ProgramAction::Exec("/usr/bin/prog".into()),
@@ -645,13 +689,14 @@ mod tests {
             ProgramAction::Write("/var/data".into()),
         ];
         let candidates = resolve(&opts, &actions, &hardening_opts);
-        assert_eq!(candidates.len(), 3);
+        assert_eq!(candidates.len(), 4);
         assert_eq!(candidates[0].to_string(), "TemporaryFileSystem=/:ro");
         assert_eq!(
             candidates[1].to_string(),
             "BindReadOnlyPaths=-/usr/bin/prog"
         );
         assert_eq!(candidates[2].to_string(), "BindPaths=-/var");
+        assert_eq!(candidates[3].to_string(), "PrivateMounts=true");
 
         let actions = vec![
             ProgramAction::Exec("/usr/bin/prog".into()),
@@ -659,13 +704,14 @@ mod tests {
             ProgramAction::Write("/var/dir/data".into()),
         ];
         let candidates = resolve(&opts, &actions, &hardening_opts);
-        assert_eq!(candidates.len(), 3);
+        assert_eq!(candidates.len(), 4);
         assert_eq!(candidates[0].to_string(), "TemporaryFileSystem=/:ro");
         assert_eq!(
             candidates[1].to_string(),
             "BindReadOnlyPaths=-/usr/bin/prog"
         );
         assert_eq!(candidates[2].to_string(), "BindPaths=-/var/dir");
+        assert_eq!(candidates[3].to_string(), "PrivateMounts=true");
 
         let actions = vec![
             ProgramAction::Exec("/usr/bin/prog".into()),
@@ -673,12 +719,13 @@ mod tests {
             ProgramAction::Write("/var/data".into()),
         ];
         let candidates = resolve(&opts, &actions, &hardening_opts);
-        assert_eq!(candidates.len(), 3);
+        assert_eq!(candidates.len(), 4);
         assert_eq!(candidates[0].to_string(), "TemporaryFileSystem=/:ro");
         assert_eq!(
             candidates[1].to_string(),
             "BindReadOnlyPaths=-/usr/bin/prog"
         );
         assert_eq!(candidates[2].to_string(), "BindPaths=-/var/data");
+        assert_eq!(candidates[3].to_string(), "PrivateMounts=true");
     }
 }
