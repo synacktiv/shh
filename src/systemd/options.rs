@@ -510,6 +510,7 @@ impl<T: fmt::Display> fmt::Display for OptionWithValue<T> {
     }
 }
 
+// TODO build these at build time from `systemd-analyze syscall-filter` invocation
 static SYSCALL_CLASSES: LazyLock<HashMap<&'static str, HashSet<&'static str>>> =
     LazyLock::new(|| {
         HashMap::from([
