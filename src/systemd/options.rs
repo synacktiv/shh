@@ -1251,7 +1251,15 @@ pub(crate) fn build_options(
         updater: None,
     });
 
-    // TODO PrivateMounts
+    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateMounts=
+    options.push(OptionDescription {
+        name: "PrivateMounts",
+        possible_values: vec![OptionValueDescription {
+            value: OptionValue::Boolean(true),
+            desc: OptionEffect::Simple(OptionValueEffect::DenyAction(ProgramAction::MountToHost)),
+        }],
+        updater: None,
+    });
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelTunables=
     options.push(OptionDescription {

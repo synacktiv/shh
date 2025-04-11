@@ -14,6 +14,7 @@
 
   - *dynamic path blacklisting*
   - to support this option, other options may be dynamically enabled:
+    - [`PrivateMounts`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#PrivateMounts=)
     - [`TemporaryFileSystem`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#TemporaryFileSystem=)
     - [`BindReadOnlyPaths`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#BindReadOnlyPaths=)
     - [`BindPaths`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#BindPaths=)
@@ -30,9 +31,14 @@
 
   - *dynamic path blacklisting*
   - to support this option, other options may be dynamically enabled:
+    - [`PrivateMounts`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#PrivateMounts=)
     - [`ExecPaths`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#ExecPaths=)
 
 - [`PrivateDevices`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#PrivateDevices=)
+
+  - `true`
+
+- [`PrivateMounts`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#PrivateMounts=)
 
   - `true`
 
@@ -88,6 +94,7 @@
 
   - *dynamic path blacklisting*
   - to support this option, other options may be dynamically enabled:
+    - [`PrivateMounts`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#PrivateMounts=)
     - [`ReadWritePaths`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#ReadWritePaths=)
 
 - [`RestrictAddressFamilies`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#RestrictAddressFamilies=)
