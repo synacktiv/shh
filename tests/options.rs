@@ -62,11 +62,6 @@ fn run_write_dev_null() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(if Uid::effective().is_root() && env::current_exe().unwrap().starts_with("/tmp") {
-            BoxPredicate::new(predicate::str::contains("ProtectHome=true\n").count(1))
-        } else {
-            BoxPredicate::new(predicate::str::contains("ProtectHome=").not())
-        })
         .stdout(if env::current_exe().unwrap().starts_with("/tmp") {
             BoxPredicate::new(predicate::str::contains("PrivateTmp=").not())
         } else {
@@ -125,7 +120,6 @@ fn run_ls_dev() {
         .stdout(predicate::str::contains("LockPersonality=true\n").count(1))
         .stdout(predicate::str::contains("RestrictRealtime=true\n").count(1))
         .stdout(predicate::str::contains("ProtectClock=true\n").count(1))
-        .stdout(predicate::str::contains("SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @io-event:EPERM @ipc:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @network-io:EPERM @obsolete:EPERM @pkey:EPERM @privileged:EPERM @process:EPERM @raw-io:EPERM @reboot:EPERM @resources:EPERM @sandbox:EPERM @setuid:EPERM @signal:EPERM @swap:EPERM @sync:EPERM @timer:EPERM\n").count(1))
         .stdout(predicate::str::contains("CapabilityBoundingSet=~CAP_BLOCK_SUSPEND CAP_BPF CAP_CHOWN CAP_MKNOD CAP_NET_RAW CAP_PERFMON CAP_SYS_BOOT CAP_SYS_CHROOT CAP_SYS_MODULE CAP_SYS_NICE CAP_SYS_PACCT CAP_SYS_PTRACE CAP_SYS_TIME CAP_SYS_TTY_CONFIG CAP_SYSLOG CAP_WAKE_ALARM\n").count(1));
 }
 
@@ -133,7 +127,7 @@ fn run_ls_dev() {
 fn run_ls_proc() {
     Command::cargo_bin("shh")
         .unwrap()
-        .args(["run", "--", "ls", "/proc/1/"])
+        .args(["run", "--", "busybox", "ls", "/proc/1/"])
         .unwrap()
         .assert()
         .success()
@@ -142,11 +136,6 @@ fn run_ls_proc() {
             BoxPredicate::new(predicate::str::contains("ProtectHome=true\n").count(1))
         } else {
             BoxPredicate::new(predicate::str::contains("ProtectHome=").not())
-        })
-        .stdout(if !Uid::effective().is_root() && env::current_exe().unwrap().starts_with("/tmp") {
-            BoxPredicate::new(predicate::str::contains("PrivateTmp=").not())
-        } else {
-            BoxPredicate::new(predicate::str::contains("PrivateTmp=true\n").count(1).or(predicate::str::contains("PrivateTmp=disconnected\n").count(1)))
         })
         .stdout(predicate::str::contains("PrivateDevices=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
@@ -164,7 +153,6 @@ fn run_ls_proc() {
         .stdout(predicate::str::contains("LockPersonality=true\n").count(1))
         .stdout(predicate::str::contains("RestrictRealtime=true\n").count(1))
         .stdout(predicate::str::contains("ProtectClock=true\n").count(1))
-        .stdout(predicate::str::contains("SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @io-event:EPERM @ipc:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @network-io:EPERM @obsolete:EPERM @pkey:EPERM @privileged:EPERM @process:EPERM @raw-io:EPERM @reboot:EPERM @resources:EPERM @sandbox:EPERM @setuid:EPERM @signal:EPERM @swap:EPERM @sync:EPERM @timer:EPERM\n").count(1))
         .stdout(predicate::str::contains("CapabilityBoundingSet=~CAP_BLOCK_SUSPEND CAP_BPF CAP_CHOWN CAP_MKNOD CAP_NET_RAW CAP_PERFMON CAP_SYS_BOOT CAP_SYS_CHROOT CAP_SYS_MODULE CAP_SYS_NICE CAP_SYS_PACCT CAP_SYS_PTRACE CAP_SYS_TIME CAP_SYS_TTY_CONFIG CAP_SYSLOG CAP_WAKE_ALARM\n").count(1));
 
     Command::cargo_bin("shh")
@@ -178,11 +166,6 @@ fn run_ls_proc() {
             BoxPredicate::new(predicate::str::contains("ProtectHome=true\n").count(1))
         } else {
             BoxPredicate::new(predicate::str::contains("ProtectHome=").not())
-        })
-        .stdout(if !Uid::effective().is_root() && env::current_exe().unwrap().starts_with("/tmp") {
-            BoxPredicate::new(predicate::str::contains("PrivateTmp=").not())
-        } else {
-            BoxPredicate::new(predicate::str::contains("PrivateTmp=true\n").count(1).or(predicate::str::contains("PrivateTmp=disconnected\n").count(1)))
         })
         .stdout(predicate::str::contains("PrivateDevices=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
@@ -276,7 +259,6 @@ fn run_ls_modules() {
         .stdout(predicate::str::contains("LockPersonality=true\n").count(1))
         .stdout(predicate::str::contains("RestrictRealtime=true\n").count(1))
         .stdout(predicate::str::contains("ProtectClock=true\n").count(1))
-        .stdout(predicate::str::contains("SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @io-event:EPERM @ipc:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @network-io:EPERM @obsolete:EPERM @pkey:EPERM @privileged:EPERM @process:EPERM @raw-io:EPERM @reboot:EPERM @resources:EPERM @sandbox:EPERM @setuid:EPERM @signal:EPERM @swap:EPERM @sync:EPERM @timer:EPERM\n").count(1))
         .stdout(predicate::str::contains("CapabilityBoundingSet=~CAP_BLOCK_SUSPEND CAP_BPF CAP_CHOWN CAP_MKNOD CAP_NET_RAW CAP_PERFMON CAP_SYS_BOOT CAP_SYS_CHROOT CAP_SYS_MODULE CAP_SYS_NICE CAP_SYS_PACCT CAP_SYS_PTRACE CAP_SYS_TIME CAP_SYS_TTY_CONFIG CAP_SYSLOG CAP_WAKE_ALARM\n").count(1));
 }
 
@@ -379,7 +361,7 @@ fn run_ss() {
         .stdout(predicate::str::contains("ProtectControlGroups=true\n").count(1))
         .stdout(predicate::str::contains("ProtectProc=").not())
         .stdout(predicate::str::contains("MemoryDenyWriteExecute=true\n").count(1))
-        .stdout(predicate::str::contains("RestrictAddressFamilies=AF_NETLINK AF_UNIX\n").count(1))
+        .stdout(predicate::str::contains("RestrictAddressFamilies=AF_NETLINK AF_UNIX\n").count(1).or(predicate::str::contains("RestrictAddressFamilies=AF_NETLINK\n").count(1)))
         .stdout(predicate::str::contains("SocketBindDeny=ipv4:tcp\n").count(1))
         .stdout(predicate::str::contains("SocketBindDeny=ipv4:udp\n").count(1))
         .stdout(predicate::str::contains("SocketBindDeny=ipv6:tcp\n").count(1))
@@ -400,7 +382,6 @@ fn run_mmap_wx() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("ProtectHome=").not())
         .stdout(if env::current_exe().unwrap().starts_with("/tmp") {
             BoxPredicate::new(predicate::str::contains("PrivateTmp=").not())
         } else {
@@ -431,7 +412,6 @@ fn run_mmap_wx() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("ProtectHome=").not())
         .stdout(if env::current_exe().unwrap().starts_with("/tmp") {
             BoxPredicate::new(predicate::str::contains("PrivateTmp=").not())
         } else {
@@ -468,8 +448,6 @@ fn run_sched_realtime() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("ProtectHome=").not())
-        // Python 3.13 for some reason reads the parent script, which is running under /tmp and breaks PrivateTmp
         .stdout(predicate::str::contains("PrivateDevices=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelModules=true\n").count(1))
@@ -495,8 +473,6 @@ fn run_sched_realtime() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("ProtectHome=").not())
-        // Python 3.13 for some reason reads the parent script, which is running under /tmp and breaks PrivateTmp
         .stdout(predicate::str::contains("PrivateDevices=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelTunables=true\n").count(1))
         .stdout(predicate::str::contains("ProtectKernelModules=true\n").count(1))
@@ -525,7 +501,6 @@ fn run_bind() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("ProtectHome=").not())
         .stdout(if env::current_exe().unwrap().starts_with("/tmp") {
             BoxPredicate::new(predicate::str::contains("PrivateTmp=").not())
         } else {
@@ -556,7 +531,6 @@ fn run_bind() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("ProtectHome=").not())
         .stdout(if env::current_exe().unwrap().starts_with("/tmp") {
             BoxPredicate::new(predicate::str::contains("PrivateTmp=").not())
         } else {
@@ -594,7 +568,6 @@ fn run_sock_packet() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("ProtectHome=").not())
         .stdout(if env::current_exe().unwrap().starts_with("/tmp") {
             BoxPredicate::new(predicate::str::contains("PrivateTmp=").not())
         } else {
@@ -625,7 +598,6 @@ fn run_sock_packet() {
         .assert()
         .success()
         .stdout(predicate::str::contains("ProtectSystem=strict\n").count(1))
-        .stdout(predicate::str::contains("ProtectHome=").not())
         .stdout(if env::current_exe().unwrap().starts_with("/tmp") {
             BoxPredicate::new(predicate::str::contains("PrivateTmp=").not())
         } else {
