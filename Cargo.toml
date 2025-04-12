@@ -7,7 +7,7 @@ repository = "https://github.com/desbma/shh"
 keywords = ["systemd", "hardening", "strace", "system", "security"]
 categories = ["command-line-utilities"]
 license = "GPL-3.0-only"
-version = "2025.3.13"
+version = "2025.4.12"
 rust-version = "1.86"
 edition = "2024"
 
@@ -26,7 +26,7 @@ const-gen = { version = "1.6.6", default-features = false, features = ["std", "p
 [dependencies]
 anyhow = { version = "1.0.97", default-features = false, features = ["std", "backtrace"] }
 bincode = { version = "2.0.1", default-features = false, features = ["std", "serde"] }
-clap = { version = "4.5.35", default-features = false, features = ["std", "color", "help", "usage", "error-context", "suggestions", "derive"] }
+clap = { version = "4.5.36", default-features = false, features = ["std", "color", "help", "usage", "error-context", "suggestions", "derive"] }
 clap_mangen = { version = "0.2.26", default-features = false, optional = true }
 function_name = { version = "0.3.0", default-features = false }
 goblin = { version = "0.9.3", default-features = false, features = ["std", "elf32", "elf64", "endian_fd"] }

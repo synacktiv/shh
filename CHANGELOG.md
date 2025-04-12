@@ -1,5 +1,32 @@
 # Changelog
 
+## v2025.4.12
+
+### <!-- 01 -->💡 Features
+
+- Model disabled mount propagation to host ([70637d4](https://github.com/desbma/shh/commit/70637d4d33b660c73e74cf7304ae69bbcdd916cf) by desbma)
+- Support PrivateMounts systemd option ([ca293da](https://github.com/desbma/shh/commit/ca293dac64c6022d802439ad6bfeffb4490fca68) by desbma)
+
+### <!-- 02 -->🐛 Bug fixes
+
+- Handle namespace pseudo files ([6f75bd9](https://github.com/desbma/shh/commit/6f75bd91c0569b4453a3f9880ca78b67fc483803) by desbma)
+
+### <!-- 05 -->🧪 Testing
+
+- Add netns systemd-run test ([7162280](https://github.com/desbma/shh/commit/7162280cf0a0d53cd3f4da6e6e863cb0a3212c1f) by desbma)
+- options: Remove checks of options that vary too much between environments ([1f18b17](https://github.com/desbma/shh/commit/1f18b171cf45043fae01ff24aa4b6fb79dc577c9) by desbma)
+
+### <!-- 08 -->🏗  Build
+
+- Generate systemd syscall classes at build time from systemd-analyze output ([c52a860](https://github.com/desbma/shh/commit/c52a860e31bf476c845d1994f65431f3078bc344) by desbma)
+
+### <!-- 10 -->🧰 Miscellaneous tasks
+
+- Update dependencies ([70d2142](https://github.com/desbma/shh/commit/70d21422b42f4848fe9a4b09bf6e32d43c220816) by desbma)
+- Update lints, update to 2024 edition ([a625d11](https://github.com/desbma/shh/commit/a625d11d4edbc14eb81c07a9ab197375ae4e989f) by desbma)
+
+---
+
 ## v2025.3.13
 
 ### <!-- 10 -->🧰 Miscellaneous tasks
