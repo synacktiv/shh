@@ -48,6 +48,9 @@ pub(crate) struct HardeningOptions {
     /// For testing only
     #[arg(long, num_args=1..)]
     pub systemd_options: Option<Vec<String>>,
+    /// Strace binary path, if not set resolve it from PATH environment variable
+    #[arg(short = 's', long = "strace", default_value = None)]
+    pub strace_path: Option<PathBuf>,
 }
 
 impl HardeningOptions {
@@ -61,6 +64,7 @@ impl HardeningOptions {
             #[expect(clippy::unwrap_used)]
             merge_paths_threshold: NonZeroUsize::new(1).unwrap(),
             systemd_options: None,
+            strace_path: None,
         }
     }
 
@@ -73,12 +77,14 @@ impl HardeningOptions {
             #[expect(clippy::unwrap_used)]
             merge_paths_threshold: NonZeroUsize::new(usize::MAX).unwrap(),
             systemd_options: None,
+            strace_path: None,
         }
     }
 
+    #[expect(clippy::expect_used)]
     pub(crate) fn to_cmdline(&self) -> String {
         format!(
-            "-m {}{}{} --merge-paths-threshold {}",
+            "-m {}{}{} --merge-paths-threshold {}{}",
             self.mode,
             if self.network_firewalling { " -f" } else { "" },
             if self.filesystem_whitelisting {
@@ -86,7 +92,11 @@ impl HardeningOptions {
             } else {
                 ""
             },
-            self.merge_paths_threshold
+            self.merge_paths_threshold,
+            self.strace_path
+                .as_ref()
+                .map(|p| format!(" -s {}", p.to_str().expect("Invalid strace path")))
+                .unwrap_or_default()
         )
     }
 }

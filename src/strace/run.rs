@@ -21,7 +21,11 @@ pub(crate) struct Strace {
 }
 
 impl Strace {
-    pub(crate) fn run(command: &[&str], log_path: Option<PathBuf>) -> anyhow::Result<Self> {
+    pub(crate) fn run(
+        command: &[&str],
+        strace_path: Option<&PathBuf>,
+        log_path: Option<PathBuf>,
+    ) -> anyhow::Result<Self> {
         // Create named pipe
         let pipe_dir = tempfile::tempdir().context("Failed to create temporary directory")?;
         let pipe_path = Self::pipe_path(&pipe_dir);
@@ -31,7 +35,12 @@ impl Strace {
 
         // Start process
         // TODO setuid/setgid execution will be broken unless strace runs as root
-        let child = Command::new("strace")
+        let mut cmd = if let Some(strace_path) = strace_path {
+            Command::new(strace_path)
+        } else {
+            Command::new("strace")
+        };
+        let child = cmd
             .args([
                 "--daemonize=grandchild",
                 "--relative-timestamps",

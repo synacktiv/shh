@@ -120,8 +120,9 @@ fn main() -> anyhow::Result<()> {
 
             // Run strace
             let cmd = command.iter().map(|a| &**a).collect::<Vec<&str>>();
-            let st = strace::Strace::run(&cmd, strace_log_path)
-                .context("Failed to setup strace profiling")?;
+            let st =
+                strace::Strace::run(&cmd, hardening_opts.strace_path.as_ref(), strace_log_path)
+                    .context("Failed to setup strace profiling")?;
 
             // Start signal handling thread
             let mut signals = signal_hook::iterator::Signals::new([
