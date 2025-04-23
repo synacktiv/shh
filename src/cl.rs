@@ -4,6 +4,8 @@ use std::{num::NonZeroUsize, path::PathBuf};
 
 use clap::Parser;
 
+use crate::systemd;
+
 /// Command line arguments
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -76,18 +78,19 @@ impl HardeningOptions {
         }
     }
 
-    pub(crate) fn to_cmdline(&self) -> String {
-        format!(
-            "-m {}{}{} --merge-paths-threshold {}",
-            self.mode,
-            if self.network_firewalling { " -f" } else { "" },
-            if self.filesystem_whitelisting {
-                " -w"
-            } else {
-                ""
-            },
-            self.merge_paths_threshold
-        )
+    pub(crate) fn to_cmd_args(&self) -> Vec<String> {
+        let mut args = vec!["-m".to_owned(), self.mode.to_string()];
+        if self.network_firewalling {
+            args.push("-f".to_owned());
+        }
+        if self.filesystem_whitelisting {
+            args.push("-w".to_owned());
+        }
+        args.extend([
+            "--merge-paths-threshold".to_owned(),
+            self.merge_paths_threshold.to_string(),
+        ]);
+        args
     }
 }
 
@@ -98,6 +101,8 @@ pub(crate) enum Action {
         /// The command line to run
         #[arg(num_args = 1.., required = true)]
         command: Vec<String>,
+        #[command(flatten)]
+        instance: ServiceInstance,
         #[command(flatten)]
         hardening_opts: HardeningOptions,
         /// Generate profile data file to be merged with others instead of generating systemd options directly
@@ -110,6 +115,8 @@ pub(crate) enum Action {
     },
     /// Merge profile data from previous runs to generate systemd options
     MergeProfileData {
+        #[command(flatten)]
+        instance: ServiceInstance,
         #[command(flatten)]
         hardening_opts: HardeningOptions,
         /// Profile data paths
@@ -139,12 +146,27 @@ pub(crate) enum Action {
     },
 }
 
+#[derive(Debug, clap::Parser)]
+pub(crate) struct Service {
+    /// Service unit name
+    pub name: String,
+    #[command(flatten)]
+    pub instance: ServiceInstance,
+}
+
+#[derive(Debug, clap::Parser)]
+pub(crate) struct ServiceInstance {
+    /// Systemd instance of the service ("system" or "user" for per-user instances of the service manager)
+    #[arg(short, long, default_value_t, value_enum)]
+    pub instance: systemd::InstanceKind,
+}
+
 #[derive(Debug, clap::Subcommand)]
 pub(crate) enum ServiceAction {
     /// Add fragment config to service to profile its behavior
     StartProfile {
-        /// Service unit name
-        service: String,
+        #[command(flatten)]
+        service: Service,
         #[command(flatten)]
         hardening_opts: HardeningOptions,
         /// Disable immediate service restart
@@ -153,8 +175,8 @@ pub(crate) enum ServiceAction {
     },
     /// Get profiling result and remove fragment config from service
     FinishProfile {
-        /// Service unit name
-        service: String,
+        #[command(flatten)]
+        service: Service,
         /// Automatically apply hardening config
         #[arg(short, long, default_value_t = false)]
         apply: bool,
@@ -167,7 +189,7 @@ pub(crate) enum ServiceAction {
     },
     /// Remove profiling and/or hardening config fragments, and restart service to restore its initial state
     Reset {
-        /// Service unit name
-        service: String,
+        #[command(flatten)]
+        service: Service,
     },
 }

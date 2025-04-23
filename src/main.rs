@@ -17,14 +17,23 @@ use clap::Parser as _;
 mod cl;
 mod strace;
 mod summarize;
+mod sysctl;
 mod systemd;
 
 fn sd_options(
     sd_version: &systemd::SystemdVersion,
     kernel_version: &systemd::KernelVersion,
+    sysctl_state: &sysctl::State,
+    instance_kind: &systemd::InstanceKind,
     hardening_opts: &cl::HardeningOptions,
 ) -> Vec<systemd::OptionDescription> {
-    let sd_opts = systemd::build_options(sd_version, kernel_version, hardening_opts);
+    let sd_opts = systemd::build_options(
+        sd_version,
+        kernel_version,
+        sysctl_state,
+        instance_kind,
+        hardening_opts,
+    );
     log::info!(
         "Enabled support for systemd options: {}",
         sd_opts
@@ -93,12 +102,20 @@ fn main() -> anyhow::Result<()> {
     match args.action {
         cl::Action::Run {
             command,
+            instance,
             hardening_opts,
             profile_data_path,
             strace_log_path,
         } => {
             // Build supported systemd options
-            let sd_opts = sd_options(&sd_version, &kernel_version, &hardening_opts);
+            let sysctl_state = sysctl::State::fetch()?;
+            let sd_opts = sd_options(
+                &sd_version,
+                &kernel_version,
+                &sysctl_state,
+                &instance.instance,
+                &hardening_opts,
+            );
 
             // Run strace
             let cmd = command.iter().map(|a| &**a).collect::<Vec<&str>>();
@@ -152,11 +169,19 @@ fn main() -> anyhow::Result<()> {
             }
         }
         cl::Action::MergeProfileData {
+            instance,
             hardening_opts,
             paths,
         } => {
             // Build supported systemd options
-            let sd_opts = sd_options(&sd_version, &kernel_version, &hardening_opts);
+            let sysctl_state = sysctl::State::fetch()?;
+            let sd_opts = sd_options(
+                &sd_version,
+                &kernel_version,
+                &sysctl_state,
+                &instance.instance,
+                &hardening_opts,
+            );
 
             // Load and merge profile data
             let mut actions: Vec<summarize::ProgramAction> = Vec::new();
@@ -187,7 +212,8 @@ fn main() -> anyhow::Result<()> {
             hardening_opts,
             no_restart,
         }) => {
-            let service = systemd::Service::new(&service).context("Invalid service name")?;
+            let service = systemd::Service::new(&service.name, service.instance.instance)
+                .context("Invalid service name")?;
             log::info!(
                 "Current service exposure level: {}",
                 service
@@ -216,7 +242,8 @@ fn main() -> anyhow::Result<()> {
             edit,
             no_restart,
         }) => {
-            let service = systemd::Service::new(&service).context("Invalid service name")?;
+            let service = systemd::Service::new(&service.name, service.instance.instance)
+                .context("Invalid service name")?;
             service
                 .action("stop", true)
                 .context("Failed to stop service")?;
@@ -260,7 +287,7 @@ fn main() -> anyhow::Result<()> {
             }
         }
         cl::Action::Service(cl::ServiceAction::Reset { service }) => {
-            let service = systemd::Service::new(&service)?;
+            let service = systemd::Service::new(&service.name, service.instance.instance)?;
             let _ = service.remove_profile_fragment();
             let _ = service.remove_hardening_fragment();
             service
@@ -270,9 +297,12 @@ fn main() -> anyhow::Result<()> {
         }
         cl::Action::ListSystemdOptions => {
             println!("# Supported systemd options\n");
+            let sysctl_state = sysctl::State::all();
             let mut sd_opts = sd_options(
                 &sd_version,
                 &kernel_version,
+                &sysctl_state,
+                &systemd::InstanceKind::System,
                 &cl::HardeningOptions::strict(),
             );
             sd_opts.sort_unstable_by_key(|o| o.name);

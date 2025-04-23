@@ -416,7 +416,8 @@ mod tests {
     use super::*;
     use crate::{
         cl::HardeningOptions,
-        systemd::{KernelVersion, SystemdVersion, build_options},
+        sysctl,
+        systemd::{self, KernelVersion, SystemdVersion, build_options},
     };
 
     fn test_options_safe(names: &[&str]) -> (Vec<OptionDescription>, HardeningOptions) {
@@ -426,8 +427,15 @@ mod tests {
             systemd_options: Some(names.iter().map(|n| (*n).to_owned()).collect()),
             ..HardeningOptions::safe()
         };
+        let sysctl = sysctl::State::none();
         (
-            build_options(&sd_version, &kernel_version, &hardening_opts),
+            build_options(
+                &sd_version,
+                &kernel_version,
+                &sysctl,
+                &systemd::InstanceKind::System,
+                &hardening_opts,
+            ),
             hardening_opts,
         )
     }
@@ -439,8 +447,15 @@ mod tests {
             systemd_options: Some(names.iter().map(|n| (*n).to_owned()).collect()),
             ..HardeningOptions::strict()
         };
+        let sysctl = sysctl::State::all();
         (
-            build_options(&sd_version, &kernel_version, &hardening_opts),
+            build_options(
+                &sd_version,
+                &kernel_version,
+                &sysctl,
+                &systemd::InstanceKind::System,
+                &hardening_opts,
+            ),
             hardening_opts,
         )
     }

@@ -18,9 +18,12 @@ use crate::{
     systemd::{END_OPTION_OUTPUT_SNIPPET, START_OPTION_OUTPUT_SNIPPET, options::OptionWithValue},
 };
 
+use super::InstanceKind;
+
 pub(crate) struct Service {
     name: String,
     arg: Option<String>,
+    instance: InstanceKind,
 }
 
 const PROFILING_FRAGMENT_NAME: &str = "profile";
@@ -56,7 +59,7 @@ impl fmt::Display for ExposureLevel {
 }
 
 impl Service {
-    pub(crate) fn new(unit: &str) -> anyhow::Result<Self> {
+    pub(crate) fn new(unit: &str, instance: InstanceKind) -> anyhow::Result<Self> {
         const UNSUPPORTED_UNIT_SUFFIXS: [&str; 10] = [
             ".socket",
             ".device",
@@ -78,11 +81,13 @@ impl Service {
             Ok(Self {
                 name: name.to_owned(),
                 arg: Some(arg.to_owned()),
+                instance,
             })
         } else {
             Ok(Self {
                 name: unit.to_owned(),
                 arg: None,
+                instance,
             })
         }
     }
@@ -103,8 +108,12 @@ impl Service {
     /// 100 means extremely exposed (no hardening), 0 means so sandboxed it can't do much.
     /// Although this is a very crude heuristic, below 40-50 is generally good.
     pub(crate) fn get_exposure_level(&self) -> anyhow::Result<ExposureLevel> {
-        let output = Command::new("systemd-analyze")
-            .arg("security")
+        let mut cmd = Command::new("systemd-analyze");
+        cmd.arg("security");
+        if matches!(self.instance, InstanceKind::User) {
+            cmd.arg("--user");
+        }
+        let output = cmd
             .arg(self.unit_name())
             .env("LANG", "C")
             .stdin(Stdio::null())
@@ -171,9 +180,10 @@ impl Service {
         writeln!(fragment_file, "StandardOutput=journal")?;
 
         // Profile data dir
+        // %t maps to /run for system instances or $XDG_RUNTIME_DIR (usually /run/user/[UID]) for user instance
         let mut rng = rand::rng();
         let profile_data_dir = PathBuf::from(format!(
-            "/run/{}-profile-data_{:08x}",
+            "%t/{}-profile-data_{:08x}",
             env!("CARGO_BIN_NAME"),
             rng.random::<u32>()
         ));
@@ -211,7 +221,12 @@ impl Service {
                         "{}={} run {} -p {} -- {}",
                         exec_start_opt,
                         shh_bin,
-                        hardening_opts.to_cmdline(),
+                        self.instance
+                            .to_cmd_args()
+                            .into_iter()
+                            .chain(hardening_opts.to_cmd_args())
+                            .collect::<Vec<_>>()
+                            .join(" "),
                         profile_data_path.to_str().unwrap(),
                         cmd
                     )?;
@@ -226,7 +241,12 @@ impl Service {
             fragment_file,
             "ExecStopPost={} merge-profile-data {} {}",
             shh_bin,
-            hardening_opts.to_cmdline(),
+            self.instance
+                .to_cmd_args()
+                .into_iter()
+                .chain(hardening_opts.to_cmd_args())
+                .collect::<Vec<_>>()
+                .join(" "),
             profile_data_paths
                 .iter()
                 .map(|p| p.to_str().unwrap())
@@ -287,9 +307,12 @@ impl Service {
         )
     }
 
-    #[expect(clippy::unused_self)]
     pub(crate) fn reload_unit_config(&self) -> anyhow::Result<()> {
-        let status = Command::new("systemctl").arg("daemon-reload").status()?;
+        let mut cmd = Command::new("systemctl");
+        if matches!(self.instance, InstanceKind::User) {
+            cmd.arg("--user");
+        }
+        let status = cmd.arg("daemon-reload").status()?;
         if !status.success() {
             anyhow::bail!("systemctl failed: {status}");
         }
@@ -300,6 +323,9 @@ impl Service {
         let unit_name = self.unit_name();
         log::info!("{verb} {unit_name}");
         let mut cmd = vec![verb];
+        if matches!(self.instance, InstanceKind::User) {
+            cmd.push("--user");
+        }
         if !block {
             cmd.push("--no-block");
         }
@@ -313,7 +339,11 @@ impl Service {
 
     pub(crate) fn profiling_result(&self) -> anyhow::Result<Vec<OptionWithValue<String>>> {
         // Start journalctl process
-        let mut child = Command::new("journalctl")
+        let mut cmd = Command::new("journalctl");
+        if matches!(self.instance, InstanceKind::User) {
+            cmd.arg("--user");
+        }
+        let mut child = cmd
             .args([
                 "-r",
                 "-o",
@@ -432,7 +462,11 @@ impl Service {
     }
 
     fn config_paths(&self) -> anyhow::Result<Vec<PathBuf>> {
-        let output = Command::new("systemctl")
+        let mut cmd = Command::new("systemctl");
+        if matches!(self.instance, InstanceKind::User) {
+            cmd.arg("--user");
+        }
+        let output = cmd
             .args(["status", "-n", "0", &self.unit_name()])
             .env("LANG", "C")
             .output()?;
@@ -481,9 +515,43 @@ impl Service {
     }
 
     fn fragment_path(&self, name: &str, persistent: bool) -> PathBuf {
+        // https://www.freedesktop.org/software/systemd/man/latest/systemd.unit.html#System%20Unit%20Search%20Path
+        let base_dir = if persistent {
+            let etc = "/etc";
+            match self.instance {
+                InstanceKind::System => etc.to_owned(),
+                InstanceKind::User => {
+                    // Use /etc if we can, which affects all user instances, otherwise use per user XDG dir
+                    let aflags = nix::unistd::AccessFlags::R_OK
+                        .union(nix::unistd::AccessFlags::W_OK)
+                        .union(nix::unistd::AccessFlags::X_OK);
+                    if nix::unistd::access(etc, aflags).is_ok() {
+                        etc.to_owned()
+                    } else {
+                        #[expect(clippy::unwrap_used)]
+                        env::var_os("XDG_CONFIG_DIR")
+                            .or_else(|| {
+                                env::var_os("HOME").map(|h| {
+                                    PathBuf::from(h).join(".config").as_os_str().to_owned()
+                                })
+                            })
+                            .and_then(|p| p.to_str().map(ToOwned::to_owned))
+                            .unwrap()
+                    }
+                }
+            }
+        } else {
+            match self.instance {
+                InstanceKind::System => "/run".to_owned(),
+                InstanceKind::User => env::var_os("XDG_RUNTIME_DIR")
+                    .and_then(|p| p.to_str().map(ToOwned::to_owned))
+                    .unwrap_or_else(|| format!("/run/user/{}", nix::unistd::getuid().as_raw())),
+            }
+        };
         [
-            if persistent { "/etc" } else { "/run" },
-            "systemd/system/",
+            &base_dir,
+            "systemd",
+            &self.instance.to_string(),
             &format!(
                 "{}{}.service.d",
                 self.name,

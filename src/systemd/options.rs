@@ -20,7 +20,8 @@ use strum::IntoEnumIterator as _;
 use crate::{
     cl::{HardeningMode, HardeningOptions},
     summarize::{NetworkActivity, NetworkActivityKind, ProgramAction, SetSpecifier},
-    systemd::{KernelVersion, SystemdVersion},
+    sysctl,
+    systemd::{self, KernelVersion, SystemdVersion},
 };
 
 /// Callbacks to dynamically update an option to make it compatible with an action
@@ -584,6 +585,8 @@ pub(crate) fn merge_similar_paths(paths: &[PathBuf], threshold: NonZeroUsize) ->
 pub(crate) fn build_options(
     systemd_version: &SystemdVersion,
     kernel_version: &KernelVersion,
+    sysctl_state: &sysctl::State,
+    instance_kind: &systemd::InstanceKind,
     hardening_opts: &HardeningOptions,
 ) -> Vec<OptionDescription> {
     let mut options = Vec::new();
@@ -638,226 +641,196 @@ pub(crate) fn build_options(
         updater: None,
     });
 
-    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectHome=
-    let home_paths = ["/home/", "/root/", "/run/user/"];
-    options.push(OptionDescription {
-        name: "ProtectHome",
-        possible_values: vec![
-            OptionValueDescription {
-                value: OptionValue::String("tmpfs".to_owned()),
-                desc: OptionEffect::Simple(OptionValueEffect::Multiple(
-                    home_paths
+    if matches!(instance_kind, systemd::InstanceKind::System)
+        || sysctl_state.kernel_unprivileged_userns_clone
+    {
+        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectHome=
+        let home_paths = ["/home/", "/root/", "/run/user/"];
+        options.push(OptionDescription {
+            name: "ProtectHome",
+            possible_values: vec![
+                OptionValueDescription {
+                    value: OptionValue::String("tmpfs".to_owned()),
+                    desc: OptionEffect::Simple(OptionValueEffect::Multiple(
+                        home_paths
+                            .iter()
+                            .map(|p| OptionValueEffect::EmptyPath(EmptyPathDescription::base(p)))
+                            .chain(iter::once(OptionValueEffect::DenyAction(
+                                ProgramAction::MountToHost,
+                            )))
+                            .collect(),
+                    )),
+                },
+                OptionValueDescription {
+                    value: OptionValue::String("read-only".to_owned()),
+                    desc: OptionEffect::Simple(OptionValueEffect::Multiple(
+                        home_paths
+                            .iter()
+                            .map(|p| OptionValueEffect::EmptyPath(EmptyPathDescription::base_ro(p)))
+                            .chain(iter::once(OptionValueEffect::DenyAction(
+                                ProgramAction::MountToHost,
+                            )))
+                            .collect(),
+                    )),
+                },
+                OptionValueDescription {
+                    value: OptionValue::Boolean(true),
+                    desc: OptionEffect::Simple(OptionValueEffect::Multiple(
+                        home_paths
+                            .iter()
+                            .map(|p| OptionValueEffect::RemovePath(PathDescription::base(p)))
+                            .chain(iter::once(OptionValueEffect::DenyAction(
+                                ProgramAction::MountToHost,
+                            )))
+                            .collect(),
+                    )),
+                },
+            ],
+            updater: None,
+        });
+
+        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateTmp=
+        options.push(OptionDescription {
+            name: "PrivateTmp",
+            possible_values: vec![OptionValueDescription {
+                value: if *systemd_version >= SystemdVersion::new(257, 0) {
+                    OptionValue::String("disconnected".into())
+                } else {
+                    OptionValue::Boolean(true)
+                },
+                desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                    OptionValueEffect::EmptyPath(EmptyPathDescription::base("/tmp")),
+                    OptionValueEffect::EmptyPath(EmptyPathDescription::base("/var/tmp")),
+                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                ])),
+            }],
+            updater: None,
+        });
+
+        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateDevices=
+        options.push(OptionDescription {
+            name: "PrivateDevices",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::Boolean(true),
+                desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                    OptionValueEffect::EmptyPath(EmptyPathDescription {
+                        base: "/dev/".into(),
+                        base_ro: true,
+                        exceptions_ro: vec![],
+                        // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L912
+                        exceptions_rw: [
+                            "null",
+                            "zero",
+                            "full",
+                            "random",
+                            "urandom",
+                            "tty",
+                            "pts/",
+                            "ptmx",
+                            "shm/",
+                            "mqueue/",
+                            "hugepages/",
+                            "log",
+                        ]
                         .iter()
-                        .map(|p| OptionValueEffect::EmptyPath(EmptyPathDescription::base(p)))
-                        .chain(iter::once(OptionValueEffect::DenyAction(
-                            ProgramAction::MountToHost,
-                        )))
+                        .map(|p| PathBuf::from("/dev/").join(p))
                         .collect(),
+                    }),
+                    OptionValueEffect::DenySyscalls(DenySyscalls::Class("raw-io")),
+                    OptionValueEffect::DenyAction(ProgramAction::MknodSpecial),
+                    OptionValueEffect::DenyExec(PathDescription::base("/dev")),
+                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                ])),
+            }],
+            updater: None,
+        });
+
+        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateMounts=
+        options.push(OptionDescription {
+            name: "PrivateMounts",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::Boolean(true),
+                desc: OptionEffect::Simple(OptionValueEffect::DenyAction(
+                    ProgramAction::MountToHost,
                 )),
-            },
-            OptionValueDescription {
-                value: OptionValue::String("read-only".to_owned()),
-                desc: OptionEffect::Simple(OptionValueEffect::Multiple(
-                    home_paths
-                        .iter()
-                        .map(|p| OptionValueEffect::EmptyPath(EmptyPathDescription::base_ro(p)))
-                        .chain(iter::once(OptionValueEffect::DenyAction(
-                            ProgramAction::MountToHost,
-                        )))
-                        .collect(),
-                )),
-            },
-            OptionValueDescription {
+            }],
+            updater: None,
+        });
+
+        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelTunables=
+        options.push(OptionDescription {
+            name: "ProtectKernelTunables",
+            possible_values: vec![OptionValueDescription {
                 value: OptionValue::Boolean(true),
                 desc: OptionEffect::Simple(OptionValueEffect::Multiple(
-                    home_paths
-                        .iter()
-                        .map(|p| OptionValueEffect::RemovePath(PathDescription::base(p)))
-                        .chain(iter::once(OptionValueEffect::DenyAction(
-                            ProgramAction::MountToHost,
-                        )))
-                        .collect(),
-                )),
-            },
-        ],
-        updater: None,
-    });
-
-    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateTmp=
-    options.push(OptionDescription {
-        name: "PrivateTmp",
-        possible_values: vec![OptionValueDescription {
-            value: if *systemd_version >= SystemdVersion::new(257, 0) {
-                OptionValue::String("disconnected".into())
-            } else {
-                OptionValue::Boolean(true)
-            },
-            desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                OptionValueEffect::EmptyPath(EmptyPathDescription::base("/tmp")),
-                OptionValueEffect::EmptyPath(EmptyPathDescription::base("/var/tmp")),
-                OptionValueEffect::DenyAction(ProgramAction::MountToHost),
-            ])),
-        }],
-        updater: None,
-    });
-
-    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateDevices=
-    options.push(OptionDescription {
-        name: "PrivateDevices",
-        possible_values: vec![OptionValueDescription {
-            value: OptionValue::Boolean(true),
-            desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                OptionValueEffect::EmptyPath(EmptyPathDescription {
-                    base: "/dev/".into(),
-                    base_ro: true,
-                    exceptions_ro: vec![],
-                    // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L912
-                    exceptions_rw: [
-                        "null",
-                        "zero",
-                        "full",
-                        "random",
-                        "urandom",
-                        "tty",
-                        "pts/",
-                        "ptmx",
-                        "shm/",
-                        "mqueue/",
-                        "hugepages/",
-                        "log",
+                    // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L113
+                    [
+                        "acpi/",
+                        "apm",
+                        "asound/",
+                        "bus/",
+                        "fs/",
+                        "irq/",
+                        "latency_stats",
+                        "mttr",
+                        "scsi/",
+                        "sys/",
+                        "sysrq-trigger",
+                        "timer_stats",
                     ]
                     .iter()
-                    .map(|p| PathBuf::from("/dev/").join(p))
+                    .map(|p| {
+                        OptionValueEffect::DenyWrite(PathDescription::Base {
+                            base: PathBuf::from("/proc/").join(p),
+                            exceptions: vec![],
+                        })
+                    })
+                    .chain(["kallsyms", "kcore"].iter().map(|p| {
+                        OptionValueEffect::RemovePath(PathDescription::Base {
+                            base: PathBuf::from("/proc/").join(p),
+                            exceptions: vec![],
+                        })
+                    }))
+                    .chain(
+                        // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L130
+                        iter::once(OptionValueEffect::DenyWrite(PathDescription::base("/sys"))),
+                    )
+                    .chain(iter::once(OptionValueEffect::DenyAction(
+                        ProgramAction::MountToHost,
+                    )))
                     .collect(),
-                }),
-                OptionValueEffect::DenySyscalls(DenySyscalls::Class("raw-io")),
-                OptionValueEffect::DenyAction(ProgramAction::MknodSpecial),
-                OptionValueEffect::DenyExec(PathDescription::base("/dev")),
-                OptionValueEffect::DenyAction(ProgramAction::MountToHost),
-            ])),
-        }],
-        updater: None,
-    });
+                )),
+            }],
+            updater: None,
+        });
 
-    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateMounts=
-    options.push(OptionDescription {
-        name: "PrivateMounts",
-        possible_values: vec![OptionValueDescription {
-            value: OptionValue::Boolean(true),
-            desc: OptionEffect::Simple(OptionValueEffect::DenyAction(ProgramAction::MountToHost)),
-        }],
-        updater: None,
-    });
-
-    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelTunables=
-    options.push(OptionDescription {
-        name: "ProtectKernelTunables",
-        possible_values: vec![OptionValueDescription {
-            value: OptionValue::Boolean(true),
-            desc: OptionEffect::Simple(OptionValueEffect::Multiple(
-                // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L113
-                [
-                    "acpi/",
-                    "apm",
-                    "asound/",
-                    "bus/",
-                    "fs/",
-                    "irq/",
-                    "latency_stats",
-                    "mttr",
-                    "scsi/",
-                    "sys/",
-                    "sysrq-trigger",
-                    "timer_stats",
-                ]
-                .iter()
-                .map(|p| {
-                    OptionValueEffect::DenyWrite(PathDescription::Base {
-                        base: PathBuf::from("/proc/").join(p),
-                        exceptions: vec![],
-                    })
-                })
-                .chain(["kallsyms", "kcore"].iter().map(|p| {
-                    OptionValueEffect::RemovePath(PathDescription::Base {
-                        base: PathBuf::from("/proc/").join(p),
-                        exceptions: vec![],
-                    })
-                }))
-                .chain(
-                    // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L130
-                    iter::once(OptionValueEffect::DenyWrite(PathDescription::base("/sys"))),
-                )
-                .chain(iter::once(OptionValueEffect::DenyAction(
-                    ProgramAction::MountToHost,
-                )))
-                .collect(),
-            )),
-        }],
-        updater: None,
-    });
-
-    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelModules=
-    options.push(OptionDescription {
-        name: "ProtectKernelModules",
-        possible_values: vec![OptionValueDescription {
-            value: OptionValue::Boolean(true),
-            desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L140
-                OptionValueEffect::RemovePath(PathDescription::base("/lib/modules/")),
-                OptionValueEffect::RemovePath(PathDescription::base("/usr/lib/modules/")),
-                OptionValueEffect::DenySyscalls(DenySyscalls::Class("module")),
-                OptionValueEffect::DenyAction(ProgramAction::MountToHost),
-            ])),
-        }],
-        updater: None,
-    });
-
-    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelLogs=
-    options.push(OptionDescription {
-        name: "ProtectKernelLogs",
-        possible_values: vec![OptionValueDescription {
-            value: OptionValue::Boolean(true),
-            desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L148
-                OptionValueEffect::RemovePath(PathDescription::base("/proc/kmsg")),
-                OptionValueEffect::RemovePath(PathDescription::base("/dev/kmsg")),
-                OptionValueEffect::DenySyscalls(DenySyscalls::Single("syslog")),
-                // TODO figure out about this one, systemd doc says it doesn't but tests seem to say otherwise?
-                OptionValueEffect::DenyAction(ProgramAction::MountToHost),
-            ])),
-        }],
-        updater: None,
-    });
-
-    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectControlGroups=
-    // TODO private/strip
-    options.push(OptionDescription {
-        name: "ProtectControlGroups",
-        possible_values: vec![OptionValueDescription {
-            value: OptionValue::Boolean(true),
-            desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                OptionValueEffect::DenyWrite(PathDescription::base("/sys/fs/cgroup/")),
-                OptionValueEffect::DenyAction(ProgramAction::MountToHost),
-            ])),
-        }],
-        updater: None,
-    });
-
-    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectProc=
-    // https://github.com/systemd/systemd/blob/v247/NEWS#L342
-    // https://github.com/systemd/systemd/commit/4e39995371738b04d98d27b0d34ea8fe09ec9fab
-    // https://docs.kernel.org/filesystems/proc.html#mount-options
-    if (systemd_version >= &SystemdVersion::new(247, 0))
-        && (kernel_version >= &KernelVersion::new(5, 8, 0))
-    {
+        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelModules=
         options.push(OptionDescription {
-            name: "ProtectProc",
-            // Since we have no easy & reliable (race free) way to know which process belongs to
-            // which user, only support the most restrictive option
+            name: "ProtectKernelModules",
             possible_values: vec![OptionValueDescription {
-                value: OptionValue::String("ptraceable".to_owned()),
+                value: OptionValue::Boolean(true),
                 desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                    OptionValueEffect::RemovePath(PathDescription::pattern("^/proc/[0-9]+(/|$)")),
+                    // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L140
+                    OptionValueEffect::RemovePath(PathDescription::base("/lib/modules/")),
+                    OptionValueEffect::RemovePath(PathDescription::base("/usr/lib/modules/")),
+                    OptionValueEffect::DenySyscalls(DenySyscalls::Class("module")),
+                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                ])),
+            }],
+            updater: None,
+        });
+
+        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelLogs=
+        options.push(OptionDescription {
+            name: "ProtectKernelLogs",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::Boolean(true),
+                desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                    // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L148
+                    OptionValueEffect::RemovePath(PathDescription::base("/proc/kmsg")),
+                    OptionValueEffect::RemovePath(PathDescription::base("/dev/kmsg")),
+                    OptionValueEffect::DenySyscalls(DenySyscalls::Single("syslog")),
+                    // TODO figure out about this one, systemd doc says it doesn't but tests seem to say otherwise?
                     OptionValueEffect::DenyAction(ProgramAction::MountToHost),
                 ])),
             }],
@@ -865,23 +838,63 @@ pub(crate) fn build_options(
         });
     }
 
-    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProcSubset=
-    if (systemd_version >= &SystemdVersion::new(247, 0))
-        && (kernel_version >= &KernelVersion::new(5, 8, 0))
-    {
+    if matches!(instance_kind, systemd::InstanceKind::System) {
+        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectControlGroups=
+        // TODO private/strip
         options.push(OptionDescription {
-            name: "ProcSubset",
+            name: "ProtectControlGroups",
             possible_values: vec![OptionValueDescription {
-                value: OptionValue::String("pid".to_owned()),
+                value: OptionValue::Boolean(true),
                 desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                    OptionValueEffect::RemovePath(PathDescription::pattern(
-                        "^/proc/[^/]*[^0-9/]+[^/]*",
-                    )),
+                    OptionValueEffect::DenyWrite(PathDescription::base("/sys/fs/cgroup/")),
                     OptionValueEffect::DenyAction(ProgramAction::MountToHost),
                 ])),
             }],
             updater: None,
         });
+
+        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectProc=
+        // https://github.com/systemd/systemd/blob/v247/NEWS#L342
+        // https://github.com/systemd/systemd/commit/4e39995371738b04d98d27b0d34ea8fe09ec9fab
+        // https://docs.kernel.org/filesystems/proc.html#mount-options
+        if (systemd_version >= &SystemdVersion::new(247, 0))
+            && (kernel_version >= &KernelVersion::new(5, 8, 0))
+        {
+            options.push(OptionDescription {
+                name: "ProtectProc",
+                // Since we have no easy & reliable (race free) way to know which process belongs to
+                // which user, only support the most restrictive option
+                possible_values: vec![OptionValueDescription {
+                    value: OptionValue::String("ptraceable".to_owned()),
+                    desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                        OptionValueEffect::RemovePath(PathDescription::pattern(
+                            "^/proc/[0-9]+(/|$)",
+                        )),
+                        OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                    ])),
+                }],
+                updater: None,
+            });
+        }
+
+        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProcSubset=
+        if (systemd_version >= &SystemdVersion::new(247, 0))
+            && (kernel_version >= &KernelVersion::new(5, 8, 0))
+        {
+            options.push(OptionDescription {
+                name: "ProcSubset",
+                possible_values: vec![OptionValueDescription {
+                    value: OptionValue::String("pid".to_owned()),
+                    desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                        OptionValueEffect::RemovePath(PathDescription::pattern(
+                            "^/proc/[^/]*[^0-9/]+[^/]*",
+                        )),
+                        OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                    ])),
+                }],
+                updater: None,
+            });
+        }
     }
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#LockPersonality=
@@ -911,18 +924,22 @@ pub(crate) fn build_options(
         updater: None,
     });
 
-    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectClock=
-    options.push(OptionDescription {
-        name: "ProtectClock",
-        possible_values: vec![OptionValueDescription {
-            value: OptionValue::Boolean(true),
-            // This option essentially does the same thing as deny @clock
-            desc: OptionEffect::Simple(OptionValueEffect::DenySyscalls(DenySyscalls::Class(
-                "clock",
-            ))),
-        }],
-        updater: None,
-    });
+    if matches!(instance_kind, systemd::InstanceKind::System)
+        || sysctl_state.kernel_unprivileged_userns_clone
+    {
+        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectClock=
+        options.push(OptionDescription {
+            name: "ProtectClock",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::Boolean(true),
+                // This option essentially does the same thing as deny @clock
+                desc: OptionEffect::Simple(OptionValueEffect::DenySyscalls(DenySyscalls::Class(
+                    "clock",
+                ))),
+            }],
+            updater: None,
+        });
+    }
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#MemoryDenyWriteExecute=
     // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L1721
@@ -952,11 +969,113 @@ pub(crate) fn build_options(
         });
     }
 
-    // https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ReadWritePaths=
-    if hardening_opts.filesystem_whitelisting {
-        options.push(OptionDescription {
-            name: "ReadOnlyPaths",
-            possible_values: vec![OptionValueDescription {
+    if matches!(instance_kind, systemd::InstanceKind::System)
+        || sysctl_state.kernel_unprivileged_userns_clone
+    {
+        // https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ReadWritePaths=
+        if hardening_opts.filesystem_whitelisting {
+            options.push(OptionDescription {
+                name: "ReadOnlyPaths",
+                possible_values: vec![OptionValueDescription {
+                    value: OptionValue::List(ListOptionValue {
+                        values: vec!["/".to_owned()],
+                        value_if_empty: None,
+                        option_prefix: "",
+                        elem_prefix: "-",
+                        repeat_option: false,
+                        mode: ListMode::BlackList,
+                        mergeable_paths: true,
+                    }),
+                    desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                        OptionValueEffect::DenyWrite(PathDescription::base("/")),
+                        OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                    ])),
+                }],
+                updater: Some(OptionUpdater {
+                    effect: |effect, action, _| {
+                        let action_path = match action {
+                            ProgramAction::Write(action_path) => action_path.to_owned(),
+                            ProgramAction::Create(action_path) => {
+                                if let Some(parent) = action_path.parent() {
+                                    parent.to_owned()
+                                } else {
+                                    return None;
+                                }
+                            }
+                            _ => return None,
+                        };
+                        match effect {
+                            OptionValueEffect::DenyWrite(PathDescription::Base {
+                                base,
+                                exceptions,
+                            }) if action_path != Path::new("/") => {
+                                let mut new_exceptions = Vec::with_capacity(exceptions.len() + 1);
+                                new_exceptions.extend(exceptions.iter().cloned());
+                                new_exceptions.push(action_path);
+                                Some(OptionValueEffect::DenyWrite(PathDescription::Base {
+                                    base: base.to_owned(),
+                                    exceptions: new_exceptions,
+                                }))
+                            }
+                            _ => unreachable!(),
+                        }
+                    },
+                    options: |effect, hopts| match effect {
+                        OptionValueEffect::DenyWrite(PathDescription::Base {
+                            base,
+                            exceptions,
+                        }) => {
+                            vec![
+                                OptionWithValue {
+                                    name: "ReadOnlyPaths",
+                                    value: OptionValue::List(ListOptionValue {
+                                    #[expect(clippy::unwrap_used)] // path is from our option, so unicode safe
+                                    values: vec![base.to_str().unwrap().to_owned()],
+                                    value_if_empty: None,
+                                    option_prefix: "",
+                                    elem_prefix: "-",
+                                    repeat_option: false,
+                                    mode: ListMode::BlackList,
+                                    mergeable_paths: true,
+                                }),
+                                },
+                                OptionWithValue {
+                                    name: "ReadWritePaths",
+                                    value: OptionValue::List(ListOptionValue {
+                                        values: merge_similar_paths(
+                                            exceptions,
+                                            hopts.merge_paths_threshold,
+                                        )
+                                        .iter()
+                                        .filter_map(|p| p.to_str().map(ToOwned::to_owned))
+                                        .collect(),
+                                        value_if_empty: None,
+                                        option_prefix: "",
+                                        elem_prefix: "-",
+                                        repeat_option: false,
+                                        mode: ListMode::WhiteList,
+                                        mergeable_paths: true,
+                                    }),
+                                },
+                            ]
+                        }
+                        OptionValueEffect::DenyAction(ProgramAction::MountToHost) => {
+                            vec![OptionWithValue {
+                                name: "PrivateMounts",
+                                value: OptionValue::Boolean(true),
+                            }]
+                        }
+                        _ => unreachable!(),
+                    },
+                    dynamic_option_names: Vec::from([
+                        "PrivateMounts",
+                        "ReadOnlyPaths",
+                        "ReadWritePaths",
+                    ]),
+                }),
+            });
+
+            let mut possible_values = vec![OptionValueDescription {
                 value: OptionValue::List(ListOptionValue {
                     values: vec!["/".to_owned()],
                     value_if_empty: None,
@@ -967,272 +1086,178 @@ pub(crate) fn build_options(
                     mergeable_paths: true,
                 }),
                 desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                    OptionValueEffect::DenyWrite(PathDescription::base("/")),
+                    OptionValueEffect::RemovePath(PathDescription::base("/")),
                     OptionValueEffect::DenyAction(ProgramAction::MountToHost),
                 ])),
-            }],
-            updater: Some(OptionUpdater {
-                effect: |effect, action, _| {
-                    let action_path = match action {
-                        ProgramAction::Write(action_path) => action_path.to_owned(),
-                        ProgramAction::Create(action_path) => {
-                            if let Some(parent) = action_path.parent() {
-                                parent.to_owned()
-                            } else {
-                                return None;
+            }];
+            // To avoid InaccessiblePaths being completely disabled simply because of the equivalent of 'ls /',
+            // we set another option value for each dir directly under /
+            let base_paths: Option<Vec<String>> = fs::read_dir("/")
+                .ok()
+                .and_then(|i| i.collect::<Result<Vec<_>, _>>().ok())
+                .and_then(|v| {
+                    // Don't make those inaccessible, systemd won't be able to start anything
+                    let excluded_run_dirs = [Path::new("/run"), Path::new("/proc")];
+                    v.into_iter()
+                        .filter(|e| !excluded_run_dirs.contains(&e.path().as_ref()))
+                        // systemd follows symlinks when applying option, so exclude them
+                        .filter(|e| e.file_type().is_ok_and(|t| !t.is_symlink()))
+                        .map(|e| e.path().to_str().map(ToOwned::to_owned))
+                        .collect()
+                })
+                .map(|mut v: Vec<_>| {
+                    v.sort_unstable();
+                    v
+                });
+            if let Some(base_paths) = base_paths {
+                possible_values.insert(
+                    0,
+                    OptionValueDescription {
+                        value: OptionValue::List(ListOptionValue {
+                            values: base_paths.clone(),
+                            value_if_empty: None,
+                            option_prefix: "",
+                            elem_prefix: "-",
+                            repeat_option: false,
+                            mode: ListMode::BlackList,
+                            mergeable_paths: true,
+                        }),
+                        desc: OptionEffect::Cumulative(
+                            base_paths
+                                .iter()
+                                .map(|p| {
+                                    OptionValueEffect::Multiple(vec![
+                                        OptionValueEffect::RemovePath(PathDescription::base(p)),
+                                        OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                                    ])
+                                })
+                                .collect(),
+                        ),
+                    },
+                );
+            }
+            options.push(OptionDescription {
+                name: "InaccessiblePaths",
+                possible_values,
+                updater: Some(OptionUpdater {
+                    effect: |effect, action, _| {
+                        let (action_path, action_ro) = match action {
+                            ProgramAction::Read(action_path) | ProgramAction::Exec(action_path) => {
+                                (action_path.to_owned(), true)
                             }
-                        }
-                        _ => return None,
-                    };
-                    match effect {
-                        OptionValueEffect::DenyWrite(PathDescription::Base {
-                            base,
-                            exceptions,
-                        }) if action_path != Path::new("/") => {
-                            let mut new_exceptions = Vec::with_capacity(exceptions.len() + 1);
-                            new_exceptions.extend(exceptions.iter().cloned());
-                            new_exceptions.push(action_path);
-                            Some(OptionValueEffect::DenyWrite(PathDescription::Base {
-                                base: base.to_owned(),
-                                exceptions: new_exceptions,
-                            }))
-                        }
-                        _ => unreachable!(),
-                    }
-                },
-                options: |effect, hopts| match effect {
-                    OptionValueEffect::DenyWrite(PathDescription::Base { base, exceptions }) => {
-                        vec![
-                            OptionWithValue {
-                                name: "ReadOnlyPaths",
-                                value: OptionValue::List(ListOptionValue {
-                                    #[expect(clippy::unwrap_used)] // path is from our option, so unicode safe
-                                    values: vec![base.to_str().unwrap().to_owned()],
-                                    value_if_empty: None,
-                                    option_prefix: "",
-                                    elem_prefix: "-",
-                                    repeat_option: false,
-                                    mode: ListMode::BlackList,
-                                    mergeable_paths: true,
-                                }),
-                            },
-                            OptionWithValue {
-                                name: "ReadWritePaths",
-                                value: OptionValue::List(ListOptionValue {
-                                    values: merge_similar_paths(
-                                        exceptions,
-                                        hopts.merge_paths_threshold,
-                                    )
-                                    .iter()
-                                    .filter_map(|p| p.to_str().map(ToOwned::to_owned))
-                                    .collect(),
-                                    value_if_empty: None,
-                                    option_prefix: "",
-                                    elem_prefix: "-",
-                                    repeat_option: false,
-                                    mode: ListMode::WhiteList,
-                                    mergeable_paths: true,
-                                }),
-                            },
-                        ]
-                    }
-                    OptionValueEffect::DenyAction(ProgramAction::MountToHost) => {
-                        vec![OptionWithValue {
-                            name: "PrivateMounts",
-                            value: OptionValue::Boolean(true),
-                        }]
-                    }
-                    _ => unreachable!(),
-                },
-                dynamic_option_names: Vec::from([
-                    "PrivateMounts",
-                    "ReadOnlyPaths",
-                    "ReadWritePaths",
-                ]),
-            }),
-        });
-
-        let mut possible_values = vec![OptionValueDescription {
-            value: OptionValue::List(ListOptionValue {
-                values: vec!["/".to_owned()],
-                value_if_empty: None,
-                option_prefix: "",
-                elem_prefix: "-",
-                repeat_option: false,
-                mode: ListMode::BlackList,
-                mergeable_paths: true,
-            }),
-            desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                OptionValueEffect::RemovePath(PathDescription::base("/")),
-                OptionValueEffect::DenyAction(ProgramAction::MountToHost),
-            ])),
-        }];
-        // To avoid InaccessiblePaths being completely disabled simply because of the equivalent of 'ls /',
-        // we set another option value for each dir directly under /
-        let base_paths: Option<Vec<String>> = fs::read_dir("/")
-            .ok()
-            .and_then(|i| i.collect::<Result<Vec<_>, _>>().ok())
-            .and_then(|v| {
-                // Don't make those inaccessible, systemd won't be able to start anything
-                let excluded_run_dirs = [Path::new("/run"), Path::new("/proc")];
-                v.into_iter()
-                    .filter(|e| !excluded_run_dirs.contains(&e.path().as_ref()))
-                    // systemd follows symlinks when applying option, so exclude them
-                    .filter(|e| e.file_type().is_ok_and(|t| !t.is_symlink()))
-                    .map(|e| e.path().to_str().map(ToOwned::to_owned))
-                    .collect()
-            })
-            .map(|mut v: Vec<_>| {
-                v.sort_unstable();
-                v
-            });
-        if let Some(base_paths) = base_paths {
-            possible_values.insert(
-                0,
-                OptionValueDescription {
-                    value: OptionValue::List(ListOptionValue {
-                        values: base_paths.clone(),
-                        value_if_empty: None,
-                        option_prefix: "",
-                        elem_prefix: "-",
-                        repeat_option: false,
-                        mode: ListMode::BlackList,
-                        mergeable_paths: true,
-                    }),
-                    desc: OptionEffect::Cumulative(
-                        base_paths
-                            .iter()
-                            .map(|p| {
-                                OptionValueEffect::Multiple(vec![
-                                    OptionValueEffect::RemovePath(PathDescription::base(p)),
-                                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
-                                ])
-                            })
-                            .collect(),
-                    ),
-                },
-            );
-        }
-        options.push(OptionDescription {
-            name: "InaccessiblePaths",
-            possible_values,
-            updater: Some(OptionUpdater {
-                effect: |effect, action, _| {
-                    let (action_path, action_ro) = match action {
-                        ProgramAction::Read(action_path) | ProgramAction::Exec(action_path) => {
-                            (action_path.to_owned(), true)
-                        }
-                        ProgramAction::Write(action_path) => (action_path.to_owned(), false),
-                        ProgramAction::Create(action_path) => {
-                            (action_path.parent().map(Path::to_path_buf)?, false)
-                        }
-                        _ => return None,
-                    };
-                    match effect {
-                        OptionValueEffect::RemovePath(PathDescription::Base {
-                            base,
-                            exceptions,
-                        }) => {
-                            // This will be reached only when first transforming an initial InaccessiblePaths option (RemovePath) into
-                            // less restrictive EmptyPaths + exceptions
-                            assert!(exceptions.is_empty());
-                            let new_exception_path = if action_path
-                                .symlink_metadata()
-                                .is_ok_and(|m| m.file_type().is_symlink())
-                            {
-                                // systemd follows symlinks, so won't bind mount the symlink,
-                                // add exception for parent instead
-                                action_path
-                                    .parent()
-                                    .map(Path::to_path_buf)
-                                    .unwrap_or(action_path)
-                            } else {
-                                action_path
-                            };
-                            if base.starts_with(&new_exception_path) {
-                                return None;
+                            ProgramAction::Write(action_path) => (action_path.to_owned(), false),
+                            ProgramAction::Create(action_path) => {
+                                (action_path.parent().map(Path::to_path_buf)?, false)
                             }
-                            let (exceptions_ro, exceptions_rw) = if action_ro {
-                                (vec![new_exception_path], vec![])
-                            } else {
-                                (vec![], vec![new_exception_path])
-                            };
-                            Some(OptionValueEffect::EmptyPath(EmptyPathDescription {
-                                base: base.to_owned(),
-                                base_ro: true,
+                            _ => return None,
+                        };
+                        match effect {
+                            OptionValueEffect::RemovePath(PathDescription::Base {
+                                base,
+                                exceptions,
+                            }) => {
+                                // This will be reached only when first transforming an initial InaccessiblePaths option (RemovePath) into
+                                // less restrictive EmptyPaths + exceptions
+                                assert!(exceptions.is_empty());
+                                let new_exception_path = if action_path
+                                    .symlink_metadata()
+                                    .is_ok_and(|m| m.file_type().is_symlink())
+                                {
+                                    // systemd follows symlinks, so won't bind mount the symlink,
+                                    // add exception for parent instead
+                                    action_path
+                                        .parent()
+                                        .map(Path::to_path_buf)
+                                        .unwrap_or(action_path)
+                                } else {
+                                    action_path
+                                };
+                                if base.starts_with(&new_exception_path) {
+                                    return None;
+                                }
+                                let (exceptions_ro, exceptions_rw) = if action_ro {
+                                    (vec![new_exception_path], vec![])
+                                } else {
+                                    (vec![], vec![new_exception_path])
+                                };
+                                Some(OptionValueEffect::EmptyPath(EmptyPathDescription {
+                                    base: base.to_owned(),
+                                    base_ro: true,
+                                    exceptions_ro,
+                                    exceptions_rw,
+                                }))
+                            }
+                            OptionValueEffect::EmptyPath(EmptyPathDescription {
+                                base,
+                                base_ro,
                                 exceptions_ro,
                                 exceptions_rw,
-                            }))
+                            }) => {
+                                let mut new_exceptions_ro = Vec::with_capacity(
+                                    exceptions_ro.len() + usize::from(action_ro),
+                                );
+                                new_exceptions_ro.extend(exceptions_ro.iter().cloned());
+                                let mut new_exceptions_rw = Vec::with_capacity(
+                                    exceptions_rw.len() + usize::from(!action_ro),
+                                );
+                                new_exceptions_rw.extend(exceptions_rw.iter().cloned());
+                                let mut base_ro = *base_ro;
+                                let new_exception_path = if action_path
+                                    .symlink_metadata()
+                                    .is_ok_and(|m| m.file_type().is_symlink())
+                                {
+                                    // systemd follows symlinks, so won't bind mount the symlink,
+                                    // add exception for parent instead
+                                    action_path
+                                        .parent()
+                                        .map(Path::to_path_buf)
+                                        .unwrap_or(action_path)
+                                } else {
+                                    action_path
+                                };
+                                if matches!(action, ProgramAction::Create(_))
+                                    && new_exception_path == *base
+                                {
+                                    base_ro = false;
+                                } else {
+                                    if base.starts_with(&new_exception_path) {
+                                        return None;
+                                    }
+                                    if action_ro {
+                                        new_exceptions_ro.push(new_exception_path);
+                                    } else {
+                                        new_exceptions_rw.push(new_exception_path);
+                                    }
+                                }
+                                // Remove exceptions in ro list if in rw
+                                new_exceptions_ro.retain(|ero| {
+                                    !new_exceptions_rw.iter().any(|erw| ero.starts_with(erw))
+                                });
+                                Some(OptionValueEffect::EmptyPath(EmptyPathDescription {
+                                    base: base.to_owned(),
+                                    base_ro,
+                                    exceptions_ro: new_exceptions_ro,
+                                    exceptions_rw: new_exceptions_rw,
+                                }))
+                            }
+                            _ => unreachable!(),
                         }
+                    },
+                    options: |effect, hopts| match effect {
                         OptionValueEffect::EmptyPath(EmptyPathDescription {
                             base,
                             base_ro,
                             exceptions_ro,
                             exceptions_rw,
                         }) => {
-                            let mut new_exceptions_ro =
-                                Vec::with_capacity(exceptions_ro.len() + usize::from(action_ro));
-                            new_exceptions_ro.extend(exceptions_ro.iter().cloned());
-                            let mut new_exceptions_rw =
-                                Vec::with_capacity(exceptions_rw.len() + usize::from(!action_ro));
-                            new_exceptions_rw.extend(exceptions_rw.iter().cloned());
-                            let mut base_ro = *base_ro;
-                            let new_exception_path = if action_path
-                                .symlink_metadata()
-                                .is_ok_and(|m| m.file_type().is_symlink())
-                            {
-                                // systemd follows symlinks, so won't bind mount the symlink,
-                                // add exception for parent instead
-                                action_path
-                                    .parent()
-                                    .map(Path::to_path_buf)
-                                    .unwrap_or(action_path)
-                            } else {
-                                action_path
-                            };
-                            if matches!(action, ProgramAction::Create(_))
-                                && new_exception_path == *base
-                            {
-                                base_ro = false;
-                            } else {
-                                if base.starts_with(&new_exception_path) {
-                                    return None;
-                                }
-                                if action_ro {
-                                    new_exceptions_ro.push(new_exception_path);
-                                } else {
-                                    new_exceptions_rw.push(new_exception_path);
-                                }
-                            }
-                            // Remove exceptions in ro list if in rw
-                            new_exceptions_ro.retain(|ero| {
-                                !new_exceptions_rw.iter().any(|erw| ero.starts_with(erw))
-                            });
-                            Some(OptionValueEffect::EmptyPath(EmptyPathDescription {
-                                base: base.to_owned(),
-                                base_ro,
-                                exceptions_ro: new_exceptions_ro,
-                                exceptions_rw: new_exceptions_rw,
-                            }))
-                        }
-                        _ => unreachable!(),
-                    }
-                },
-                options: |effect, hopts| match effect {
-                    OptionValueEffect::EmptyPath(EmptyPathDescription {
-                        base,
-                        base_ro,
-                        exceptions_ro,
-                        exceptions_rw,
-                    }) => {
-                        // TemporayFileSystem nullifies ReadOnlyPaths, so we must apply read only restrictions here too
-                        let mut new_opts = Vec::with_capacity(
-                            1 + usize::from(!exceptions_ro.is_empty())
-                                + usize::from(!exceptions_rw.is_empty()),
-                        );
-                        new_opts.push(OptionWithValue {
-                            name: "TemporaryFileSystem",
-                            value: OptionValue::List(ListOptionValue {
+                            // TemporayFileSystem nullifies ReadOnlyPaths, so we must apply read only restrictions here too
+                            let mut new_opts = Vec::with_capacity(
+                                1 + usize::from(!exceptions_ro.is_empty())
+                                    + usize::from(!exceptions_rw.is_empty()),
+                            );
+                            new_opts.push(OptionWithValue {
+                                name: "TemporaryFileSystem",
+                                value: OptionValue::List(ListOptionValue {
                                 #[expect(clippy::unwrap_used)] // path is from our option, so unicode safe
                                 values: vec![if *base_ro {
                                     format!("{}:ro", base.to_str().unwrap())
@@ -1246,137 +1271,141 @@ pub(crate) fn build_options(
                                 mode: ListMode::BlackList,
                                 mergeable_paths: true,
                             }),
-                        });
-                        let merged_exceptions_ro: Vec<_> = {
-                            let merged_paths =
-                                merge_similar_paths(exceptions_ro, hopts.merge_paths_threshold);
-                            if merged_paths.iter().any(|p| *base_ro && (p == base)) {
-                                // The exception nullifies the option, bail out
-                                return vec![];
+                            });
+                            let merged_exceptions_ro: Vec<_> = {
+                                let merged_paths =
+                                    merge_similar_paths(exceptions_ro, hopts.merge_paths_threshold);
+                                if merged_paths.iter().any(|p| *base_ro && (p == base)) {
+                                    // The exception nullifies the option, bail out
+                                    return vec![];
+                                }
+                                merged_paths
+                                    .into_iter()
+                                    .filter_map(|p| p.to_str().map(ToOwned::to_owned))
+                                    .collect()
+                            };
+                            if !merged_exceptions_ro.is_empty() {
+                                new_opts.push(OptionWithValue {
+                                    name: "BindReadOnlyPaths",
+                                    value: OptionValue::List(ListOptionValue {
+                                        values: merged_exceptions_ro,
+                                        value_if_empty: None,
+                                        option_prefix: "",
+                                        elem_prefix: "-",
+                                        repeat_option: false,
+                                        mode: ListMode::WhiteList,
+                                        mergeable_paths: true,
+                                    }),
+                                });
                             }
-                            merged_paths
-                                .into_iter()
-                                .filter_map(|p| p.to_str().map(ToOwned::to_owned))
-                                .collect()
-                        };
-                        if !merged_exceptions_ro.is_empty() {
-                            new_opts.push(OptionWithValue {
-                                name: "BindReadOnlyPaths",
+                            let merged_exceptions_rw: Vec<_> = {
+                                let merged_paths =
+                                    merge_similar_paths(exceptions_rw, hopts.merge_paths_threshold);
+                                if merged_paths.iter().any(|p| (p == base)) {
+                                    // The exception nullifies the option, bail out
+                                    return vec![];
+                                }
+                                merged_paths
+                                    .into_iter()
+                                    .filter_map(|p| p.to_str().map(ToOwned::to_owned))
+                                    .collect()
+                            };
+                            if !merged_exceptions_rw.is_empty() {
+                                new_opts.push(OptionWithValue {
+                                    name: "BindPaths",
+                                    value: OptionValue::List(ListOptionValue {
+                                        values: merged_exceptions_rw,
+                                        value_if_empty: None,
+                                        option_prefix: "",
+                                        elem_prefix: "-",
+                                        repeat_option: false,
+                                        mode: ListMode::WhiteList,
+                                        mergeable_paths: true,
+                                    }),
+                                });
+                            }
+                            new_opts
+                        }
+                        OptionValueEffect::DenyAction(ProgramAction::MountToHost) => {
+                            vec![OptionWithValue {
+                                name: "PrivateMounts",
+                                value: OptionValue::Boolean(true),
+                            }]
+                        }
+                        #[expect(clippy::unwrap_used)]
+                        OptionValueEffect::RemovePath(PathDescription::Base {
+                            base,
+                            exceptions,
+                        }) => {
+                            assert!(exceptions.is_empty());
+                            vec![OptionWithValue {
+                                name: "InaccessiblePaths",
                                 value: OptionValue::List(ListOptionValue {
-                                    values: merged_exceptions_ro,
+                                    values: vec![base.to_str().unwrap().to_owned()],
                                     value_if_empty: None,
                                     option_prefix: "",
                                     elem_prefix: "-",
                                     repeat_option: false,
-                                    mode: ListMode::WhiteList,
+                                    mode: ListMode::BlackList,
                                     mergeable_paths: true,
                                 }),
-                            });
+                            }]
                         }
-                        let merged_exceptions_rw: Vec<_> = {
-                            let merged_paths =
-                                merge_similar_paths(exceptions_rw, hopts.merge_paths_threshold);
-                            if merged_paths.iter().any(|p| (p == base)) {
-                                // The exception nullifies the option, bail out
-                                return vec![];
-                            }
-                            merged_paths
-                                .into_iter()
-                                .filter_map(|p| p.to_str().map(ToOwned::to_owned))
-                                .collect()
-                        };
-                        if !merged_exceptions_rw.is_empty() {
-                            new_opts.push(OptionWithValue {
-                                name: "BindPaths",
-                                value: OptionValue::List(ListOptionValue {
-                                    values: merged_exceptions_rw,
-                                    value_if_empty: None,
-                                    option_prefix: "",
-                                    elem_prefix: "-",
-                                    repeat_option: false,
-                                    mode: ListMode::WhiteList,
-                                    mergeable_paths: true,
-                                }),
-                            });
-                        }
-                        new_opts
-                    }
-                    OptionValueEffect::DenyAction(ProgramAction::MountToHost) => {
-                        vec![OptionWithValue {
-                            name: "PrivateMounts",
-                            value: OptionValue::Boolean(true),
-                        }]
-                    }
-                    #[expect(clippy::unwrap_used)]
-                    OptionValueEffect::RemovePath(PathDescription::Base { base, exceptions }) => {
-                        assert!(exceptions.is_empty());
-                        vec![OptionWithValue {
-                            name: "InaccessiblePaths",
-                            value: OptionValue::List(ListOptionValue {
-                                values: vec![base.to_str().unwrap().to_owned()],
-                                value_if_empty: None,
-                                option_prefix: "",
-                                elem_prefix: "-",
-                                repeat_option: false,
-                                mode: ListMode::BlackList,
-                                mergeable_paths: true,
-                            }),
-                        }]
-                    }
-                    _ => unreachable!(),
-                },
-                dynamic_option_names: Vec::from([
-                    "PrivateMounts",
-                    "TemporaryFileSystem",
-                    "BindReadOnlyPaths",
-                    "BindPaths",
-                ]),
-            }),
-        });
-
-        options.push(OptionDescription {
-            name: "NoExecPaths",
-            possible_values: vec![OptionValueDescription {
-                value: OptionValue::List(ListOptionValue {
-                    values: vec!["/".to_owned()],
-                    value_if_empty: None,
-                    option_prefix: "",
-                    elem_prefix: "-",
-                    repeat_option: false,
-                    mode: ListMode::BlackList,
-                    mergeable_paths: true,
+                        _ => unreachable!(),
+                    },
+                    dynamic_option_names: Vec::from([
+                        "PrivateMounts",
+                        "TemporaryFileSystem",
+                        "BindReadOnlyPaths",
+                        "BindPaths",
+                    ]),
                 }),
-                desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                    OptionValueEffect::DenyExec(PathDescription::base("/")),
-                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
-                ])),
-            }],
-            updater: Some(OptionUpdater {
-                effect: |effect, action, _| {
-                    let ProgramAction::Exec(action_path) = action else {
-                        return None;
-                    };
-                    match effect {
-                        OptionValueEffect::DenyExec(PathDescription::Base { base, exceptions })
-                            if action_path != Path::new("/") =>
-                        {
-                            let mut new_exceptions = Vec::with_capacity(exceptions.len() + 1);
-                            new_exceptions.extend(exceptions.iter().cloned());
-                            new_exceptions.push(action_path.to_owned());
-                            Some(OptionValueEffect::DenyExec(PathDescription::Base {
-                                base: base.to_owned(),
-                                exceptions: new_exceptions,
-                            }))
+            });
+
+            options.push(OptionDescription {
+                name: "NoExecPaths",
+                possible_values: vec![OptionValueDescription {
+                    value: OptionValue::List(ListOptionValue {
+                        values: vec!["/".to_owned()],
+                        value_if_empty: None,
+                        option_prefix: "",
+                        elem_prefix: "-",
+                        repeat_option: false,
+                        mode: ListMode::BlackList,
+                        mergeable_paths: true,
+                    }),
+                    desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                        OptionValueEffect::DenyExec(PathDescription::base("/")),
+                        OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                    ])),
+                }],
+                updater: Some(OptionUpdater {
+                    effect: |effect, action, _| {
+                        let ProgramAction::Exec(action_path) = action else {
+                            return None;
+                        };
+                        match effect {
+                            OptionValueEffect::DenyExec(PathDescription::Base {
+                                base,
+                                exceptions,
+                            }) if action_path != Path::new("/") => {
+                                let mut new_exceptions = Vec::with_capacity(exceptions.len() + 1);
+                                new_exceptions.extend(exceptions.iter().cloned());
+                                new_exceptions.push(action_path.to_owned());
+                                Some(OptionValueEffect::DenyExec(PathDescription::Base {
+                                    base: base.to_owned(),
+                                    exceptions: new_exceptions,
+                                }))
+                            }
+                            _ => None,
                         }
-                        _ => None,
-                    }
-                },
-                options: |effect, hopts| match effect {
-                    OptionValueEffect::DenyExec(PathDescription::Base { base, exceptions }) => {
-                        vec![
-                            OptionWithValue {
-                                name: "NoExecPaths",
-                                value: OptionValue::List(ListOptionValue {
+                    },
+                    options: |effect, hopts| match effect {
+                        OptionValueEffect::DenyExec(PathDescription::Base { base, exceptions }) => {
+                            vec![
+                                OptionWithValue {
+                                    name: "NoExecPaths",
+                                    value: OptionValue::List(ListOptionValue {
                                     #[expect(clippy::unwrap_used)] // path is from our option, so unicode safe
                                     values: vec![base.to_str().unwrap().to_owned()],
                                     value_if_empty: None,
@@ -1386,38 +1415,39 @@ pub(crate) fn build_options(
                                     mode: ListMode::BlackList,
                                     mergeable_paths: true,
                                 }),
-                            },
-                            OptionWithValue {
-                                name: "ExecPaths",
-                                value: OptionValue::List(ListOptionValue {
-                                    values: merge_similar_paths(
-                                        exceptions,
-                                        hopts.merge_paths_threshold,
-                                    )
-                                    .iter()
-                                    .filter_map(|p| p.to_str().map(ToOwned::to_owned))
-                                    .collect(),
-                                    value_if_empty: None,
-                                    option_prefix: "",
-                                    elem_prefix: "-",
-                                    repeat_option: false,
-                                    mode: ListMode::WhiteList,
-                                    mergeable_paths: true,
-                                }),
-                            },
-                        ]
-                    }
-                    OptionValueEffect::DenyAction(ProgramAction::MountToHost) => {
-                        vec![OptionWithValue {
-                            name: "PrivateMounts",
-                            value: OptionValue::Boolean(true),
-                        }]
-                    }
-                    _ => unreachable!(),
-                },
-                dynamic_option_names: Vec::from(["NoExecPaths", "PrivateMounts", "ExecPaths"]),
-            }),
-        });
+                                },
+                                OptionWithValue {
+                                    name: "ExecPaths",
+                                    value: OptionValue::List(ListOptionValue {
+                                        values: merge_similar_paths(
+                                            exceptions,
+                                            hopts.merge_paths_threshold,
+                                        )
+                                        .iter()
+                                        .filter_map(|p| p.to_str().map(ToOwned::to_owned))
+                                        .collect(),
+                                        value_if_empty: None,
+                                        option_prefix: "",
+                                        elem_prefix: "-",
+                                        repeat_option: false,
+                                        mode: ListMode::WhiteList,
+                                        mergeable_paths: true,
+                                    }),
+                                },
+                            ]
+                        }
+                        OptionValueEffect::DenyAction(ProgramAction::MountToHost) => {
+                            vec![OptionWithValue {
+                                name: "PrivateMounts",
+                                value: OptionValue::Boolean(true),
+                            }]
+                        }
+                        _ => unreachable!(),
+                    },
+                    dynamic_option_names: Vec::from(["NoExecPaths", "PrivateMounts", "ExecPaths"]),
+                }),
+            });
+        }
     }
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#RestrictAddressFamilies=
@@ -1499,7 +1529,10 @@ pub(crate) fn build_options(
         updater: None,
     });
 
-    if let HardeningMode::Aggressive = hardening_opts.mode {
+    if (matches!(instance_kind, systemd::InstanceKind::System)
+        || sysctl_state.kernel_unprivileged_userns_clone)
+        && matches!(hardening_opts.mode, HardeningMode::Aggressive)
+    {
         // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateNetwork=
         //
         // For now we enable this option if no sockets are used at all, in theory this could break if
