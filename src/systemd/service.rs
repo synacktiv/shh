@@ -7,6 +7,8 @@ use std::{
     ops::RangeInclusive,
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    thread::sleep,
+    time::{Duration, Instant},
 };
 
 use anyhow::Context as _;
@@ -337,7 +339,53 @@ impl Service {
         Ok(())
     }
 
-    pub(crate) fn profiling_result(&self) -> anyhow::Result<Vec<OptionWithValue<String>>> {
+    #[expect(clippy::unused_self)]
+    pub(crate) fn journalctl_cursor(&self) -> anyhow::Result<tempfile::NamedTempFile> {
+        let tmp_file = tempfile::NamedTempFile::new()?;
+        // Note: user instances use the same cursor
+        let status = Command::new("journalctl")
+            .args([
+                "-n",
+                "0",
+                "--cursor-file",
+                tmp_file
+                    .path()
+                    .to_str()
+                    .ok_or_else(|| anyhow::anyhow!("Invalid temporary filepath"))?,
+            ])
+            .status()?;
+        if !status.success() {
+            anyhow::bail!("journalctl failed: {status}");
+        }
+        Ok(tmp_file)
+    }
+
+    pub(crate) fn profiling_result_retry(
+        &self,
+        cursor_file: &tempfile::NamedTempFile,
+    ) -> anyhow::Result<Vec<OptionWithValue<String>>> {
+        const PROFILING_RESULT_TIMEOUT: Duration = Duration::from_secs(5);
+        const PROFILING_RESULT_USLEEP: Duration = Duration::from_millis(500);
+        // For user units, sometimes journalctl does not have the logs yet, so retry with a delay
+        let time_start = Instant::now();
+        loop {
+            match self.profiling_result(cursor_file) {
+                Ok(opts) => return Ok(opts),
+                Err(err) => {
+                    let now = Instant::now();
+                    if now.saturating_duration_since(time_start) > PROFILING_RESULT_TIMEOUT {
+                        return Err(err.context("Timeout waiting for profiling result"));
+                    }
+                }
+            }
+            sleep(PROFILING_RESULT_USLEEP);
+        }
+    }
+
+    fn profiling_result(
+        &self,
+        cursor_file: &tempfile::NamedTempFile,
+    ) -> anyhow::Result<Vec<OptionWithValue<String>>> {
         // Start journalctl process
         let mut cmd = Command::new("journalctl");
         if matches!(self.instance, InstanceKind::User) {
@@ -350,6 +398,11 @@ impl Service {
                 "cat",
                 "--output-fields=MESSAGE",
                 "--no-tail",
+                "--cursor-file",
+                cursor_file
+                    .path()
+                    .to_str()
+                    .ok_or_else(|| anyhow::anyhow!("Invalid cursor path"))?,
                 "-u",
                 &self.unit_name(),
             ])

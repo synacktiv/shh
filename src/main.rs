@@ -244,13 +244,14 @@ fn main() -> anyhow::Result<()> {
         }) => {
             let service = systemd::Service::new(&service.name, service.instance.instance)
                 .context("Invalid service name")?;
+            let journalctl_cursor_file = service.journalctl_cursor()?;
             service
                 .action("stop", true)
                 .context("Failed to stop service")?;
             service
                 .remove_profile_fragment()
                 .context("Failed to remove systemd unit profiling fragment")?;
-            let resolved_opts = service.profiling_result()?;
+            let resolved_opts = service.profiling_result_retry(&journalctl_cursor_file)?;
             log::info!(
                 "Resolved systemd options:\n{}",
                 resolved_opts
