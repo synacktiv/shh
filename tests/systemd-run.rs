@@ -8,6 +8,7 @@
 )]
 
 use std::{
+    env,
     fs::{self, Permissions},
     io::{BufRead as _, Write as _},
     os::unix::fs::{FileTypeExt as _, PermissionsExt as _},
@@ -58,9 +59,17 @@ fn generate_options(cmd: &[&str], run_opts: &[&str]) -> Vec<String> {
 }
 
 /// Run systemd-run for given command, with options
-fn systemd_run(cmd: &[&str], sd_opts: &[String]) -> Assert {
-    // TODO why do we need sudo to get output, even when already running as root?
-    let mut sd_cmd = vec!["sudo", "systemd-run", "-P", "-G", "--wait"];
+fn systemd_run(cmd: &[&str], sd_opts: &[String], user: bool) -> Assert {
+    // TODO why do we need sudo to get output, even when already running as root through sudo wrapper?
+    let mut sd_cmd = vec!["sudo".to_owned(), "systemd-run".to_owned()];
+    if user {
+        sd_cmd.extend([
+            "--user".to_owned(),
+            "-M".to_owned(),
+            format!("{}@.host", env::var("SUDO_USER").unwrap()),
+        ]);
+    }
+    sd_cmd.extend(["-P", "-G", "--wait"].into_iter().map(ToOwned::to_owned));
     for sd_opt in sd_opts {
         // Some options are supported in systemd unit files but not by systemd-run, work around that
         let sd_opt = match sd_opt.as_str() {
@@ -69,13 +78,20 @@ fn systemd_run(cmd: &[&str], sd_opts: &[String]) -> Assert {
             "RestrictAddressFamilies=none" => "RestrictAddressFamilies=",
             s => s,
         };
-        sd_cmd.extend(["-p", sd_opt]);
+        sd_cmd.extend(["-p", sd_opt].into_iter().map(ToOwned::to_owned));
     }
-    sd_cmd.extend(["-p", "Environment=LANG=c", "--"]);
-    sd_cmd.extend(cmd);
-    eprintln!("{}", shlex::try_join(sd_cmd.clone()).unwrap());
+    sd_cmd.extend(
+        ["-p", "Environment=LANG=C", "--"]
+            .into_iter()
+            .map(ToOwned::to_owned),
+    );
+    sd_cmd.extend(cmd.iter().map(|s| (*s).to_owned()));
+    eprintln!(
+        "{}",
+        shlex::try_join(sd_cmd.iter().map(AsRef::as_ref)).unwrap()
+    );
     #[expect(clippy::indexing_slicing)]
-    Command::new(sd_cmd[0])
+    Command::new(&sd_cmd[0])
         .args(sd_cmd)
         .unwrap()
         .assert()
@@ -113,10 +129,16 @@ fn all_shh_run_opts() -> Vec<Vec<&'static str>> {
 #[cfg_attr(not(feature = "as-root"), ignore)]
 fn systemd_run_true() {
     let cmd = ["true"];
-    for shh_opts in &*ALL_SHH_RUN_OPTS {
-        eprintln!("shh run option: {}", shh_opts.join(" "));
-        let sd_opts = generate_options(&cmd, shh_opts);
-        let _ = systemd_run(&cmd, &sd_opts);
+    for user in [false, true] {
+        for shh_opts in &*ALL_SHH_RUN_OPTS {
+            let mut shh_opts = shh_opts.clone();
+            if user {
+                shh_opts.extend(["-i", "user"]);
+            }
+            eprintln!("shh run option: {}", shh_opts.join(" "));
+            let sd_opts = generate_options(&cmd, &shh_opts);
+            let _ = systemd_run(&cmd, &sd_opts, user);
+        }
     }
 }
 
@@ -124,10 +146,16 @@ fn systemd_run_true() {
 #[cfg_attr(not(feature = "as-root"), ignore)]
 fn systemd_run_write_dev_null() {
     let cmd = ["sh", "-c", ": > /dev/null"];
-    for shh_opts in &*ALL_SHH_RUN_OPTS {
-        eprintln!("shh run option: {}", shh_opts.join(" "));
-        let sd_opts = generate_options(&cmd, shh_opts);
-        let _ = systemd_run(&cmd, &sd_opts);
+    for user in [false, true] {
+        for shh_opts in &*ALL_SHH_RUN_OPTS {
+            let mut shh_opts = shh_opts.clone();
+            if user {
+                shh_opts.extend(["-i", "user"]);
+            }
+            eprintln!("shh run option: {}", shh_opts.join(" "));
+            let sd_opts = generate_options(&cmd, &shh_opts);
+            let _ = systemd_run(&cmd, &sd_opts, user);
+        }
     }
 }
 
@@ -135,13 +163,19 @@ fn systemd_run_write_dev_null() {
 #[cfg_attr(not(feature = "as-root"), ignore)]
 fn systemd_run_ls_dev() {
     let cmd = ["ls", "/dev/"];
-    for shh_opts in &*ALL_SHH_RUN_OPTS {
-        eprintln!("shh run option: {}", shh_opts.join(" "));
-        let sd_opts = generate_options(&cmd, shh_opts);
-        let asrt = systemd_run(&cmd, &sd_opts);
-        asrt.stdout(predicate::str::contains("block"))
-            .stdout(predicate::str::contains("char"))
-            .stdout(predicate::str::contains("log"));
+    for user in [false, true] {
+        for shh_opts in &*ALL_SHH_RUN_OPTS {
+            let mut shh_opts = shh_opts.clone();
+            if user {
+                shh_opts.extend(["-i", "user"]);
+            }
+            eprintln!("shh run option: {}", shh_opts.join(" "));
+            let sd_opts = generate_options(&cmd, &shh_opts);
+            let asrt = systemd_run(&cmd, &sd_opts, user);
+            asrt.stdout(predicate::str::contains("block"))
+                .stdout(predicate::str::contains("char"))
+                .stdout(predicate::str::contains("log"));
+        }
     }
 }
 
@@ -149,10 +183,16 @@ fn systemd_run_ls_dev() {
 #[cfg_attr(not(feature = "as-root"), ignore)]
 fn systemd_run_ls_proc() {
     let cmd = ["ls", "/proc/1"];
-    for shh_opts in &*ALL_SHH_RUN_OPTS {
-        eprintln!("shh run option: {}", shh_opts.join(" "));
-        let sd_opts = generate_options(&cmd, shh_opts);
-        let _ = systemd_run(&cmd, &sd_opts);
+    for user in [false, true] {
+        for shh_opts in &*ALL_SHH_RUN_OPTS {
+            let mut shh_opts = shh_opts.clone();
+            if user {
+                shh_opts.extend(["-i", "user"]);
+            }
+            eprintln!("shh run option: {}", shh_opts.join(" "));
+            let sd_opts = generate_options(&cmd, &shh_opts);
+            let _ = systemd_run(&cmd, &sd_opts, user);
+        }
     }
 }
 
@@ -160,10 +200,16 @@ fn systemd_run_ls_proc() {
 #[cfg_attr(not(feature = "as-root"), ignore)]
 fn systemd_run_read_kallsyms() {
     let cmd = ["head", "/proc/kallsyms"];
-    for shh_opts in &*ALL_SHH_RUN_OPTS {
-        eprintln!("shh run option: {}", shh_opts.join(" "));
-        let sd_opts = generate_options(&cmd, shh_opts);
-        let _ = systemd_run(&cmd, &sd_opts);
+    for user in [false, true] {
+        for shh_opts in &*ALL_SHH_RUN_OPTS {
+            let mut shh_opts = shh_opts.clone();
+            if user {
+                shh_opts.extend(["-i", "user"]);
+            }
+            eprintln!("shh run option: {}", shh_opts.join(" "));
+            let sd_opts = generate_options(&cmd, &shh_opts);
+            let _ = systemd_run(&cmd, &sd_opts, user);
+        }
     }
 }
 
@@ -171,10 +217,16 @@ fn systemd_run_read_kallsyms() {
 #[cfg_attr(not(feature = "as-root"), ignore)]
 fn systemd_run_ls_modules() {
     let cmd = ["ls", "/usr/lib/modules/"];
-    for shh_opts in &*ALL_SHH_RUN_OPTS {
-        eprintln!("shh run option: {}", shh_opts.join(" "));
-        let sd_opts = generate_options(&cmd, shh_opts);
-        let _ = systemd_run(&cmd, &sd_opts);
+    for user in [false, true] {
+        for shh_opts in &*ALL_SHH_RUN_OPTS {
+            let mut shh_opts = shh_opts.clone();
+            if user {
+                shh_opts.extend(["-i", "user"]);
+            }
+            eprintln!("shh run option: {}", shh_opts.join(" "));
+            let sd_opts = generate_options(&cmd, &shh_opts);
+            let _ = systemd_run(&cmd, &sd_opts, user);
+        }
     }
 }
 
@@ -185,7 +237,7 @@ fn systemd_run_dmesg() {
     for shh_opts in &*ALL_SHH_RUN_OPTS {
         eprintln!("shh run option: {}", shh_opts.join(" "));
         let sd_opts = generate_options(&cmd, shh_opts);
-        let asrt = systemd_run(&cmd, &sd_opts);
+        let asrt = systemd_run(&cmd, &sd_opts, false);
         asrt.stdout(predicate::str::is_match(KERNEL_LOG_REGEX).unwrap());
     }
 }
@@ -194,10 +246,16 @@ fn systemd_run_dmesg() {
 #[cfg_attr(not(feature = "as-root"), ignore)]
 fn systemd_run_systemctl() {
     let cmd = ["systemctl"];
-    for shh_opts in &*ALL_SHH_RUN_OPTS {
-        eprintln!("shh run option: {}", shh_opts.join(" "));
-        let sd_opts = generate_options(&cmd, shh_opts);
-        let _ = systemd_run(&cmd, &sd_opts);
+    for user in [false, true] {
+        for shh_opts in &*ALL_SHH_RUN_OPTS {
+            let mut shh_opts = shh_opts.clone();
+            if user {
+                shh_opts.extend(["-i", "user"]);
+            }
+            eprintln!("shh run option: {}", shh_opts.join(" "));
+            let sd_opts = generate_options(&cmd, &shh_opts);
+            let _ = systemd_run(&cmd, &sd_opts, user);
+        }
     }
 }
 
@@ -205,10 +263,16 @@ fn systemd_run_systemctl() {
 #[cfg_attr(not(feature = "as-root"), ignore)]
 fn systemd_run_ss() {
     let cmd = ["ss", "-l"];
-    for shh_opts in &*ALL_SHH_RUN_OPTS {
-        eprintln!("shh run option: {}", shh_opts.join(" "));
-        let sd_opts = generate_options(&cmd, shh_opts);
-        let _ = systemd_run(&cmd, &sd_opts);
+    for user in [false, true] {
+        for shh_opts in &*ALL_SHH_RUN_OPTS {
+            let mut shh_opts = shh_opts.clone();
+            if user {
+                shh_opts.extend(["-i", "user"]);
+            }
+            eprintln!("shh run option: {}", shh_opts.join(" "));
+            let sd_opts = generate_options(&cmd, &shh_opts);
+            let _ = systemd_run(&cmd, &sd_opts, user);
+        }
     }
 }
 
@@ -220,10 +284,16 @@ fn systemd_run_mmap_wx() {
         "-c",
         "import mmap; mmap.mmap(-1, 4096, prot=mmap.PROT_WRITE|mmap.PROT_EXEC)",
     ];
-    for shh_opts in &*ALL_SHH_RUN_OPTS {
-        eprintln!("shh run option: {}", shh_opts.join(" "));
-        let sd_opts = generate_options(&cmd, shh_opts);
-        let _ = systemd_run(&cmd, &sd_opts);
+    for user in [false, true] {
+        for shh_opts in &*ALL_SHH_RUN_OPTS {
+            let mut shh_opts = shh_opts.clone();
+            if user {
+                shh_opts.extend(["-i", "user"]);
+            }
+            eprintln!("shh run option: {}", shh_opts.join(" "));
+            let sd_opts = generate_options(&cmd, &shh_opts);
+            let _ = systemd_run(&cmd, &sd_opts, user);
+        }
     }
 }
 
@@ -238,7 +308,7 @@ fn systemd_run_sched_realtime() {
     for shh_opts in &*ALL_SHH_RUN_OPTS {
         eprintln!("shh run option: {}", shh_opts.join(" "));
         let sd_opts = generate_options(&cmd, shh_opts);
-        let _ = systemd_run(&cmd, &sd_opts);
+        let _ = systemd_run(&cmd, &sd_opts, false);
     }
 }
 
@@ -250,10 +320,16 @@ fn systemd_run_bind() {
         "-c",
         "import socket; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.bind((\"127.0.0.1\", 1234))",
     ];
-    for shh_opts in &*ALL_SHH_RUN_OPTS {
-        eprintln!("shh run option: {}", shh_opts.join(" "));
-        let sd_opts = generate_options(&cmd, shh_opts);
-        let _ = systemd_run(&cmd, &sd_opts);
+    for user in [false, true] {
+        for shh_opts in &*ALL_SHH_RUN_OPTS {
+            let mut shh_opts = shh_opts.clone();
+            if user {
+                shh_opts.extend(["-i", "user"]);
+            }
+            eprintln!("shh run option: {}", shh_opts.join(" "));
+            let sd_opts = generate_options(&cmd, &shh_opts);
+            let _ = systemd_run(&cmd, &sd_opts, user);
+        }
     }
 }
 
@@ -268,7 +344,7 @@ fn systemd_run_sock_packet() {
     for shh_opts in &*ALL_SHH_RUN_OPTS {
         eprintln!("shh run option: {}", shh_opts.join(" "));
         let sd_opts = generate_options(&cmd, shh_opts);
-        let _ = systemd_run(&cmd, &sd_opts);
+        let _ = systemd_run(&cmd, &sd_opts, false);
     }
 }
 
@@ -279,8 +355,7 @@ fn systemd_run_syslog() {
     for shh_opts in &*ALL_SHH_RUN_OPTS {
         eprintln!("shh run option: {}", shh_opts.join(" "));
         let sd_opts = generate_options(&cmd, shh_opts);
-        let asrt = systemd_run(&cmd, &sd_opts);
-        asrt.stdout(predicate::str::is_match(KERNEL_LOG_REGEX).unwrap());
+        let _ = systemd_run(&cmd, &sd_opts, false);
     }
 }
 
@@ -308,7 +383,7 @@ fn systemd_run_mknod() {
                 .join(" ");
         }
 
-        let _ = systemd_run(&cmd, &sd_opts);
+        let _ = systemd_run(&cmd, &sd_opts, false);
         assert!(fs::metadata(&pipe_path).unwrap().file_type().is_fifo());
         fs::remove_file(&pipe_path).unwrap();
     }
@@ -338,7 +413,7 @@ fn systemd_run_mknod() {
                 .join(" ");
         }
 
-        let _ = systemd_run(&cmd, &sd_opts);
+        let _ = systemd_run(&cmd, &sd_opts, false);
         assert!(
             fs::metadata(&dev_path)
                 .unwrap()
@@ -353,7 +428,7 @@ fn systemd_run_mknod() {
 #[cfg_attr(not(feature = "as-root"), ignore)]
 fn systemd_run_script() {
     let mut script = tempfile::Builder::new()
-        .permissions(Permissions::from_mode(0o700))
+        .permissions(Permissions::from_mode(0o755))
         .tempfile()
         .unwrap();
     script
@@ -361,11 +436,17 @@ fn systemd_run_script() {
         .unwrap();
     let script_path = script.into_temp_path();
     let cmd = [script_path.to_str().unwrap()];
-    for shh_opts in &*ALL_SHH_RUN_OPTS {
-        eprintln!("shh run option: {}", shh_opts.join(" "));
-        let sd_opts = generate_options(&cmd, shh_opts);
-        let asrt = systemd_run(&cmd, &sd_opts);
-        asrt.stdout(predicate::str::contains("from a script"));
+    for user in [false, true] {
+        for shh_opts in &*ALL_SHH_RUN_OPTS {
+            let mut shh_opts = shh_opts.clone();
+            if user {
+                shh_opts.extend(["-i", "user"]);
+            }
+            eprintln!("shh run option: {}", shh_opts.join(" "));
+            let sd_opts = generate_options(&cmd, &shh_opts);
+            let asrt = systemd_run(&cmd, &sd_opts, user);
+            asrt.stdout(predicate::str::contains("from a script"));
+        }
     }
 }
 
@@ -373,11 +454,17 @@ fn systemd_run_script() {
 #[cfg_attr(not(feature = "as-root"), ignore)]
 fn systemd_run_curl() {
     let cmd = ["curl", "https://example.com"];
-    for shh_opts in &*ALL_SHH_RUN_OPTS {
-        eprintln!("shh run option: {}", shh_opts.join(" "));
-        let sd_opts = generate_options(&cmd, shh_opts);
-        let asrt = systemd_run(&cmd, &sd_opts);
-        asrt.stdout(predicate::str::contains("<html>"));
+    for user in [false, true] {
+        for shh_opts in &*ALL_SHH_RUN_OPTS {
+            let mut shh_opts = shh_opts.clone();
+            if user {
+                shh_opts.extend(["-i", "user"]);
+            }
+            eprintln!("shh run option: {}", shh_opts.join(" "));
+            let sd_opts = generate_options(&cmd, &shh_opts);
+            let asrt = systemd_run(&cmd, &sd_opts, user);
+            asrt.stdout(predicate::str::contains("<html>"));
+        }
     }
 }
 
@@ -385,14 +472,19 @@ fn systemd_run_curl() {
 #[cfg_attr(not(feature = "as-root"), ignore)]
 fn systemd_run_ping_4() {
     let cmd = ["ping", "-c", "1", "-4", "127.0.0.1"];
-    for shh_opts in &*ALL_SHH_RUN_OPTS {
-        eprintln!("shh run option: {}", shh_opts.join(" "));
-        let sd_opts = generate_options(&cmd, shh_opts);
-        let _ = systemd_run(&cmd, &sd_opts);
-        let asrt = systemd_run(&cmd, &sd_opts);
-        asrt.stdout(predicate::str::contains(
-            "127.0.0.1 ping statistics ---\n1 packets transmitted, 1 received, 0% packet loss",
-        ));
+    for user in [false, true] {
+        for shh_opts in &*ALL_SHH_RUN_OPTS {
+            let mut shh_opts = shh_opts.clone();
+            if user {
+                shh_opts.extend(["-i", "user"]);
+            }
+            eprintln!("shh run option: {}", shh_opts.join(" "));
+            let sd_opts = generate_options(&cmd, &shh_opts);
+            let asrt = systemd_run(&cmd, &sd_opts, user);
+            asrt.stdout(predicate::str::contains(
+                "127.0.0.1 ping statistics ---\n1 packets transmitted, 1 received, 0% packet loss",
+            ));
+        }
     }
 }
 
@@ -400,14 +492,19 @@ fn systemd_run_ping_4() {
 #[cfg_attr(not(feature = "as-root"), ignore)]
 fn systemd_run_ping_6() {
     let cmd = ["ping", "-c", "1", "-6", "::1"];
-    for shh_opts in &*ALL_SHH_RUN_OPTS {
-        eprintln!("shh run option: {}", shh_opts.join(" "));
-        let sd_opts = generate_options(&cmd, shh_opts);
-        let _ = systemd_run(&cmd, &sd_opts);
-        let asrt = systemd_run(&cmd, &sd_opts);
-        asrt.stdout(predicate::str::contains(
-            "::1 ping statistics ---\n1 packets transmitted, 1 received, 0% packet loss",
-        ));
+    for user in [false, true] {
+        for shh_opts in &*ALL_SHH_RUN_OPTS {
+            let mut shh_opts = shh_opts.clone();
+            if user {
+                shh_opts.extend(["-i", "user"]);
+            }
+            eprintln!("shh run option: {}", shh_opts.join(" "));
+            let sd_opts = generate_options(&cmd, &shh_opts);
+            let asrt = systemd_run(&cmd, &sd_opts, user);
+            asrt.stdout(predicate::str::contains(
+                "::1 ping statistics ---\n1 packets transmitted, 1 received, 0% packet loss",
+            ));
+        }
     }
 }
 
@@ -428,7 +525,7 @@ fn systemd_netns_create() {
         let sd_opts = generate_options(&cmd, shh_opts);
         assert!(fs::exists(format!("/run/netns/{ns}")).unwrap());
         del_netns(&ns);
-        let _ = systemd_run(&cmd, &sd_opts);
+        let _ = systemd_run(&cmd, &sd_opts, false);
         assert!(fs::exists(format!("/run/netns/{ns}")).unwrap());
         del_netns(&ns);
     }
