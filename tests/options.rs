@@ -270,7 +270,7 @@ fn run_ls_modules() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "as-root"), ignore)]
+#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
 fn run_dmesg() {
     assert!(Uid::effective().is_root());
 
@@ -304,7 +304,7 @@ fn run_dmesg() {
 }
 
 #[test]
-#[cfg_attr(feature = "as-root", ignore)]
+#[cfg_attr(feature = "int-tests-as-root", ignore)]
 fn run_systemctl() {
     assert!(!Uid::effective().is_root());
 
@@ -449,7 +449,7 @@ fn run_mmap_wx() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "as-root"), ignore)]
+#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
 fn run_sched_realtime() {
     assert!(Uid::effective().is_root());
 
@@ -573,7 +573,7 @@ fn run_bind() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "as-root"), ignore)]
+#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
 fn run_sock_packet() {
     assert!(Uid::effective().is_root());
 
@@ -641,7 +641,7 @@ fn run_sock_packet() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "as-root"), ignore)]
+#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
 fn run_syslog() {
     assert!(Uid::effective().is_root());
 
@@ -675,7 +675,7 @@ fn run_syslog() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "as-root"), ignore)]
+#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
 fn run_mknod() {
     assert!(Uid::effective().is_root());
 
