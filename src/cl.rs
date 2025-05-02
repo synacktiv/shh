@@ -121,6 +121,12 @@ pub(crate) enum Action {
     Service(ServiceAction),
     /// Dump markdown formatted list of supported systemd options
     ListSystemdOptions,
+    /// Generate man pages
+    #[cfg(feature = "gen-man-pages")]
+    GenManPages {
+        /// Target directory (must exist)
+        dir: PathBuf,
+    },
 }
 
 #[derive(Debug, clap::Subcommand)]
