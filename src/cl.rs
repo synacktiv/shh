@@ -4,6 +4,9 @@ use std::{num::NonZeroUsize, path::PathBuf};
 
 use clap::Parser;
 
+#[cfg(feature = "gen-man-pages")]
+use clap_complete::Shell;
+
 /// Command line arguments
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -127,6 +130,23 @@ pub(crate) enum Action {
         /// Target directory (must exist)
         dir: PathBuf,
     },
+    #[cfg(feature = "gen-man-pages")]
+    GenShellComplete {
+        #[clap(flatten)]
+        arg_group: GenShellCompleteGroup,
+    },
+}
+
+#[cfg(feature = "gen-man-pages")]
+#[derive(Debug, clap::Args)]
+#[group(required = true, multiple = true)]
+pub(crate) struct GenShellCompleteGroup {
+    /// Shell to generate for, leave empty for all
+    #[arg(short = 's', long, default_value = None)]
+    pub shell: Option<Shell>,
+    /// Target directory
+    #[arg(num_args = 1, required = false)]
+    pub dir: Option<PathBuf>,
 }
 
 #[derive(Debug, clap::Subcommand)]
