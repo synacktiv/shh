@@ -131,23 +131,28 @@ pub(crate) enum Action {
         dir: PathBuf,
     },
     #[cfg(feature = "gen-man-pages")]
+    #[group(required = true, multiple = true)]
     GenShellComplete {
-        #[clap(flatten)]
-        arg_group: GenShellCompleteGroup,
+        /// Shell to generate for, leave empty for all
+        #[arg(short = 's', long, default_value = None)]
+        shell: Option<Shell>,
+        /// Target directory
+        // #[arg(num_args = 1, required = false)]
+        dir: Option<PathBuf>,
     },
 }
 
-#[cfg(feature = "gen-man-pages")]
-#[derive(Debug, clap::Args)]
-#[group(required = true, multiple = true)]
-pub(crate) struct GenShellCompleteGroup {
-    /// Shell to generate for, leave empty for all
-    #[arg(short = 's', long, default_value = None)]
-    pub shell: Option<Shell>,
-    /// Target directory
-    #[arg(num_args = 1, required = false)]
-    pub dir: Option<PathBuf>,
-}
+// #[cfg(feature = "gen-man-pages")]
+// #[derive(Debug, clap::Args)]
+// #[group(required = true, multiple = true)]
+// pub(crate) struct GenShellCompleteGroup {
+//     /// Shell to generate for, leave empty for all
+//     #[arg(short = 's', long, default_value = None)]
+//     pub shell: Option<Shell>,
+//     /// Target directory
+//     #[arg(num_args = 1, required = false)]
+//     pub dir: Option<PathBuf>,
+// }
 
 #[derive(Debug, clap::Subcommand)]
 pub(crate) enum ServiceAction {

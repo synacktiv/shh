@@ -294,7 +294,7 @@ fn main() -> anyhow::Result<()> {
             clap_mangen::generate_to(cmd, &dir)?;
         }
         #[cfg(feature = "gen-man-pages")]
-        cl::Action::GenShellComplete { arg_group } => {
+        cl::Action::GenShellComplete { shell, dir } => {
             use clap::CommandFactory as _;
             use clap::ValueEnum as _;
             use clap_complete::{Shell, generate, generate_to};
@@ -303,13 +303,13 @@ fn main() -> anyhow::Result<()> {
             let name = env!("CARGO_BIN_NAME");
             let mut cmd = cl::Args::command().name(name);
 
-            if let Some(shell) = arg_group.shell {
-                if let Some(dir) = arg_group.dir {
+            if let Some(shell) = shell {
+                if let Some(dir) = dir {
                     generate_to(shell, &mut cmd, name, dir)?;
                 } else {
                     generate(shell, &mut cmd, name, &mut io::stdout());
                 }
-            } else if let Some(dir) = arg_group.dir {
+            } else if let Some(dir) = dir {
                 let shells = Shell::value_variants();
                 for shell in shells {
                     generate_to(*shell, &mut cmd, name, &dir)?;
