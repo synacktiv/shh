@@ -364,17 +364,29 @@ impl Service {
         &self,
         cursor_file: &tempfile::NamedTempFile,
     ) -> anyhow::Result<Vec<OptionWithValue<String>>> {
-        const PROFILING_RESULT_TIMEOUT: Duration = Duration::from_secs(5);
-        const PROFILING_RESULT_USLEEP: Duration = Duration::from_millis(500);
+        // DefaultTimeoutStopSec is typically 90s and services can dynamically extend it
+        // See https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html#TimeoutStopSec=
+        const PROFILING_RESULT_TIMEOUT: Duration = Duration::from_secs(90);
+        const PROFILING_RESULT_USLEEP: Duration = Duration::from_millis(300);
+        const PROFILING_RESULT_WARN_DELAY: Duration = Duration::from_secs(3);
         // For user units, sometimes journalctl does not have the logs yet, so retry with a delay
         let time_start = Instant::now();
+        let mut slow_result_warned = false;
         loop {
             match self.profiling_result(cursor_file) {
                 Ok(opts) => return Ok(opts),
                 Err(err) => {
                     let now = Instant::now();
-                    if now.saturating_duration_since(time_start) > PROFILING_RESULT_TIMEOUT {
+                    let waited = now.saturating_duration_since(time_start);
+                    if waited > PROFILING_RESULT_TIMEOUT {
                         return Err(err.context("Timeout waiting for profiling result"));
+                    } else if !slow_result_warned && (waited > PROFILING_RESULT_WARN_DELAY) {
+                        log::warn!(
+                            "Profiling result is not available after {}s, this can be caused by slow service shutdown. Will retry and wait up to {}s",
+                            PROFILING_RESULT_WARN_DELAY.as_secs(),
+                            PROFILING_RESULT_TIMEOUT.as_secs()
+                        );
+                        slow_result_warned = true;
                     }
                 }
             }
