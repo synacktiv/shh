@@ -8,7 +8,7 @@ use super::{
 };
 use crate::{
     cl::HardeningOptions,
-    summarize::{NetworkActivity, ProgramAction},
+    summarize::ProgramAction,
     systemd::options::{
         ListMode, OptionDescription, OptionEffect, OptionValue, OptionValueEffect, OptionWithValue,
     },
@@ -25,19 +25,12 @@ impl OptionValueEffect {
         let compatible: Vec<bool> = match self {
             OptionValueEffect::DenyAction(denied) => match denied {
                 ProgramAction::NetworkActivity(denied) => {
-                    if let ProgramAction::NetworkActivity(NetworkActivity {
-                        af,
-                        proto,
-                        kind,
-                        local_port,
-                        address,
-                    }) = action
-                    {
-                        let af_match = denied.af.intersects(af);
-                        let proto_match = denied.proto.intersects(proto);
-                        let kind_match = denied.kind.intersects(kind);
-                        let local_port_match = denied.local_port.intersects(local_port);
-                        let addr_match = denied.address.intersects(address);
+                    if let ProgramAction::NetworkActivity(action_na) = action {
+                        let af_match = denied.af.intersects(&action_na.af);
+                        let proto_match = denied.proto.intersects(&action_na.proto);
+                        let kind_match = denied.kind.intersects(&action_na.kind);
+                        let local_port_match = denied.local_port.intersects(&action_na.local_port);
+                        let addr_match = denied.address.intersects(&action_na.address);
                         vec![
                             !af_match
                                 || !proto_match
@@ -161,10 +154,9 @@ impl OptionValueEffect {
                     break;
                 }
             }
-            changed_opt_desc.map_or(
-                ActionOptionEffectCompatibility::Incompatible,
-                ActionOptionEffectCompatibility::CompatibleIfChanged,
-            )
+            changed_opt_desc.map_or(ActionOptionEffectCompatibility::Incompatible, |o| {
+                ActionOptionEffectCompatibility::CompatibleIfChanged(o.into())
+            })
         } else {
             ActionOptionEffectCompatibility::Incompatible
         }
@@ -201,7 +193,7 @@ impl ChangedOptionValueDescription {
 /// How compatible is an action with an option effect?
 pub(crate) enum ActionOptionEffectCompatibility {
     Compatible,
-    CompatibleIfChanged(ChangedOptionValueDescription),
+    CompatibleIfChanged(Box<ChangedOptionValueDescription>),
     Incompatible,
 }
 
@@ -221,7 +213,7 @@ fn actions_compatible(
     updater: Option<&OptionUpdater>,
     hardening_opts: &HardeningOptions,
 ) -> ActionOptionEffectCompatibility {
-    let mut changed_desc: Option<ChangedOptionValueDescription> = None;
+    let mut changed_desc: Option<Box<ChangedOptionValueDescription>> = None;
     for i in 0..actions.len() {
         let cur_eff = changed_desc.as_ref().map_or(eff, |d| &d.effect);
         #[expect(clippy::unwrap_used, clippy::indexing_slicing)]
@@ -260,7 +252,7 @@ fn actions_compatible_list(
     hardening_opts: &HardeningOptions,
 ) -> ActionOptionEffectCompatibility {
     debug_assert_eq!(list.values.len(), effects.len());
-    let mut changed_desc: Option<ChangedOptionValueDescription> = None;
+    let mut changed_desc: Option<Box<ChangedOptionValueDescription>> = None;
     let mut enabled_list_vals = Vec::new();
     let mut enabled_list_val_effects = Vec::new();
     for (list_val, list_val_eff) in list.values.iter().zip(effects.to_vec().iter_mut()) {
@@ -292,7 +284,7 @@ fn actions_compatible_list(
     }
     if list.values != enabled_list_vals || changed_desc.is_some() {
         // Rebuild option with changed list
-        let mut new_list_desc = ChangedOptionValueDescription {
+        let mut new_list_desc = Box::new(ChangedOptionValueDescription {
             new_options: vec![OptionWithValue {
                 name: opt_name,
                 value: OptionValue::List(ListOptionValue {
@@ -301,7 +293,7 @@ fn actions_compatible_list(
                 }),
             }],
             effect: OptionValueEffect::Multiple(enabled_list_val_effects),
-        };
+        });
         if let Some(changed_desc) = changed_desc.as_mut() {
             new_list_desc.merge(changed_desc);
             *changed_desc = new_list_desc;

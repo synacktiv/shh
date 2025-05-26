@@ -3,4 +3,5 @@ allow-indexing-slicing-in-tests = true
 allow-panic-in-tests = true
 allow-unwrap-in-tests = true
 avoid-breaking-exported-api = false
+enum-variant-size-threshold = 64
 too-many-lines-threshold = 250

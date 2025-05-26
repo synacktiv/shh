@@ -1520,7 +1520,8 @@ pub(crate) fn build_options(
                                 kind: SetSpecifier::All,
                                 local_port: SetSpecifier::All,
                                 address: SetSpecifier::All,
-                            },
+                            }
+                            .into(),
                         ))
                     })
                     .collect(),
@@ -1543,13 +1544,16 @@ pub(crate) fn build_options(
             possible_values: vec![OptionValueDescription {
                 value: OptionValue::Boolean(true),
                 desc: OptionEffect::Simple(OptionValueEffect::DenyAction(
-                    ProgramAction::NetworkActivity(NetworkActivity {
-                        af: SetSpecifier::All,
-                        proto: SetSpecifier::All,
-                        kind: SetSpecifier::All,
-                        local_port: SetSpecifier::All,
-                        address: SetSpecifier::All,
-                    }),
+                    ProgramAction::NetworkActivity(
+                        NetworkActivity {
+                            af: SetSpecifier::All,
+                            proto: SetSpecifier::All,
+                            kind: SetSpecifier::All,
+                            local_port: SetSpecifier::All,
+                            address: SetSpecifier::All,
+                        }
+                        .into(),
+                    ),
                 )),
             }],
             updater: None,
@@ -1587,7 +1591,8 @@ pub(crate) fn build_options(
                                 kind: SetSpecifier::One(NetworkActivityKind::Bind),
                                 local_port: SetSpecifier::All,
                                 address: SetSpecifier::All,
-                            },
+                            }
+                            .into(),
                         ))
                     })
                     .collect(),
@@ -1599,37 +1604,47 @@ pub(crate) fn build_options(
                 else {
                     unreachable!();
                 };
-                let ProgramAction::NetworkActivity(NetworkActivity {
-                    local_port: SetSpecifier::One(local_port),
-                    ..
-                }) = a
-                else {
+                let local_port = if let ProgramAction::NetworkActivity(na) = a {
+                    if let SetSpecifier::One(local_port) = &na.as_ref().local_port {
+                        local_port
+                    } else {
+                        unreachable!();
+                    }
+                } else {
                     unreachable!();
                 };
                 let mut new_eff_local_port = effect_na.local_port.clone();
                 new_eff_local_port.remove(local_port);
                 Some(OptionValueEffect::DenyAction(
-                    ProgramAction::NetworkActivity(NetworkActivity {
-                        af: effect_na.af.clone(),
-                        proto: effect_na.proto.clone(),
-                        kind: effect_na.kind.clone(),
-                        local_port: new_eff_local_port,
-                        address: effect_na.address.clone(),
-                    }),
+                    ProgramAction::NetworkActivity(
+                        NetworkActivity {
+                            af: effect_na.af.clone(),
+                            proto: effect_na.proto.clone(),
+                            kind: effect_na.kind.clone(),
+                            local_port: new_eff_local_port,
+                            address: effect_na.address.clone(),
+                        }
+                        .into(),
+                    ),
                 ))
             },
             options: |e, _| {
-                let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(
-                    NetworkActivity {
-                        af: SetSpecifier::One(af),
-                        proto: SetSpecifier::One(proto),
-                        local_port,
-                        ..
-                    },
-                )) = e
-                else {
-                    unreachable!();
-                };
+                let (af, proto, local_port) =
+                    if let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(na)) = e {
+                        if let NetworkActivity {
+                            af: SetSpecifier::One(af),
+                            proto: SetSpecifier::One(proto),
+                            local_port,
+                            ..
+                        } = na.as_ref()
+                        {
+                            (af, proto, local_port)
+                        } else {
+                            unreachable!()
+                        }
+                    } else {
+                        unreachable!();
+                    };
                 let port_exceptions = local_port.excluded_elements();
                 let mut opts = Vec::with_capacity(1 + port_exceptions.len());
                 opts.push(OptionWithValue {
@@ -1657,13 +1672,16 @@ pub(crate) fn build_options(
             possible_values: vec![OptionValueDescription {
                 value: OptionValue::String("any".into()),
                 desc: OptionEffect::Simple(OptionValueEffect::DenyAction(
-                    ProgramAction::NetworkActivity(NetworkActivity {
-                        af: SetSpecifier::Some(vec![SocketFamily::Ipv4, SocketFamily::Ipv6]),
-                        proto: SetSpecifier::All,
-                        kind: SetSpecifier::Some(NetworkActivityKind::ADDRESSED.to_vec()),
-                        local_port: SetSpecifier::All,
-                        address: SetSpecifier::All,
-                    }),
+                    ProgramAction::NetworkActivity(
+                        NetworkActivity {
+                            af: SetSpecifier::Some(vec![SocketFamily::Ipv4, SocketFamily::Ipv6]),
+                            proto: SetSpecifier::All,
+                            kind: SetSpecifier::Some(NetworkActivityKind::ADDRESSED.to_vec()),
+                            local_port: SetSpecifier::All,
+                            address: SetSpecifier::All,
+                        }
+                        .into(),
+                    ),
                 )),
             }],
             updater: Some(OptionUpdater {
@@ -1673,26 +1691,34 @@ pub(crate) fn build_options(
                     else {
                         unreachable!()
                     };
-                    let ProgramAction::NetworkActivity(NetworkActivity {
-                        address: SetSpecifier::One(action_addr),
-                        ..
-                    }) = action
-                    else {
+                    let action_addr = if let ProgramAction::NetworkActivity(na) = action {
+                        if let NetworkActivity {
+                            address: SetSpecifier::One(action_addr),
+                            ..
+                        } = na.as_ref()
+                        {
+                            action_addr
+                        } else {
+                            return None;
+                        }
+                    } else {
                         return None;
                     };
                     let mut new_effect_address = effect_na.address.clone();
                     new_effect_address.remove(action_addr);
                     Some(OptionValueEffect::DenyAction(
-                        ProgramAction::NetworkActivity(NetworkActivity {
-                            address: new_effect_address,
-                            ..effect_na.to_owned()
-                        }),
+                        ProgramAction::NetworkActivity(
+                            NetworkActivity {
+                                address: new_effect_address,
+                                ..*effect_na.to_owned()
+                            }
+                            .into(),
+                        ),
                     ))
                 },
                 options: |effect, _| match effect {
-                    OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(
-                        NetworkActivity { address, .. },
-                    )) => {
+                    OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(na)) => {
+                        let NetworkActivity { address, .. } = na.as_ref();
                         vec![
                             OptionWithValue {
                                 name: "IPAddressDeny",
@@ -1769,13 +1795,16 @@ pub(crate) fn build_options(
             "CAP_NET_RAW",
             OptionValueEffect::Multiple(
                 iter::once(OptionValueEffect::DenyAction(
-                    ProgramAction::NetworkActivity(NetworkActivity {
-                        af: SetSpecifier::One(SocketFamily::Other("AF_PACKET".into())),
-                        proto: SetSpecifier::All,
-                        kind: SetSpecifier::All,
-                        local_port: SetSpecifier::All,
-                        address: SetSpecifier::All,
-                    }),
+                    ProgramAction::NetworkActivity(
+                        NetworkActivity {
+                            af: SetSpecifier::One(SocketFamily::Other("AF_PACKET".into())),
+                            proto: SetSpecifier::All,
+                            kind: SetSpecifier::All,
+                            local_port: SetSpecifier::All,
+                            address: SetSpecifier::All,
+                        }
+                        .into(),
+                    ),
                 ))
                 .chain(
                     // AF_NETLINK sockets use SOCK_RAW, but does not require CAP_NET_RAW
@@ -1788,7 +1817,8 @@ pub(crate) fn build_options(
                                 kind: SetSpecifier::All,
                                 local_port: SetSpecifier::All,
                                 address: SetSpecifier::All,
-                            },
+                            }
+                            .into(),
                         ))
                     }),
                 )

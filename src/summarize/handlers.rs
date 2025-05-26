@@ -456,13 +456,16 @@ fn handle_network(
             type_dst: type_name::<RawFd>(),
         })?,
     )) {
-        actions.push(ProgramAction::NetworkActivity(NetworkActivity {
-            af: SetSpecifier::One(af),
-            proto: SetSpecifier::One(proto.to_owned()),
-            kind: SetSpecifier::One(NetworkActivityKind::from_sc_name(name)),
-            local_port,
-            address: ip_addr,
-        }));
+        actions.push(ProgramAction::NetworkActivity(
+            NetworkActivity {
+                af: SetSpecifier::One(af),
+                proto: SetSpecifier::One(proto.to_owned()),
+                kind: SetSpecifier::One(NetworkActivityKind::from_sc_name(name)),
+                local_port,
+                address: ip_addr,
+            }
+            .into(),
+        ));
     }
 
     Ok(())
@@ -694,13 +697,16 @@ fn handle_socket(
         proto.clone(),
     );
 
-    actions.push(ProgramAction::NetworkActivity(NetworkActivity {
-        af: SetSpecifier::One(af),
-        proto: SetSpecifier::One(proto),
-        kind: SetSpecifier::One(NetworkActivityKind::SocketCreation),
-        local_port: SetSpecifier::All,
-        address: SetSpecifier::All,
-    }));
+    actions.push(ProgramAction::NetworkActivity(
+        NetworkActivity {
+            af: SetSpecifier::One(af),
+            proto: SetSpecifier::One(proto),
+            kind: SetSpecifier::One(NetworkActivityKind::SocketCreation),
+            local_port: SetSpecifier::All,
+            address: SetSpecifier::All,
+        }
+        .into(),
+    ));
     Ok(())
 }
 

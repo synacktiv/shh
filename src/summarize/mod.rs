@@ -37,7 +37,7 @@ pub(crate) enum ProgramAction {
     /// Mount propagated to host
     MountToHost,
     /// Network (socket) activity
-    NetworkActivity(NetworkActivity),
+    NetworkActivity(Box<NetworkActivity>),
     /// Memory mapping with write and execute bits
     WriteExecuteMemoryMapping,
     /// Set scheduler to a real time one
