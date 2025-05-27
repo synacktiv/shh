@@ -334,7 +334,7 @@ fn parse_expression_array(i: &str) -> IResult<&str, Expression> {
                 tag(", "),
                 (
                     opt(terminated(
-                        delimited(char('['), parse_int, char(']')),
+                        delimited(char('['), terminated(parse_int, parse_comment), char(']')),
                         char('='),
                     )),
                     parse_expression,
@@ -358,6 +358,7 @@ fn parse_int(i: &str) -> IResult<&str, IntegerExpression> {
     alt((
         parse_int_bit_or,
         parse_int_multiplication,
+        parse_int_substraction,
         parse_int_left_shift,
         parse_int_literal,
         parse_int_named,
@@ -408,6 +409,34 @@ fn parse_int_multiplication(i: &str) -> IResult<&str, IntegerExpression> {
                     .chain(rs.into_iter().map(|r| r.value).flat_map(|e| {
                         // Flatten child expressions
                         if let IntegerExpressionValue::Multiplication(es) = e {
+                            es.into_iter()
+                        } else {
+                            vec![e].into_iter()
+                        }
+                    }))
+                    .collect(),
+            ),
+            metadata: None,
+        },
+    )
+    .parse(i)
+}
+
+#[function_name::named]
+fn parse_int_substraction(i: &str) -> IResult<&str, IntegerExpression> {
+    dbg_parser!(i);
+    map(
+        separated_pair(
+            parse_int_named,
+            char('-'),
+            separated_list1(char('-'), parse_int),
+        ),
+        |(f, rs)| IntegerExpression {
+            value: IntegerExpressionValue::Substraction(
+                iter::once(f.value)
+                    .chain(rs.into_iter().map(|r| r.value).flat_map(|e| {
+                        // Flatten child expressions
+                        if let IntegerExpressionValue::Substraction(es) = e {
                             es.into_iter()
                         } else {
                             vec![e].into_iter()
@@ -561,4 +590,67 @@ fn parse_struct_member(i: &str) -> IResult<&str, (&str, Expression)> {
         alt((parse_in_out_argument, parse_expression)),
     )
     .parse(i)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_expression_array() {
+        assert_eq!(
+            parse_expression_array(
+                "[[IPV4_DEVCONF_BC_FORWARDING-1]=0, [IPV4_DEVCONF_ARP_EVICT_NOCARRIER-1]=1, [37 /* IPSTATS_MIB_??? */]=22]"
+            )
+            .unwrap(),
+            (
+                "",
+                Expression::Collection {
+                    complement: false,
+                    values: vec![
+                        (
+                            Some(IntegerExpression {
+                                value: IntegerExpressionValue::Substraction(vec![
+                                    IntegerExpressionValue::NamedConst(
+                                        "IPV4_DEVCONF_BC_FORWARDING".to_owned()
+                                    ),
+                                    IntegerExpressionValue::Literal(1)
+                                ]),
+                                metadata: None
+                            }),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(0),
+                                metadata: None
+                            })
+                        ),
+                        (
+                            Some(IntegerExpression {
+                                value: IntegerExpressionValue::Substraction(vec![
+                                    IntegerExpressionValue::NamedConst(
+                                        "IPV4_DEVCONF_ARP_EVICT_NOCARRIER".to_owned()
+                                    ),
+                                    IntegerExpressionValue::Literal(1)
+                                ]),
+                                metadata: None
+                            }),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(1),
+                                metadata: None
+                            })
+                        ),
+                        (
+                            Some(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(37),
+                                metadata: None
+                            }),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(22),
+                                metadata: None
+                            })
+                        )
+                    ]
+                }
+            )
+        );
+    }
 }

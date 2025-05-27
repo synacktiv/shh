@@ -80,6 +80,7 @@ impl Expression {
 pub(crate) enum IntegerExpressionValue {
     BinaryOr(Vec<IntegerExpressionValue>),
     Multiplication(Vec<IntegerExpressionValue>),
+    Substraction(Vec<IntegerExpressionValue>),
     LeftBitShift {
         bits: Box<IntegerExpressionValue>,
         shift: Box<IntegerExpressionValue>,
@@ -121,6 +122,12 @@ impl IntegerExpressionValue {
                 .collect::<Option<Vec<_>>>()?
                 .into_iter()
                 .reduce(|a, b| a * b),
+            IntegerExpressionValue::Substraction(values) => values
+                .iter()
+                .map(Self::value)
+                .collect::<Option<Vec<_>>>()?
+                .into_iter()
+                .reduce(|a, b| a - b),
             IntegerExpressionValue::LeftBitShift { bits, shift } => {
                 Some(bits.value()? << shift.value()?)
             }
