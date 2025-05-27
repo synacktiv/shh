@@ -10,7 +10,7 @@ use nom::{
         self, alpha1, alphanumeric1, char, digit1, hex_digit1, oct_digit1, space1,
     },
     combinator::{map, map_opt, map_res, opt, recognize},
-    multi::{many_till, many0_count, separated_list0, separated_list1},
+    multi::{count, many_till, many0_count, separated_list0, separated_list1},
     number::complete::double,
     sequence::{delimited, pair, preceded, separated_pair, terminated},
 };
@@ -188,6 +188,7 @@ fn parse_expression(i: &str) -> IResult<&str, Expression> {
         pair(
             alt((
                 parse_expression_macro,
+                parse_expression_mac_addr,
                 parse_expression_int,
                 parse_expression_struct,
                 parse_expression_buf,
@@ -219,6 +220,29 @@ fn parse_expression_macro(i: &str) -> IResult<&str, Expression> {
         |(n, args)| Expression::Macro {
             name: n.to_owned(),
             args,
+        },
+    )
+    .parse(i)
+}
+
+#[function_name::named]
+fn parse_expression_mac_addr(i: &str) -> IResult<&str, Expression> {
+    dbg_parser!(i);
+    map(
+        (
+            map_res(take(2_usize), |s| u8::from_str_radix(s, 16)),
+            count(
+                map_res(preceded(char(':'), take(2_usize)), |s| {
+                    u8::from_str_radix(s, 16)
+                }),
+                5,
+            ),
+        ),
+        |(f, o)| {
+            let mut mac = [0; 6];
+            mac[0] = f;
+            mac[1..].copy_from_slice(&o);
+            Expression::MacAddress(mac)
         },
     )
     .parse(i)

@@ -49,6 +49,7 @@ pub(crate) struct BufferExpression {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Expression {
     Buffer(BufferExpression),
+    MacAddress([u8; 6]),
     Integer(IntegerExpression),
     Struct(HashMap<String, Expression>),
     // The strace syntax can be ambiguous between array and set (ie sigset_t in sigprocmask),
