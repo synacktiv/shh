@@ -2267,6 +2267,53 @@ mod tests {
                 ret_val: IntegerExpression { value: IntegerExpressionValue::Literal(0), metadata: None }
             })
         );
+
+        // Note: not a real strace line
+        assert_eq!(
+            parse_line(
+                "176051      0.000020 recvmsg(3, {msg_namelen=128 => 16, msg_controllen=56, msg_flags=0}, 0) = 64"
+            )
+            .unwrap(),
+            ParseResult::Syscall(Syscall {
+                pid: 176051,
+                rel_ts: 0.000020,
+                name: "recvmsg".to_owned(),
+                args: vec![
+                    Expression::Integer(IntegerExpression {
+                        value: IntegerExpressionValue::Literal(3),
+                        metadata: None,
+                    }),
+                    Expression::Struct(HashMap::from([
+                        (
+                            "msg_namelen".to_owned(),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(128),
+                                metadata: None
+                            }),
+                        ),
+                        (
+                            "msg_controllen".to_owned(),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(56),
+                                metadata: None
+                            }),
+                        ),
+                        (
+                            "msg_flags".to_owned(),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(0),
+                                metadata: None
+                            }),
+                        ),
+                    ])),
+                    Expression::Integer(IntegerExpression {
+                        value: IntegerExpressionValue::Literal(0),
+                        metadata: None,
+                    }),
+                ],
+                ret_val: IntegerExpression { value: IntegerExpressionValue::Literal(64), metadata: None }
+            })
+        );
     }
 
     #[test]

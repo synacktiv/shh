@@ -555,5 +555,10 @@ fn parse_buffer_byte(i: &str) -> IResult<&str, u8> {
 #[function_name::named]
 fn parse_struct_member(i: &str) -> IResult<&str, (&str, Expression)> {
     dbg_parser!(i);
-    separated_pair(parse_symbol, char('='), parse_expression).parse(i)
+    separated_pair(
+        parse_symbol,
+        char('='),
+        alt((parse_in_out_argument, parse_expression)),
+    )
+    .parse(i)
 }
