@@ -602,7 +602,7 @@ mod tests {
             name: "renameat".to_owned(),
             args: vec![
                 Expression::Integer(IntegerExpression {
-                    value: IntegerExpressionValue::NamedConst("AT_FDCWD".to_owned()),
+                    value: IntegerExpressionValue::NamedSymbol("AT_FDCWD".to_owned()),
                     metadata: Some(temp_dir_src.path().as_os_str().as_bytes().to_vec()),
                 }),
                 Expression::Buffer(BufferExpression {
@@ -610,7 +610,7 @@ mod tests {
                     type_: BufferType::Unknown,
                 }),
                 Expression::Integer(IntegerExpression {
-                    value: IntegerExpressionValue::NamedConst("AT_FDCWD".to_owned()),
+                    value: IntegerExpressionValue::NamedSymbol("AT_FDCWD".to_owned()),
                     metadata: Some(temp_dir_dst.path().as_os_str().as_bytes().to_vec()),
                 }),
                 Expression::Buffer(BufferExpression {
@@ -618,7 +618,7 @@ mod tests {
                     type_: BufferType::Unknown,
                 }),
                 Expression::Integer(IntegerExpression {
-                    value: IntegerExpressionValue::NamedConst("RENAME_NOREPLACE".to_owned()),
+                    value: IntegerExpressionValue::NamedSymbol("RENAME_NOREPLACE".to_owned()),
                     metadata: None,
                 }),
             ],
@@ -663,7 +663,7 @@ mod tests {
                     (
                         "sa_family".to_owned(),
                         Expression::Integer(IntegerExpression {
-                            value: IntegerExpressionValue::NamedConst("AF_UNIX".to_owned()),
+                            value: IntegerExpressionValue::NamedSymbol("AF_UNIX".to_owned()),
                             metadata: None,
                         }),
                     ),

@@ -87,14 +87,14 @@ pub(crate) enum IntegerExpressionValue {
         args: Vec<Expression>,
     },
     Multiplication(Vec<IntegerExpressionValue>),
-    NamedConst(String),
+    NamedSymbol(String),
     Substraction(Vec<IntegerExpressionValue>),
 }
 
 impl IntegerExpressionValue {
     pub(crate) fn is_flag_set(&self, flag: &str) -> bool {
         match self {
-            IntegerExpressionValue::NamedConst(v) => flag == v,
+            IntegerExpressionValue::NamedSymbol(v) => flag == v,
             IntegerExpressionValue::BinaryOr(ces) => ces.iter().any(|ce| ce.is_flag_set(flag)),
             _ => false, // if it was a flag field, strace would have decoded it with named consts
         }
@@ -102,7 +102,7 @@ impl IntegerExpressionValue {
 
     pub(crate) fn flags(&self) -> Vec<String> {
         match self {
-            IntegerExpressionValue::NamedConst(v) => vec![v.clone()],
+            IntegerExpressionValue::NamedSymbol(v) => vec![v.clone()],
             IntegerExpressionValue::BinaryOr(vs) => {
                 vs.iter().flat_map(IntegerExpressionValue::flags).collect()
             }
@@ -134,7 +134,7 @@ impl IntegerExpressionValue {
                 Some(bits.value()? << shift.value()?)
             }
             IntegerExpressionValue::Literal(v) => Some(*v),
-            IntegerExpressionValue::NamedConst(_) | IntegerExpressionValue::Macro { .. } => None,
+            IntegerExpressionValue::NamedSymbol(_) | IntegerExpressionValue::Macro { .. } => None,
             IntegerExpressionValue::Multiplication(values) => values
                 .iter()
                 .map(Self::value)

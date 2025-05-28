@@ -170,7 +170,7 @@ mod tests {
                 name: "mmap".to_owned(),
                 args: vec![
                     Expression::Integer(IntegerExpression {
-                        value: IntegerExpressionValue::NamedConst("NULL".to_owned()),
+                        value: IntegerExpressionValue::NamedSymbol("NULL".to_owned()),
                         metadata: None,
                     }),
                     Expression::Integer(IntegerExpression {
@@ -179,15 +179,15 @@ mod tests {
                     }),
                     Expression::Integer(IntegerExpression {
                         value: IntegerExpressionValue::BinaryOr(vec![
-                            IntegerExpressionValue::NamedConst("PROT_READ".to_owned()),
-                            IntegerExpressionValue::NamedConst("PROT_WRITE".to_owned()),
+                            IntegerExpressionValue::NamedSymbol("PROT_READ".to_owned()),
+                            IntegerExpressionValue::NamedSymbol("PROT_WRITE".to_owned()),
                         ]),
                         metadata: None
                     }),
                     Expression::Integer(IntegerExpression {
                         value: IntegerExpressionValue::BinaryOr(vec![
-                            IntegerExpressionValue::NamedConst("MAP_PRIVATE".to_owned()),
-                            IntegerExpressionValue::NamedConst("MAP_ANONYMOUS".to_owned()),
+                            IntegerExpressionValue::NamedSymbol("MAP_PRIVATE".to_owned()),
+                            IntegerExpressionValue::NamedSymbol("MAP_ANONYMOUS".to_owned()),
                         ]),
                         metadata:None
                     }),
@@ -224,16 +224,16 @@ mod tests {
                     }),
                     Expression::Integer(IntegerExpression {
                         value: IntegerExpressionValue::BinaryOr(vec![
-                            IntegerExpressionValue::NamedConst("PROT_READ".to_owned()),
-                            IntegerExpressionValue::NamedConst("PROT_EXEC".to_owned()),
+                            IntegerExpressionValue::NamedSymbol("PROT_READ".to_owned()),
+                            IntegerExpressionValue::NamedSymbol("PROT_EXEC".to_owned()),
                         ]),
                         metadata: None
                     }),
                     Expression::Integer(IntegerExpression {
                         value: IntegerExpressionValue::BinaryOr(vec![
-                            IntegerExpressionValue::NamedConst("MAP_PRIVATE".to_owned()),
-                            IntegerExpressionValue::NamedConst("MAP_FIXED".to_owned()),
-                            IntegerExpressionValue::NamedConst("MAP_DENYWRITE".to_owned()),
+                            IntegerExpressionValue::NamedSymbol("MAP_PRIVATE".to_owned()),
+                            IntegerExpressionValue::NamedSymbol("MAP_FIXED".to_owned()),
+                            IntegerExpressionValue::NamedSymbol("MAP_DENYWRITE".to_owned()),
                         ]),
                         metadata: None
                     }),
@@ -269,7 +269,7 @@ mod tests {
                         type_: BufferType::Unknown
                     }),
                     Expression::Integer(IntegerExpression {
-                        value: IntegerExpressionValue::NamedConst("R_OK".to_owned()),
+                        value: IntegerExpressionValue::NamedSymbol("R_OK".to_owned()),
                         metadata: None,
                     }),
                 ],
@@ -292,14 +292,14 @@ mod tests {
                 name: "rt_sigaction".to_owned(),
                 args: vec![
                     Expression::Integer(IntegerExpression {
-                        value: IntegerExpressionValue::NamedConst("SIGTERM".to_owned()),
+                        value: IntegerExpressionValue::NamedSymbol("SIGTERM".to_owned()),
                         metadata: None,
                     }),
                     Expression::Struct(HashMap::from([
                         (
                             "sa_handler".to_owned(),
                             Expression::Integer(IntegerExpression {
-                                value: IntegerExpressionValue::NamedConst("SIG_DFL".to_owned()),
+                                value: IntegerExpressionValue::NamedSymbol("SIG_DFL".to_owned()),
                                 metadata: None,
                             }),
                         ),
@@ -312,7 +312,7 @@ mod tests {
                                         None,
                                         Expression::Integer(
                                             IntegerExpression {
-                                                value: IntegerExpressionValue::NamedConst("RTMIN".to_owned()), 
+                                                value: IntegerExpressionValue::NamedSymbol("RTMIN".to_owned()), 
                                                 metadata: None
                                             }
                                         )
@@ -321,7 +321,7 @@ mod tests {
                                         None,
                                         Expression::Integer(
                                             IntegerExpression {
-                                                value: IntegerExpressionValue::NamedConst("RT_1".to_owned()), 
+                                                value: IntegerExpressionValue::NamedSymbol("RT_1".to_owned()), 
                                                 metadata: None
                                             }
                                         )
@@ -332,7 +332,7 @@ mod tests {
                         (
                             "sa_flags".to_owned(),
                             Expression::Integer(IntegerExpression {
-                                value: IntegerExpressionValue::NamedConst("SA_RESTORER".to_owned()),
+                                value: IntegerExpressionValue::NamedSymbol("SA_RESTORER".to_owned()),
                                 metadata: None,
                             }),
                         ),
@@ -345,7 +345,7 @@ mod tests {
                         ),
                     ])),
                     Expression::Integer(IntegerExpression {
-                        value: IntegerExpressionValue::NamedConst("NULL".to_owned()),
+                        value: IntegerExpressionValue::NamedSymbol("NULL".to_owned()),
                         metadata: None,
                     }),
                     Expression::Integer(IntegerExpression {
@@ -369,7 +369,7 @@ mod tests {
                 name: "rt_sigprocmask".to_owned(),
                 args: vec![
                     Expression::Integer(IntegerExpression {
-                        value: IntegerExpressionValue::NamedConst(
+                        value: IntegerExpressionValue::NamedSymbol(
                             "SIG_SETMASK".to_owned(),
                         ),
                         metadata: None,
@@ -385,7 +385,7 @@ mod tests {
                                 None,
                                 Expression::Integer(
                                     IntegerExpression {
-                                        value: IntegerExpressionValue::NamedConst("KILL".to_owned()),
+                                        value: IntegerExpressionValue::NamedSymbol("KILL".to_owned()),
                                         metadata: None
                                     }
                                 )
@@ -394,7 +394,7 @@ mod tests {
                                 None,
                                 Expression::Integer(
                                     IntegerExpression {
-                                        value: IntegerExpressionValue::NamedConst("STOP".to_owned()),
+                                        value: IntegerExpressionValue::NamedSymbol("STOP".to_owned()),
                                         metadata: None
                                     }
                                 )
@@ -403,7 +403,7 @@ mod tests {
                                 None,
                                 Expression::Integer(
                                     IntegerExpression {
-                                        value: IntegerExpressionValue::NamedConst("RTMIN".to_owned()),
+                                        value: IntegerExpressionValue::NamedSymbol("RTMIN".to_owned()),
                                         metadata: None
                                     }
                                 )
@@ -412,7 +412,7 @@ mod tests {
                                 None,
                                 Expression::Integer(
                                     IntegerExpression {
-                                        value: IntegerExpressionValue::NamedConst("RT_1".to_owned()),
+                                        value: IntegerExpressionValue::NamedSymbol("RT_1".to_owned()),
                                         metadata: None
                                     }
                                 )
@@ -445,7 +445,7 @@ mod tests {
                 name: "newfstatat".to_owned(),
                 args: vec![
                     Expression::Integer(IntegerExpression {
-                        value: IntegerExpressionValue::NamedConst("AT_FDCWD".to_owned()),
+                        value: IntegerExpressionValue::NamedSymbol("AT_FDCWD".to_owned()),
                         metadata: None,
                     }),
                     Expression::Buffer(BufferExpression {
@@ -485,7 +485,7 @@ mod tests {
                             "st_mode".to_owned(),
                             Expression::Integer(IntegerExpression {
                                 value: IntegerExpressionValue::BinaryOr(vec![
-                                    IntegerExpressionValue::NamedConst("S_IFDIR".to_owned()),
+                                    IntegerExpressionValue::NamedSymbol("S_IFDIR".to_owned()),
                                     IntegerExpressionValue::Literal(0o755)
                                 ]),
                                 metadata: None,
@@ -608,7 +608,7 @@ mod tests {
                         metadata: None
                     }),
                     Expression::Integer(IntegerExpression {
-                        value: IntegerExpressionValue::NamedConst("GRND_NONBLOCK".to_owned()),
+                        value: IntegerExpressionValue::NamedSymbol("GRND_NONBLOCK".to_owned()),
                         metadata: None,
                     }),
                 ],
@@ -638,7 +638,7 @@ mod tests {
                         (
                             "f_type".to_owned(),
                             Expression::Integer(IntegerExpression {
-                                value: IntegerExpressionValue::NamedConst("EXT2_SUPER_MAGIC".to_owned()),
+                                value: IntegerExpressionValue::NamedSymbol("EXT2_SUPER_MAGIC".to_owned()),
                                 metadata: None,
                             }),
                         ),
@@ -729,8 +729,8 @@ mod tests {
                             "f_flags".to_owned(),
                             Expression::Integer(IntegerExpression {
                                 value: IntegerExpressionValue::BinaryOr(vec![
-                                    IntegerExpressionValue::NamedConst("ST_VALID".to_owned()),
-                                    IntegerExpressionValue::NamedConst("ST_NOATIME".to_owned())
+                                    IntegerExpressionValue::NamedSymbol("ST_VALID".to_owned()),
+                                    IntegerExpressionValue::NamedSymbol("ST_NOATIME".to_owned())
                                 ]),
                                 metadata: None,
                             }),
@@ -758,7 +758,7 @@ mod tests {
                         (
                             "f_type".to_owned(),
                             Expression::Integer(IntegerExpression {
-                                value: IntegerExpressionValue::NamedConst("PROC_SUPER_MAGIC".to_owned()),
+                                value: IntegerExpressionValue::NamedSymbol("PROC_SUPER_MAGIC".to_owned()),
                                 metadata: None,
                             }),
                         ),
@@ -849,11 +849,11 @@ mod tests {
                             "f_flags".to_owned(),
                             Expression::Integer(IntegerExpression {
                                 value: IntegerExpressionValue::BinaryOr(vec![
-                                    IntegerExpressionValue::NamedConst("ST_VALID".to_owned()),
-                                    IntegerExpressionValue::NamedConst("ST_NOSUID".to_owned()),
-                                    IntegerExpressionValue::NamedConst("ST_NODEV".to_owned()),
-                                    IntegerExpressionValue::NamedConst("ST_NOEXEC".to_owned()),
-                                    IntegerExpressionValue::NamedConst("ST_RELATIME".to_owned())
+                                    IntegerExpressionValue::NamedSymbol("ST_VALID".to_owned()),
+                                    IntegerExpressionValue::NamedSymbol("ST_NOSUID".to_owned()),
+                                    IntegerExpressionValue::NamedSymbol("ST_NODEV".to_owned()),
+                                    IntegerExpressionValue::NamedSymbol("ST_NOEXEC".to_owned()),
+                                    IntegerExpressionValue::NamedSymbol("ST_RELATIME".to_owned())
                                 ]),
                                 metadata: None,
                             }),
@@ -879,7 +879,7 @@ mod tests {
                 name: "openat".to_owned(),
                 args: vec![
                     Expression::Integer(IntegerExpression {
-                        value: IntegerExpressionValue::NamedConst("AT_FDCWD".to_owned()),
+                        value: IntegerExpressionValue::NamedSymbol("AT_FDCWD".to_owned()),
                         metadata: Some("/home/mde/src/shh".as_bytes().to_vec()),
                     }),
                     Expression::Buffer(BufferExpression {
@@ -888,10 +888,10 @@ mod tests {
                     }),
                     Expression::Integer(IntegerExpression {
                         value: IntegerExpressionValue::BinaryOr(vec![
-                            IntegerExpressionValue::NamedConst("O_RDONLY".to_owned()),
-                            IntegerExpressionValue::NamedConst("O_NONBLOCK".to_owned()),
-                            IntegerExpressionValue::NamedConst("O_CLOEXEC".to_owned()),
-                            IntegerExpressionValue::NamedConst("O_DIRECTORY".to_owned())
+                            IntegerExpressionValue::NamedSymbol("O_RDONLY".to_owned()),
+                            IntegerExpressionValue::NamedSymbol("O_NONBLOCK".to_owned()),
+                            IntegerExpressionValue::NamedSymbol("O_CLOEXEC".to_owned()),
+                            IntegerExpressionValue::NamedSymbol("O_DIRECTORY".to_owned())
                         ]),
                         metadata: None,
                     }),
@@ -937,7 +937,7 @@ mod tests {
                                     (
                                         "nlmsg_type".to_owned(),
                                         Expression::Integer(IntegerExpression {
-                                            value: IntegerExpressionValue::NamedConst("RTM_GETADDR".to_owned()),
+                                            value: IntegerExpressionValue::NamedSymbol("RTM_GETADDR".to_owned()),
                                             metadata: None,
                                         }),
                                     ),
@@ -945,8 +945,8 @@ mod tests {
                                         "nlmsg_flags".to_owned(),
                                         Expression::Integer(IntegerExpression {
                                             value: IntegerExpressionValue::BinaryOr(vec![
-                                                IntegerExpressionValue::NamedConst("NLM_F_REQUEST".to_owned()),
-                                                IntegerExpressionValue::NamedConst("NLM_F_DUMP".to_owned()),
+                                                IntegerExpressionValue::NamedSymbol("NLM_F_REQUEST".to_owned()),
+                                                IntegerExpressionValue::NamedSymbol("NLM_F_DUMP".to_owned()),
                                             ]),
                                             metadata: None,
                                         }),
@@ -973,7 +973,7 @@ mod tests {
                                     (
                                         "ifa_family".to_owned(),
                                         Expression::Integer(IntegerExpression {
-                                            value: IntegerExpressionValue::NamedConst("AF_UNSPEC".to_owned()),
+                                            value: IntegerExpressionValue::NamedSymbol("AF_UNSPEC".to_owned()),
                                             metadata: None,
                                         }),
                                     ),
@@ -993,7 +993,7 @@ mod tests {
                         (
                             "sa_family".to_owned(),
                             Expression::Integer(IntegerExpression {
-                                value: IntegerExpressionValue::NamedConst("AF_NETLINK".to_owned()),
+                                value: IntegerExpressionValue::NamedSymbol("AF_NETLINK".to_owned()),
                                 metadata: None,
                             }),
                         ),
@@ -1081,7 +1081,7 @@ mod tests {
                         (
                             "sa_family".to_owned(),
                             Expression::Integer(IntegerExpression {
-                                value: IntegerExpressionValue::NamedConst("AF_UNIX".to_owned()),
+                                value: IntegerExpressionValue::NamedSymbol("AF_UNIX".to_owned()),
                                 metadata: None,
                             }),
                         ),
@@ -1119,7 +1119,7 @@ mod tests {
                         (
                             "sa_family".to_owned(),
                             Expression::Integer(IntegerExpression {
-                                value: IntegerExpressionValue::NamedConst("AF_INET".to_owned()),
+                                value: IntegerExpressionValue::NamedSymbol("AF_INET".to_owned()),
                                 metadata: None,
                             }),
                         ),
@@ -1186,7 +1186,7 @@ mod tests {
                         metadata: None,
                     }),
                     Expression::Integer(IntegerExpression {
-                        value: IntegerExpressionValue::NamedConst("RLIMIT_NOFILE".to_owned()),
+                        value: IntegerExpressionValue::NamedSymbol("RLIMIT_NOFILE".to_owned()),
                         metadata: None,
                     }),
                     Expression::Struct(HashMap::from([
@@ -1212,7 +1212,7 @@ mod tests {
                         ),
                     ])),
                     Expression::Integer(IntegerExpression {
-                        value: IntegerExpressionValue::NamedConst("NULL".to_owned()),
+                        value: IntegerExpressionValue::NamedSymbol("NULL".to_owned()),
                         metadata: None,
                     }),
                 ],
@@ -1239,7 +1239,7 @@ mod tests {
                         metadata: Some("anon_inode:[eventpoll]".as_bytes().to_vec()),
                     }),
                     Expression::Integer(IntegerExpression {
-                        value: IntegerExpressionValue::NamedConst("EPOLL_CTL_ADD".to_owned()),
+                        value: IntegerExpressionValue::NamedSymbol("EPOLL_CTL_ADD".to_owned()),
                         metadata: None,
                     }),
                     Expression::Integer(IntegerExpression {
@@ -1250,7 +1250,7 @@ mod tests {
                         (
                             "events".to_owned(),
                             Expression::Integer(IntegerExpression {
-                                value: IntegerExpressionValue::NamedConst("EPOLLIN".to_owned()),
+                                value: IntegerExpressionValue::NamedSymbol("EPOLLIN".to_owned()),
                                 metadata: None,
                             }),
                         ),
@@ -1301,7 +1301,7 @@ mod tests {
                                     (
                                         "events".to_owned(),
                                         Expression::Integer(IntegerExpression {
-                                            value: IntegerExpressionValue::NamedConst("EPOLLOUT".to_owned()),
+                                            value: IntegerExpressionValue::NamedSymbol("EPOLLOUT".to_owned()),
                                             metadata: None,
                                         }),
                                     ),
@@ -1332,7 +1332,7 @@ mod tests {
                                     (
                                         "events".to_owned(),
                                         Expression::Integer(IntegerExpression {
-                                            value: IntegerExpressionValue::NamedConst("EPOLLOUT".to_owned()),
+                                            value: IntegerExpressionValue::NamedSymbol("EPOLLOUT".to_owned()),
                                             metadata: None,
                                         }),
                                     ),
@@ -1368,7 +1368,7 @@ mod tests {
                         metadata: None,
                     }),
                     Expression::Integer(IntegerExpression {
-                        value: IntegerExpressionValue::NamedConst("NULL".to_owned()),
+                        value: IntegerExpressionValue::NamedSymbol("NULL".to_owned()),
                         metadata: None,
                     }),
                     Expression::Integer(IntegerExpression {
@@ -1404,7 +1404,7 @@ mod tests {
                     name: "clock_gettime".to_owned(),
                     args: vec![
                         Expression::Integer(IntegerExpression {
-                            value: IntegerExpressionValue::NamedConst("CLOCK_REALTIME".to_owned()),
+                            value: IntegerExpressionValue::NamedSymbol("CLOCK_REALTIME".to_owned()),
                             metadata: None,
                         }),
                         Expression::Struct(HashMap::from([
@@ -1449,15 +1449,15 @@ mod tests {
                             )]
                         },
                         Expression::Integer(IntegerExpression {
-                            value: IntegerExpressionValue::NamedConst("NULL".to_owned()),
+                            value: IntegerExpressionValue::NamedSymbol("NULL".to_owned()),
                             metadata: None,
                         }),
                         Expression::Integer(IntegerExpression {
-                            value: IntegerExpressionValue::NamedConst("NULL".to_owned()),
+                            value: IntegerExpressionValue::NamedSymbol("NULL".to_owned()),
                             metadata: None,
                         }),
                         Expression::Integer(IntegerExpression {
-                            value: IntegerExpressionValue::NamedConst("NULL".to_owned()),
+                            value: IntegerExpressionValue::NamedSymbol("NULL".to_owned()),
                             metadata: None,
                         }),
                     ],
@@ -1668,7 +1668,7 @@ mod tests {
                     ),
                     Expression::Integer(
                         IntegerExpression {
-                            value: IntegerExpressionValue::NamedConst(
+                            value: IntegerExpressionValue::NamedSymbol(
                                 "TCSETSW".to_owned(),
                             ),
                             metadata: None,
@@ -1681,13 +1681,13 @@ mod tests {
                                 IntegerExpression {
                                     value: IntegerExpressionValue::BinaryOr(
                                         vec![
-                                            IntegerExpressionValue::NamedConst(
+                                            IntegerExpressionValue::NamedSymbol(
                                                 "B38400".to_owned(),
                                             ),
-                                            IntegerExpressionValue::NamedConst(
+                                            IntegerExpressionValue::NamedSymbol(
                                                 "CS8".to_owned(),
                                             ),
-                                            IntegerExpressionValue::NamedConst(
+                                            IntegerExpressionValue::NamedSymbol(
                                                 "CREAD".to_owned(),
                                             ),
                                         ],
@@ -1702,28 +1702,28 @@ mod tests {
                                 IntegerExpression {
                                     value: IntegerExpressionValue::BinaryOr(
                                         vec![
-                                            IntegerExpressionValue::NamedConst(
+                                            IntegerExpressionValue::NamedSymbol(
                                                 "ISIG".to_owned(),
                                             ),
-                                            IntegerExpressionValue::NamedConst(
+                                            IntegerExpressionValue::NamedSymbol(
                                                 "ICANON".to_owned(),
                                             ),
-                                            IntegerExpressionValue::NamedConst(
+                                            IntegerExpressionValue::NamedSymbol(
                                                 "ECHO".to_owned(),
                                             ),
-                                            IntegerExpressionValue::NamedConst(
+                                            IntegerExpressionValue::NamedSymbol(
                                                 "ECHOE".to_owned(),
                                             ),
-                                            IntegerExpressionValue::NamedConst(
+                                            IntegerExpressionValue::NamedSymbol(
                                                 "ECHOK".to_owned(),
                                             ),
-                                            IntegerExpressionValue::NamedConst(
+                                            IntegerExpressionValue::NamedSymbol(
                                                 "IEXTEN".to_owned(),
                                             ),
-                                            IntegerExpressionValue::NamedConst(
+                                            IntegerExpressionValue::NamedSymbol(
                                                 "ECHOCTL".to_owned(),
                                             ),
-                                            IntegerExpressionValue::NamedConst(
+                                            IntegerExpressionValue::NamedSymbol(
                                                 "ECHOKE".to_owned(),
                                             ),
                                         ],
@@ -1740,7 +1740,7 @@ mod tests {
                                     (
                                         Some(
                                             IntegerExpression {
-                                                value: IntegerExpressionValue::NamedConst(
+                                                value: IntegerExpressionValue::NamedSymbol(
                                                     "VINTR".to_owned(),
                                                 ),
                                                 metadata: None,
@@ -1758,7 +1758,7 @@ mod tests {
                                     (
                                         Some(
                                             IntegerExpression {
-                                                value: IntegerExpressionValue::NamedConst(
+                                                value: IntegerExpressionValue::NamedSymbol(
                                                     "VQUIT".to_owned(),
                                                 ),
                                                 metadata: None,
@@ -1776,7 +1776,7 @@ mod tests {
                                     (
                                         Some(
                                             IntegerExpression {
-                                                value: IntegerExpressionValue::NamedConst(
+                                                value: IntegerExpressionValue::NamedSymbol(
                                                     "VERASE".to_owned(),
                                                 ),
                                                 metadata: None,
@@ -1794,7 +1794,7 @@ mod tests {
                                     (
                                         Some(
                                             IntegerExpression {
-                                                value: IntegerExpressionValue::NamedConst(
+                                                value: IntegerExpressionValue::NamedSymbol(
                                                     "VKILL".to_owned(),
                                                 ),
                                                 metadata: None,
@@ -1812,7 +1812,7 @@ mod tests {
                                     (
                                         Some(
                                             IntegerExpression {
-                                                value: IntegerExpressionValue::NamedConst(
+                                                value: IntegerExpressionValue::NamedSymbol(
                                                     "VEOF".to_owned(),
                                                 ),
                                                 metadata: None,
@@ -1830,7 +1830,7 @@ mod tests {
                                     (
                                         Some(
                                             IntegerExpression {
-                                                value: IntegerExpressionValue::NamedConst(
+                                                value: IntegerExpressionValue::NamedSymbol(
                                                     "VTIME".to_owned(),
                                                 ),
                                                 metadata: None,
@@ -1848,7 +1848,7 @@ mod tests {
                                     (
                                         Some(
                                             IntegerExpression {
-                                                value: IntegerExpressionValue::NamedConst(
+                                                value: IntegerExpressionValue::NamedSymbol(
                                                     "VMIN".to_owned(),
                                                 ),
                                                 metadata: None,
@@ -1866,7 +1866,7 @@ mod tests {
                                     (
                                         Some(
                                             IntegerExpression {
-                                                value: IntegerExpressionValue::NamedConst(
+                                                value: IntegerExpressionValue::NamedSymbol(
                                                     "VSWTC".to_owned(),
                                                 ),
                                                 metadata: None,
@@ -1884,7 +1884,7 @@ mod tests {
                                     (
                                         Some(
                                             IntegerExpression {
-                                                value: IntegerExpressionValue::NamedConst(
+                                                value: IntegerExpressionValue::NamedSymbol(
                                                     "VSTART".to_owned(),
                                                 ),
                                                 metadata: None,
@@ -1902,7 +1902,7 @@ mod tests {
                                     (
                                         Some(
                                             IntegerExpression {
-                                                value: IntegerExpressionValue::NamedConst(
+                                                value: IntegerExpressionValue::NamedSymbol(
                                                     "VSTOP".to_owned(),
                                                 ),
                                                 metadata: None,
@@ -1920,7 +1920,7 @@ mod tests {
                                     (
                                         Some(
                                             IntegerExpression {
-                                                value: IntegerExpressionValue::NamedConst(
+                                                value: IntegerExpressionValue::NamedSymbol(
                                                     "VSUSP".to_owned(),
                                                 ),
                                                 metadata: None,
@@ -1938,7 +1938,7 @@ mod tests {
                                     (
                                         Some(
                                             IntegerExpression {
-                                                value: IntegerExpressionValue::NamedConst(
+                                                value: IntegerExpressionValue::NamedSymbol(
                                                     "VEOL".to_owned(),
                                                 ),
                                                 metadata: None,
@@ -1956,7 +1956,7 @@ mod tests {
                                     (
                                         Some(
                                             IntegerExpression {
-                                                value: IntegerExpressionValue::NamedConst(
+                                                value: IntegerExpressionValue::NamedSymbol(
                                                     "VREPRINT".to_owned(),
                                                 ),
                                                 metadata: None,
@@ -1974,7 +1974,7 @@ mod tests {
                                     (
                                         Some(
                                             IntegerExpression {
-                                                value: IntegerExpressionValue::NamedConst(
+                                                value: IntegerExpressionValue::NamedSymbol(
                                                     "VDISCARD".to_owned(),
                                                 ),
                                                 metadata: None,
@@ -1992,7 +1992,7 @@ mod tests {
                                     (
                                         Some(
                                             IntegerExpression {
-                                                value: IntegerExpressionValue::NamedConst(
+                                                value: IntegerExpressionValue::NamedSymbol(
                                                     "VWERASE".to_owned(),
                                                 ),
                                                 metadata: None,
@@ -2010,7 +2010,7 @@ mod tests {
                                     (
                                         Some(
                                             IntegerExpression {
-                                                value: IntegerExpressionValue::NamedConst(
+                                                value: IntegerExpressionValue::NamedSymbol(
                                                     "VLNEXT".to_owned(),
                                                 ),
                                                 metadata: None,
@@ -2028,7 +2028,7 @@ mod tests {
                                     (
                                         Some(
                                             IntegerExpression {
-                                                value: IntegerExpressionValue::NamedConst(
+                                                value: IntegerExpressionValue::NamedSymbol(
                                                     "VEOL2".to_owned(),
                                                 ),
                                                 metadata: None,
@@ -2086,7 +2086,7 @@ mod tests {
                             "c_line".to_owned(),
                             Expression::Integer(
                                 IntegerExpression {
-                                    value: IntegerExpressionValue::NamedConst(
+                                    value: IntegerExpressionValue::NamedSymbol(
                                         "N_TTY".to_owned(),
                                     ),
                                     metadata: None,
@@ -2099,28 +2099,28 @@ mod tests {
                                 IntegerExpression {
                                     value: IntegerExpressionValue::BinaryOr(
                                         vec![
-                                            IntegerExpressionValue::NamedConst(
+                                            IntegerExpressionValue::NamedSymbol(
                                                 "NL0".to_owned(),
                                             ),
-                                            IntegerExpressionValue::NamedConst(
+                                            IntegerExpressionValue::NamedSymbol(
                                                 "CR0".to_owned(),
                                             ),
-                                            IntegerExpressionValue::NamedConst(
+                                            IntegerExpressionValue::NamedSymbol(
                                                 "TAB0".to_owned(),
                                             ),
-                                            IntegerExpressionValue::NamedConst(
+                                            IntegerExpressionValue::NamedSymbol(
                                                 "BS0".to_owned(),
                                             ),
-                                            IntegerExpressionValue::NamedConst(
+                                            IntegerExpressionValue::NamedSymbol(
                                                 "VT0".to_owned(),
                                             ),
-                                            IntegerExpressionValue::NamedConst(
+                                            IntegerExpressionValue::NamedSymbol(
                                                 "FF0".to_owned(),
                                             ),
-                                            IntegerExpressionValue::NamedConst(
+                                            IntegerExpressionValue::NamedSymbol(
                                                 "OPOST".to_owned(),
                                             ),
-                                            IntegerExpressionValue::NamedConst(
+                                            IntegerExpressionValue::NamedSymbol(
                                                 "ONLCR".to_owned(),
                                             ),
                                         ],
@@ -2135,13 +2135,13 @@ mod tests {
                                 IntegerExpression {
                                     value: IntegerExpressionValue::BinaryOr(
                                         vec![
-                                            IntegerExpressionValue::NamedConst(
+                                            IntegerExpressionValue::NamedSymbol(
                                                 "ICRNL".to_owned(),
                                             ),
-                                            IntegerExpressionValue::NamedConst(
+                                            IntegerExpressionValue::NamedSymbol(
                                                 "IXON".to_owned(),
                                             ),
-                                            IntegerExpressionValue::NamedConst(
+                                            IntegerExpressionValue::NamedSymbol(
                                                 "IUTF8".to_owned(),
                                             ),
                                         ],
@@ -2176,15 +2176,15 @@ mod tests {
                             "flags".to_owned(),
                             Expression::Integer(IntegerExpression {
                                 value: IntegerExpressionValue::BinaryOr(vec![
-                                    IntegerExpressionValue::NamedConst("CLONE_VM".to_owned()),
-                                    IntegerExpressionValue::NamedConst("CLONE_FS".to_owned()),
-                                    IntegerExpressionValue::NamedConst("CLONE_FILES".to_owned()),
-                                    IntegerExpressionValue::NamedConst("CLONE_SIGHAND".to_owned()),
-                                    IntegerExpressionValue::NamedConst("CLONE_THREAD".to_owned()),
-                                    IntegerExpressionValue::NamedConst("CLONE_SYSVSEM".to_owned()),
-                                    IntegerExpressionValue::NamedConst("CLONE_SETTLS".to_owned()),
-                                    IntegerExpressionValue::NamedConst("CLONE_PARENT_SETTID".to_owned()),
-                                    IntegerExpressionValue::NamedConst("CLONE_CHILD_CLEARTID".to_owned()),
+                                    IntegerExpressionValue::NamedSymbol("CLONE_VM".to_owned()),
+                                    IntegerExpressionValue::NamedSymbol("CLONE_FS".to_owned()),
+                                    IntegerExpressionValue::NamedSymbol("CLONE_FILES".to_owned()),
+                                    IntegerExpressionValue::NamedSymbol("CLONE_SIGHAND".to_owned()),
+                                    IntegerExpressionValue::NamedSymbol("CLONE_THREAD".to_owned()),
+                                    IntegerExpressionValue::NamedSymbol("CLONE_SYSVSEM".to_owned()),
+                                    IntegerExpressionValue::NamedSymbol("CLONE_SETTLS".to_owned()),
+                                    IntegerExpressionValue::NamedSymbol("CLONE_PARENT_SETTID".to_owned()),
+                                    IntegerExpressionValue::NamedSymbol("CLONE_CHILD_CLEARTID".to_owned()),
                                 ]),
                                 metadata: None
                             }),
@@ -2262,7 +2262,7 @@ mod tests {
                         (
                             "sa_family".to_owned(),
                             Expression::Integer(IntegerExpression {
-                                value: IntegerExpressionValue::NamedConst("AF_UNIX".to_owned()),
+                                value: IntegerExpressionValue::NamedSymbol("AF_UNIX".to_owned()),
                                 metadata: None
                             }),
                         ),
@@ -2349,7 +2349,7 @@ mod tests {
                         (
                             "child_stack".to_owned(),
                             Expression::Integer(IntegerExpression {
-                                value: IntegerExpressionValue::NamedConst("NULL".to_owned()),
+                                value: IntegerExpressionValue::NamedSymbol("NULL".to_owned()),
                                 metadata: None,
                             }),
                         ),
@@ -2357,9 +2357,9 @@ mod tests {
                             "flags".to_owned(),
                             Expression::Integer(IntegerExpression {
                                 value: IntegerExpressionValue::BinaryOr(vec![
-                                    IntegerExpressionValue::NamedConst("CLONE_CHILD_CLEARTID".to_owned()),
-                                    IntegerExpressionValue::NamedConst("CLONE_CHILD_SETTID".to_owned()),
-                                    IntegerExpressionValue::NamedConst("SIGCHLD".to_owned()),
+                                    IntegerExpressionValue::NamedSymbol("CLONE_CHILD_CLEARTID".to_owned()),
+                                    IntegerExpressionValue::NamedSymbol("CLONE_CHILD_SETTID".to_owned()),
+                                    IntegerExpressionValue::NamedSymbol("SIGCHLD".to_owned()),
                                 ]),
                                 metadata: None
                             }),
@@ -2399,7 +2399,7 @@ mod tests {
                         (
                             "version".to_owned(),
                             Expression::Integer(IntegerExpression {
-                                value: IntegerExpressionValue::NamedConst("_LINUX_CAPABILITY_VERSION_3".to_owned()),
+                                value: IntegerExpressionValue::NamedSymbol("_LINUX_CAPABILITY_VERSION_3".to_owned()),
                                 metadata: None,
                             }),
                         ),
@@ -2417,7 +2417,7 @@ mod tests {
                             Expression::Integer(IntegerExpression {
                                 value: IntegerExpressionValue::LeftBitShift {
                                     bits: Box::new(IntegerExpressionValue::Literal(1)),
-                                    shift: Box::new(IntegerExpressionValue::NamedConst("CAP_SYS_CHROOT".to_owned())),
+                                    shift: Box::new(IntegerExpressionValue::NamedSymbol("CAP_SYS_CHROOT".to_owned())),
                                 },
                                 metadata: None,
                             }),
@@ -2427,7 +2427,7 @@ mod tests {
                             Expression::Integer(IntegerExpression {
                                 value: IntegerExpressionValue::LeftBitShift {
                                     bits: Box::new(IntegerExpressionValue::Literal(1)),
-                                    shift: Box::new(IntegerExpressionValue::NamedConst("CAP_SYS_CHROOT".to_owned())),
+                                    shift: Box::new(IntegerExpressionValue::NamedSymbol("CAP_SYS_CHROOT".to_owned())),
                                 },
                                 metadata: None,
                             }),
@@ -2468,7 +2468,7 @@ mod tests {
                         (
                             "sa_family".to_owned(),
                             Expression::Integer(IntegerExpression {
-                                value: IntegerExpressionValue::NamedConst("AF_INET6".to_owned()),
+                                value: IntegerExpressionValue::NamedSymbol("AF_INET6".to_owned()),
                                 metadata: None,
                             }),
                         ),
@@ -2514,7 +2514,7 @@ mod tests {
                                         name: "inet_pton".to_owned(),
                                         args: vec![
                                             Expression::Integer(IntegerExpression {
-                                                value: IntegerExpressionValue::NamedConst("AF_INET6".to_owned()),
+                                                value: IntegerExpressionValue::NamedSymbol("AF_INET6".to_owned()),
                                                 metadata: None,
                                             }),
                                             Expression::Buffer(BufferExpression {
@@ -2569,7 +2569,7 @@ mod tests {
                             IntegerExpressionValue::Macro { name: "WIFEXITED".to_owned(), args: vec![
                                 Expression::Integer(
                                     IntegerExpression {
-                                        value: IntegerExpressionValue::NamedConst("s".to_owned()),
+                                        value: IntegerExpressionValue::NamedSymbol("s".to_owned()),
                                         metadata: None
                                     }
                                 )
@@ -2578,7 +2578,7 @@ mod tests {
                                 IntegerExpressionValue::Macro { name: "WEXITSTATUS".to_owned(), args: vec![
                                     Expression::Integer(
                                         IntegerExpression {
-                                            value: IntegerExpressionValue::NamedConst("s".to_owned()),
+                                            value: IntegerExpressionValue::NamedSymbol("s".to_owned()),
                                             metadata: None
                                         }
                                     )
@@ -2593,7 +2593,7 @@ mod tests {
                         metadata: None,
                     }),
                     Expression::Integer(IntegerExpression {
-                        value: IntegerExpressionValue::NamedConst("NULL".to_owned()),
+                        value: IntegerExpressionValue::NamedSymbol("NULL".to_owned()),
                         metadata: None,
                     }),
                 ],

@@ -567,7 +567,7 @@ fn parse_int_named(i: &str) -> IResult<&str, IntegerExpression> {
     dbg_parser!(i);
     map((parse_symbol, parse_int_metadata), |(e, metadata)| {
         IntegerExpression {
-            value: IntegerExpressionValue::NamedConst(e.to_owned()),
+            value: IntegerExpressionValue::NamedSymbol(e.to_owned()),
             metadata,
         }
     })
@@ -690,7 +690,7 @@ mod tests {
                         (
                             Some(IntegerExpression {
                                 value: IntegerExpressionValue::Substraction(vec![
-                                    IntegerExpressionValue::NamedConst(
+                                    IntegerExpressionValue::NamedSymbol(
                                         "IPV4_DEVCONF_BC_FORWARDING".to_owned()
                                     ),
                                     IntegerExpressionValue::Literal(1)
@@ -705,7 +705,7 @@ mod tests {
                         (
                             Some(IntegerExpression {
                                 value: IntegerExpressionValue::Substraction(vec![
-                                    IntegerExpressionValue::NamedConst(
+                                    IntegerExpressionValue::NamedSymbol(
                                         "IPV4_DEVCONF_ARP_EVICT_NOCARRIER".to_owned()
                                     ),
                                     IntegerExpressionValue::Literal(1)

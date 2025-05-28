@@ -129,7 +129,7 @@ fn handle_epoll_ctl(
     actions: &mut Vec<ProgramAction>,
 ) -> Result<(), HandlerError> {
     let Expression::Integer(IntegerExpression {
-        value: IntegerExpressionValue::NamedConst(op_name),
+        value: IntegerExpressionValue::NamedSymbol(op_name),
         ..
     }) = op
     else {
@@ -322,7 +322,7 @@ fn handle_network(
 ) -> Result<(), HandlerError> {
     let (af_str, addr_struct) = if let Expression::Struct(members) = sockaddr {
         let Some(Expression::Integer(IntegerExpression {
-            value: IntegerExpressionValue::NamedConst(af),
+            value: IntegerExpressionValue::NamedSymbol(af),
             ..
         })) = members.get("sa_family")
         else {
@@ -656,7 +656,7 @@ fn handle_socket(
     state: &mut ProgramState,
 ) -> Result<(), HandlerError> {
     let af = if let Expression::Integer(IntegerExpression {
-        value: IntegerExpressionValue::NamedConst(af_name),
+        value: IntegerExpressionValue::NamedSymbol(af_name),
         ..
     }) = af
     {
@@ -778,7 +778,7 @@ fn handle_timer_create(
 ) -> Result<(), HandlerError> {
     const PRIVILEGED_CLOCK_NAMES: [&str; 2] = ["CLOCK_REALTIME_ALARM", "CLOCK_BOOTTIME_ALARM"];
     let Expression::Integer(IntegerExpression {
-        value: IntegerExpressionValue::NamedConst(clock_name),
+        value: IntegerExpressionValue::NamedSymbol(clock_name),
         ..
     }) = clockid
     else {
