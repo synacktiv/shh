@@ -2,6 +2,8 @@
 
 use std::path::PathBuf;
 
+use itertools::Itertools as _;
+
 use super::{
     ListOptionValue,
     options::{OptionUpdater, merge_similar_paths},
@@ -313,14 +315,14 @@ pub(crate) fn resolve(
     actions: &[ProgramAction],
     hardening_opts: &HardeningOptions,
 ) -> Vec<OptionWithValue<&'static str>> {
-    let mut candidates = Vec::new();
+    let mut resolved_opts = Vec::new();
     for opt in opts {
         // Options are in the less to most restrictive order,
         // so for non cumulative options, iterate from the end
         for opt_value_desc in opt.possible_values.iter().rev() {
             match &opt_value_desc.desc {
                 OptionEffect::None => {
-                    candidates.push(OptionWithValue {
+                    resolved_opts.push(OptionWithValue {
                         name: opt.name,
                         value: opt_value_desc.value.clone(),
                     });
@@ -330,14 +332,14 @@ pub(crate) fn resolve(
                     match actions_compatible(effect, actions, opt.updater.as_ref(), hardening_opts)
                     {
                         ActionOptionEffectCompatibility::Compatible => {
-                            candidates.push(OptionWithValue {
+                            resolved_opts.push(OptionWithValue {
                                 name: opt.name,
                                 value: opt_value_desc.value.clone(),
                             });
                             break;
                         }
                         ActionOptionEffectCompatibility::CompatibleIfChanged(opt_new_desc) => {
-                            candidates.extend(opt_new_desc.new_options);
+                            resolved_opts.extend(opt_new_desc.new_options);
                             break;
                         }
                         ActionOptionEffectCompatibility::Incompatible => {}
@@ -354,14 +356,14 @@ pub(crate) fn resolve(
                             hardening_opts,
                         ) {
                             ActionOptionEffectCompatibility::Compatible => {
-                                candidates.push(OptionWithValue {
+                                resolved_opts.push(OptionWithValue {
                                     name: opt.name,
                                     value: opt_value_desc.value.clone(),
                                 });
                                 break;
                             }
                             ActionOptionEffectCompatibility::CompatibleIfChanged(opt_new_desc) => {
-                                candidates.extend(opt_new_desc.new_options);
+                                resolved_opts.extend(opt_new_desc.new_options);
                                 break;
                             }
                             ActionOptionEffectCompatibility::Incompatible => {}
@@ -374,7 +376,7 @@ pub(crate) fn resolve(
     }
 
     // Merge paths in compatible options, post option merging
-    for option in &mut candidates {
+    for option in &mut resolved_opts {
         if let OptionValue::List(ListOptionValue {
             values,
             mergeable_paths: true,
@@ -399,7 +401,8 @@ pub(crate) fn resolve(
         }
     }
 
-    candidates
+    // Deduplicate
+    resolved_opts.into_iter().unique().collect()
 }
 
 #[expect(clippy::shadow_unrelated)]

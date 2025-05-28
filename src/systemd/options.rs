@@ -114,21 +114,21 @@ impl fmt::Display for OptionDescription {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub(crate) enum ListMode {
     WhiteList,
     BlackList,
 }
 
 /// Systemd option value
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub(crate) enum OptionValue {
     Boolean(bool), // In most case we only model the 'true' value, because false is no-op and the default
     String(String), // enum-like, or free string
     List(ListOptionValue),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub(crate) struct ListOptionValue {
     pub values: Vec<String>,
     pub value_if_empty: Option<&'static str>,
@@ -402,7 +402,7 @@ impl DenySyscalls {
 }
 
 /// A systemd option with a value, as would be present in a config file
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub(crate) struct OptionWithValue<T> {
     pub name: T,
     pub value: OptionValue,
