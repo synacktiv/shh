@@ -59,10 +59,6 @@ pub(crate) enum Expression {
         // First element of tuple is index if explicitly set
         values: Vec<(Option<IntegerExpression>, Expression)>,
     },
-    Macro {
-        name: String,
-        args: Vec<Expression>,
-    },
     // Only used for strace pseudo macro invocations, see `test_macro_addr_arg` for an example
     DestinationAddress(String),
 }
@@ -79,14 +75,18 @@ impl Expression {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum IntegerExpressionValue {
     BinaryOr(Vec<IntegerExpressionValue>),
-    Multiplication(Vec<IntegerExpressionValue>),
-    Substraction(Vec<IntegerExpressionValue>),
     LeftBitShift {
         bits: Box<IntegerExpressionValue>,
         shift: Box<IntegerExpressionValue>,
     },
-    NamedConst(String),
     Literal(i128), // allows holding both signed and unsigned 64 bit integers
+    Macro {
+        name: String,
+        args: Vec<Expression>,
+    },
+    Multiplication(Vec<IntegerExpressionValue>),
+    NamedConst(String),
+    Substraction(Vec<IntegerExpressionValue>),
 }
 
 impl IntegerExpressionValue {
@@ -116,6 +116,11 @@ impl IntegerExpressionValue {
                 .collect::<Option<Vec<_>>>()?
                 .into_iter()
                 .reduce(|a, b| a | b),
+            IntegerExpressionValue::LeftBitShift { bits, shift } => {
+                Some(bits.value()? << shift.value()?)
+            }
+            IntegerExpressionValue::Literal(v) => Some(*v),
+            IntegerExpressionValue::NamedConst(_) | IntegerExpressionValue::Macro { .. } => None,
             IntegerExpressionValue::Multiplication(values) => values
                 .iter()
                 .map(Self::value)
@@ -128,11 +133,6 @@ impl IntegerExpressionValue {
                 .collect::<Option<Vec<_>>>()?
                 .into_iter()
                 .reduce(|a, b| a - b),
-            IntegerExpressionValue::LeftBitShift { bits, shift } => {
-                Some(bits.value()? << shift.value()?)
-            }
-            IntegerExpressionValue::NamedConst(_) => None,
-            IntegerExpressionValue::Literal(v) => Some(*v),
         }
     }
 }

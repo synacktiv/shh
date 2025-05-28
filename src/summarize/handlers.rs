@@ -365,10 +365,14 @@ fn handle_network(
         .iter()
         .find_map(|(k, v)| ["sin_addr", "sin6_addr"].contains(&k.as_str()).then_some(v))
     {
-        Some(Expression::Macro {
-            name: macro_name,
-            args,
-        }) if macro_name == "inet_addr" => match args.first() {
+        Some(Expression::Integer(IntegerExpression {
+            value:
+                IntegerExpressionValue::Macro {
+                    name: macro_name,
+                    args,
+                },
+            ..
+        })) if macro_name == "inet_addr" => match args.first() {
             Some(Expression::Buffer(BufferExpression { value, .. })) => {
                 let ip_str = str::from_utf8(value).map_err(|_| HandlerError::ConversionFailed {
                     src: format!("{value:?}"),
@@ -386,10 +390,14 @@ fn handle_network(
             }
             _ => unreachable!(),
         },
-        Some(Expression::Macro {
-            name: macro_name,
-            args,
-        }) if macro_name == "inet_pton" => match args.get(1) {
+        Some(Expression::Integer(IntegerExpression {
+            value:
+                IntegerExpressionValue::Macro {
+                    name: macro_name,
+                    args,
+                },
+            ..
+        })) if macro_name == "inet_pton" => match args.get(1) {
             Some(Expression::Buffer(BufferExpression { value, .. })) => {
                 let ip_str = str::from_utf8(value).map_err(|_| HandlerError::ConversionFailed {
                     src: format!("{value:?}"),
@@ -415,10 +423,14 @@ fn handle_network(
             .iter()
             .find_map(|(k, v)| k.ends_with("_port").then_some(v))
         {
-            Some(Expression::Macro {
-                name: macro_name,
-                args,
-            }) if macro_name == "htons" => match args.first() {
+            Some(Expression::Integer(IntegerExpression {
+                value:
+                    IntegerExpressionValue::Macro {
+                        name: macro_name,
+                        args,
+                    },
+                ..
+            })) if macro_name == "htons" => match args.first() {
                 Some(Expression::Integer(IntegerExpression {
                     value: IntegerExpressionValue::Literal(port_val),
                     ..

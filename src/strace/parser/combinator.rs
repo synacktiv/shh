@@ -187,7 +187,6 @@ fn parse_expression(i: &str) -> IResult<&str, Expression> {
     map(
         pair(
             alt((
-                parse_expression_macro,
                 parse_expression_mac_addr,
                 parse_expression_int,
                 parse_expression_struct,
@@ -198,29 +197,6 @@ fn parse_expression(i: &str) -> IResult<&str, Expression> {
             parse_comment,
         ),
         |(u, _)| u,
-    )
-    .parse(i)
-}
-
-#[function_name::named]
-fn parse_expression_macro(i: &str) -> IResult<&str, Expression> {
-    dbg_parser!(i);
-    map(
-        pair(
-            parse_symbol,
-            delimited(
-                char('('),
-                separated_list0(
-                    tag(", "),
-                    alt((parse_expression_macro_pseudo_address, parse_expression)),
-                ),
-                char(')'),
-            ),
-        ),
-        |(n, args)| Expression::Macro {
-            name: n.to_owned(),
-            args,
-        },
     )
     .parse(i)
 }
@@ -273,11 +249,15 @@ fn parse_expression_struct(i: &str) -> IResult<&str, Expression> {
                 tag(", "),
                 alt((
                     map(parse_struct_member, |(n, e)| (n.to_owned(), e)),
-                    map_opt(parse_expression_macro, |e| {
-                        if let Expression::Macro { args, .. } = &e {
+                    map_opt(parse_int_macro, |e| -> Option<(String, Expression)> {
+                        if let IntegerExpression {
+                            value: IntegerExpressionValue::Macro { args, .. },
+                            ..
+                        } = &e
+                        {
                             args.iter().find_map(|a| {
                                 if let Expression::DestinationAddress(n) = a {
-                                    Some((n.to_owned(), e.clone()))
+                                    Some((n.to_owned(), Expression::Integer(e.clone())))
                                 } else {
                                     None
                                 }
@@ -357,6 +337,7 @@ fn parse_int(i: &str) -> IResult<&str, IntegerExpression> {
     dbg_parser!(i);
     alt((
         parse_int_bit_or,
+        parse_int_macro,
         parse_int_multiplication,
         parse_int_substraction,
         parse_int_left_shift,
@@ -388,6 +369,32 @@ fn parse_int_bit_or(i: &str) -> IResult<&str, IntegerExpression> {
                     }))
                     .collect(),
             ),
+            metadata: None,
+        },
+    )
+    .parse(i)
+}
+
+#[function_name::named]
+fn parse_int_macro(i: &str) -> IResult<&str, IntegerExpression> {
+    dbg_parser!(i);
+    map(
+        pair(
+            parse_symbol,
+            delimited(
+                char('('),
+                separated_list0(
+                    tag(", "),
+                    alt((parse_expression_macro_pseudo_address, parse_expression)),
+                ),
+                char(')'),
+            ),
+        ),
+        |(n, args)| IntegerExpression {
+            value: IntegerExpressionValue::Macro {
+                name: n.to_owned(),
+                args,
+            },
             metadata: None,
         },
     )

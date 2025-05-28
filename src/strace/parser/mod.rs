@@ -455,19 +455,24 @@ mod tests {
                     Expression::Struct(HashMap::from([
                         (
                             "st_dev".to_owned(),
-                            Expression::Macro {
-                                name: "makedev".to_owned(),
-                                args: vec![
-                                    Expression::Integer(IntegerExpression {
-                                        value: IntegerExpressionValue::Literal(0xfd),
-                                        metadata: None,
-                                    }),
-                                    Expression::Integer(IntegerExpression {
-                                        value: IntegerExpressionValue::Literal(1),
-                                        metadata: None,
-                                    }),
-                                ],
-                            },
+                            Expression::Integer(
+                                IntegerExpression {
+                                    value: IntegerExpressionValue::Macro {
+                                        name: "makedev".to_owned(),
+                                        args: vec![
+                                            Expression::Integer(IntegerExpression {
+                                                value: IntegerExpressionValue::Literal(0xfd),
+                                                metadata: None,
+                                            }),
+                                            Expression::Integer(IntegerExpression {
+                                                value: IntegerExpressionValue::Literal(1),
+                                                metadata: None,
+                                            }),
+                                        ],
+                                    },
+                                    metadata: None
+                                }
+                            ),
                         ),
                         (
                             "st_ino".to_owned(),
@@ -1120,27 +1125,37 @@ mod tests {
                         ),
                         (
                             "sin_port".to_owned(),
-                            Expression::Macro {
-                                name: "htons".to_owned(),
-                                args: vec![
-                                    Expression::Integer(IntegerExpression {
-                                        value: IntegerExpressionValue::Literal(8025),
-                                        metadata: None,
-                                    }),
-                                ],
-                            }
+                            Expression::Integer(
+                                IntegerExpression {
+                                    value: IntegerExpressionValue::Macro {
+                                        name: "htons".to_owned(),
+                                        args: vec![
+                                            Expression::Integer(IntegerExpression {
+                                                value: IntegerExpressionValue::Literal(8025),
+                                                metadata: None,
+                                            }),
+                                        ],
+                                    },
+                                    metadata: None,
+                                }
+                            ),
                         ),
                         (
                             "sin_addr".to_owned(),
-                            Expression::Macro {
-                                name: "inet_addr".to_owned(),
-                                args: vec![
-                                    Expression::Buffer(BufferExpression {
-                                        value: "127.0.0.1".as_bytes().to_vec(),
-                                        type_: BufferType::Unknown,
-                                    }),
-                                ],
-                            }
+                            Expression::Integer(
+                                IntegerExpression {
+                                    value: IntegerExpressionValue::Macro {
+                                        name: "inet_addr".to_owned(),
+                                        args: vec![
+                                            Expression::Buffer(BufferExpression {
+                                                value: "127.0.0.1".as_bytes().to_vec(),
+                                                type_: BufferType::Unknown,
+                                            }),
+                                        ],
+                                    },
+                                    metadata: None,
+                                }
+                            ),
                         ),
                     ])),
                     Expression::Integer(IntegerExpression {
@@ -2459,44 +2474,59 @@ mod tests {
                         ),
                         (
                             "sin6_port".to_owned(),
-                            Expression::Macro {
-                                name: "htons".to_owned(),
-                                args: vec![
-                                    Expression::Integer(IntegerExpression {
-                                        value: IntegerExpressionValue::Literal(0),
-                                        metadata: None,
-                                    }),
-                                ],
-                            }
+                            Expression::Integer(
+                                IntegerExpression {
+                                    value: IntegerExpressionValue::Macro {
+                                        name: "htons".to_owned(),
+                                        args: vec![
+                                            Expression::Integer(IntegerExpression {
+                                                value: IntegerExpressionValue::Literal(0),
+                                                metadata: None,
+                                            }),
+                                        ],
+                                    },
+                                    metadata: None,
+                                }
+                            )
                         ),
                         (
                             "sin6_flowinfo".to_owned(),
-                            Expression::Macro {
-                                name: "htonl".to_owned(),
-                                args: vec![
-                                    Expression::Integer(IntegerExpression {
-                                        value: IntegerExpressionValue::Literal(0),
-                                        metadata: None,
-                                    }),
-                                ],
-                            }
+                            Expression::Integer(
+                                IntegerExpression {
+                                    value: IntegerExpressionValue::Macro {
+                                        name: "htonl".to_owned(),
+                                        args: vec![
+                                            Expression::Integer(IntegerExpression {
+                                                value: IntegerExpressionValue::Literal(0),
+                                                metadata: None,
+                                            }),
+                                        ],
+                                    },
+                                    metadata: None,
+                                }
+                            )
                         ),
                         (
                             "sin6_addr".to_owned(),
-                            Expression::Macro {
-                                name: "inet_pton".to_owned(),
-                                args: vec![
-                                    Expression::Integer(IntegerExpression {
-                                        value: IntegerExpressionValue::NamedConst("AF_INET6".to_owned()),
-                                        metadata: None,
-                                    }),
-                                    Expression::Buffer(BufferExpression {
-                                        value: vec![0x12, 0x34],
-                                        type_: BufferType::Unknown
-                                    }),
-                                    Expression::DestinationAddress("sin6_addr".to_owned()),
-                                ],
-                            }
+                            Expression::Integer(
+                                IntegerExpression {
+                                    value: IntegerExpressionValue::Macro {
+                                        name: "inet_pton".to_owned(),
+                                        args: vec![
+                                            Expression::Integer(IntegerExpression {
+                                                value: IntegerExpressionValue::NamedConst("AF_INET6".to_owned()),
+                                                metadata: None,
+                                            }),
+                                            Expression::Buffer(BufferExpression {
+                                                value: vec![0x12, 0x34],
+                                                type_: BufferType::Unknown
+                                            }),
+                                            Expression::DestinationAddress("sin6_addr".to_owned()),
+                                        ],
+                                    },
+                                    metadata: None,
+                                }
+                            )
                         ),
                         (
                             "sin6_scope_id".to_owned(),
