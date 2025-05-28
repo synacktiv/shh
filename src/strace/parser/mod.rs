@@ -2545,6 +2545,65 @@ mod tests {
             })
         );
     }
+
+    #[test]
+    fn test_wait() {
+        let _ = simple_logger::SimpleLogger::new().init();
+        assert_eq!(
+            parse_line(
+                "30192      0.000010 wait4(30247, [{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 30247",
+            )
+            .unwrap(),
+            ParseResult::Syscall(Syscall {
+                pid: 30192,
+                rel_ts: 0.000010,
+                name: "wait4".to_owned(),
+                args: vec![
+                    Expression::Integer(IntegerExpression {
+                        value: IntegerExpressionValue::Literal(30247),
+                        metadata: None,
+                    }),
+                    Expression::Integer(IntegerExpression {
+                        // TODO operation precedence is incorrect
+                        value: IntegerExpressionValue::BooleanAnd(vec![
+                            IntegerExpressionValue::Macro { name: "WIFEXITED".to_owned(), args: vec![
+                                Expression::Integer(
+                                    IntegerExpression {
+                                        value: IntegerExpressionValue::NamedConst("s".to_owned()),
+                                        metadata: None
+                                    }
+                                )
+                            ]},
+                            IntegerExpressionValue::Equality(vec![
+                                IntegerExpressionValue::Macro { name: "WEXITSTATUS".to_owned(), args: vec![
+                                    Expression::Integer(
+                                        IntegerExpression {
+                                            value: IntegerExpressionValue::NamedConst("s".to_owned()),
+                                            metadata: None
+                                        }
+                                    )
+                                ]},
+                                IntegerExpressionValue::Literal(0)
+                            ]),
+                        ]),
+                        metadata: None,
+                    }),
+                    Expression::Integer(IntegerExpression {
+                        value: IntegerExpressionValue::Literal(0),
+                        metadata: None,
+                    }),
+                    Expression::Integer(IntegerExpression {
+                        value: IntegerExpressionValue::NamedConst("NULL".to_owned()),
+                        metadata: None,
+                    }),
+                ],
+                ret_val: IntegerExpression {
+                    value: IntegerExpressionValue::Literal(30247),
+                    metadata: None
+                }
+            })
+        );
+    }
 }
 
 #[cfg(all(feature = "nightly", test))]

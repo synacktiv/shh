@@ -133,25 +133,36 @@ fn parse_args_inner(i: &str) -> IResult<&str, Vec<Expression>> {
                 ne.into_iter().map(|(n, e)| (n.to_owned(), e)).collect(),
             )]
         }),
-        separated_list0(tag(", "), alt((parse_in_out_argument, parse_expression))),
+        separated_list0(
+            tag(", "),
+            alt((
+                map(parse_in_out_argument, |(ia, oa)| ia.unwrap_or(oa)),
+                parse_expression,
+            )),
+        ),
     ))
     .parse(i)
 }
 
 #[function_name::named]
-fn parse_in_out_argument(i: &str) -> IResult<&str, Expression> {
+fn parse_in_out_argument(i: &str) -> IResult<&str, (Option<Expression>, Expression)> {
     dbg_parser!(i);
-    map(
-        alt((
-            separated_pair(parse_expression, tag(" => "), parse_expression),
-            delimited(
-                char('['),
+    alt((
+        map(
+            alt((
                 separated_pair(parse_expression, tag(" => "), parse_expression),
-                char(']'),
-            ),
-        )),
-        |(ia, _oa)| ia,
-    )
+                delimited(
+                    char('['),
+                    separated_pair(parse_expression, tag(" => "), parse_expression),
+                    char(']'),
+                ),
+            )),
+            |(ia, oa)| (Some(ia), oa),
+        ),
+        map(delimited(tag("[{"), parse_expression, tag("}]")), |oa| {
+            (None, oa)
+        }),
+    ))
     .parse(i)
 }
 
@@ -337,6 +348,8 @@ fn parse_int(i: &str) -> IResult<&str, IntegerExpression> {
     dbg_parser!(i);
     alt((
         parse_int_bit_or,
+        parse_int_bool_and,
+        parse_int_equals,
         parse_int_macro,
         parse_int_multiplication,
         parse_int_substraction,
@@ -362,6 +375,62 @@ fn parse_int_bit_or(i: &str) -> IResult<&str, IntegerExpression> {
                     .chain(rs.into_iter().map(|r| r.value).flat_map(|e| {
                         // Flatten child expressions
                         if let IntegerExpressionValue::BinaryOr(es) = e {
+                            es.into_iter()
+                        } else {
+                            vec![e].into_iter()
+                        }
+                    }))
+                    .collect(),
+            ),
+            metadata: None,
+        },
+    )
+    .parse(i)
+}
+
+#[function_name::named]
+fn parse_int_bool_and(i: &str) -> IResult<&str, IntegerExpression> {
+    dbg_parser!(i);
+    map(
+        separated_pair(
+            parse_int_macro,
+            tag(" && "),
+            separated_list1(tag(" && "), parse_int),
+        ),
+        |(f, rs)| IntegerExpression {
+            value: IntegerExpressionValue::BooleanAnd(
+                iter::once(f.value)
+                    .chain(rs.into_iter().map(|r| r.value).flat_map(|e| {
+                        // Flatten child expressions
+                        if let IntegerExpressionValue::BooleanAnd(es) = e {
+                            es.into_iter()
+                        } else {
+                            vec![e].into_iter()
+                        }
+                    }))
+                    .collect(),
+            ),
+            metadata: None,
+        },
+    )
+    .parse(i)
+}
+
+#[function_name::named]
+fn parse_int_equals(i: &str) -> IResult<&str, IntegerExpression> {
+    dbg_parser!(i);
+    map(
+        separated_pair(
+            parse_int_macro,
+            tag(" == "),
+            separated_list1(tag(" == "), parse_int),
+        ),
+        |(f, rs)| IntegerExpression {
+            value: IntegerExpressionValue::Equality(
+                iter::once(f.value)
+                    .chain(rs.into_iter().map(|r| r.value).flat_map(|e| {
+                        // Flatten child expressions
+                        if let IntegerExpressionValue::Equality(es) = e {
                             es.into_iter()
                         } else {
                             vec![e].into_iter()
@@ -594,7 +663,10 @@ fn parse_struct_member(i: &str) -> IResult<&str, (&str, Expression)> {
     separated_pair(
         parse_symbol,
         char('='),
-        alt((parse_in_out_argument, parse_expression)),
+        alt((
+            map(parse_in_out_argument, |(ia, oa)| ia.unwrap_or(oa)),
+            parse_expression,
+        )),
     )
     .parse(i)
 }

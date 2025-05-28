@@ -75,6 +75,8 @@ impl Expression {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum IntegerExpressionValue {
     BinaryOr(Vec<IntegerExpressionValue>),
+    BooleanAnd(Vec<IntegerExpressionValue>),
+    Equality(Vec<IntegerExpressionValue>),
     LeftBitShift {
         bits: Box<IntegerExpressionValue>,
         shift: Box<IntegerExpressionValue>,
@@ -116,6 +118,18 @@ impl IntegerExpressionValue {
                 .collect::<Option<Vec<_>>>()?
                 .into_iter()
                 .reduce(|a, b| a | b),
+            IntegerExpressionValue::BooleanAnd(values) => values
+                .iter()
+                .map(Self::value)
+                .collect::<Option<Vec<_>>>()?
+                .into_iter()
+                .reduce(|a, b| i128::from((a != 0) && (b != 0))),
+            IntegerExpressionValue::Equality(values) => values
+                .iter()
+                .map(Self::value)
+                .collect::<Option<Vec<_>>>()?
+                .into_iter()
+                .reduce(|a, b| i128::from(a == b)),
             IntegerExpressionValue::LeftBitShift { bits, shift } => {
                 Some(bits.value()? << shift.value()?)
             }
