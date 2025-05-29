@@ -60,6 +60,37 @@ impl fmt::Display for ExposureLevel {
     }
 }
 
+pub(crate) struct JournalCursor(String);
+
+impl JournalCursor {
+    pub(crate) fn current() -> anyhow::Result<Self> {
+        let tmp_file = tempfile::NamedTempFile::new()?;
+        // Note: user instances use the same cursor
+        let status = Command::new("journalctl")
+            .args([
+                "-n",
+                "0",
+                "--cursor-file",
+                tmp_file
+                    .path()
+                    .to_str()
+                    .ok_or_else(|| anyhow::anyhow!("Invalid temporary filepath"))?,
+            ])
+            .status()?;
+        if !status.success() {
+            anyhow::bail!("journalctl failed: {status}");
+        }
+        let val = fs::read_to_string(tmp_file.path())?;
+        Ok(Self(val))
+    }
+}
+
+impl AsRef<str> for JournalCursor {
+    fn as_ref(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
 impl Service {
     pub(crate) fn new(unit: &str, instance: InstanceKind) -> anyhow::Result<Self> {
         const UNSUPPORTED_UNIT_SUFFIXS: [&str; 10] = [
@@ -339,30 +370,9 @@ impl Service {
         Ok(())
     }
 
-    #[expect(clippy::unused_self)]
-    pub(crate) fn journalctl_cursor(&self) -> anyhow::Result<tempfile::NamedTempFile> {
-        let tmp_file = tempfile::NamedTempFile::new()?;
-        // Note: user instances use the same cursor
-        let status = Command::new("journalctl")
-            .args([
-                "-n",
-                "0",
-                "--cursor-file",
-                tmp_file
-                    .path()
-                    .to_str()
-                    .ok_or_else(|| anyhow::anyhow!("Invalid temporary filepath"))?,
-            ])
-            .status()?;
-        if !status.success() {
-            anyhow::bail!("journalctl failed: {status}");
-        }
-        Ok(tmp_file)
-    }
-
     pub(crate) fn profiling_result_retry(
         &self,
-        cursor_file: &tempfile::NamedTempFile,
+        cursor: &JournalCursor,
     ) -> anyhow::Result<Vec<OptionWithValue<String>>> {
         // DefaultTimeoutStopSec is typically 90s and services can dynamically extend it
         // See https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html#TimeoutStopSec=
@@ -373,7 +383,7 @@ impl Service {
         let time_start = Instant::now();
         let mut slow_result_warned = false;
         loop {
-            match self.profiling_result(cursor_file) {
+            match self.profiling_result(cursor) {
                 Ok(opts) => return Ok(opts),
                 Err(err) => {
                     let now = Instant::now();
@@ -382,8 +392,9 @@ impl Service {
                         return Err(err.context("Timeout waiting for profiling result"));
                     } else if !slow_result_warned && (waited > PROFILING_RESULT_WARN_DELAY) {
                         log::warn!(
-                            "Profiling result is not available after {}s, this can be caused by slow service shutdown. Will retry and wait up to {}s",
+                            "Profiling result is not available after {}s ({}), this can be caused by slow service shutdown. Will retry and wait up to {}s",
                             PROFILING_RESULT_WARN_DELAY.as_secs(),
+                            err,
                             PROFILING_RESULT_TIMEOUT.as_secs()
                         );
                         slow_result_warned = true;
@@ -396,7 +407,7 @@ impl Service {
 
     fn profiling_result(
         &self,
-        cursor_file: &tempfile::NamedTempFile,
+        cursor: &JournalCursor,
     ) -> anyhow::Result<Vec<OptionWithValue<String>>> {
         // Start journalctl process
         let mut cmd = Command::new("journalctl");
@@ -410,11 +421,8 @@ impl Service {
                 "cat",
                 "--output-fields=MESSAGE",
                 "--no-tail",
-                "--cursor-file",
-                cursor_file
-                    .path()
-                    .to_str()
-                    .ok_or_else(|| anyhow::anyhow!("Invalid cursor path"))?,
+                "--after-cursor",
+                cursor.as_ref(),
                 "-u",
                 &self.unit_name(),
             ])

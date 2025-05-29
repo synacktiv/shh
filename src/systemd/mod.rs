@@ -9,7 +9,7 @@ pub(crate) use options::{
     ListOptionValue, OptionDescription, SocketFamily, SocketProtocol, build_options,
 };
 pub(crate) use resolver::resolve;
-pub(crate) use service::Service;
+pub(crate) use service::{JournalCursor, Service};
 pub(crate) use version::{KernelVersion, SystemdVersion};
 
 const START_OPTION_OUTPUT_SNIPPET: &str = "-------- Start of suggested service options --------";
