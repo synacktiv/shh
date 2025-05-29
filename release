@@ -1,10 +1,16 @@
-#!/bin/bash -eu
+#!/bin/bash -eux
 
 set -o pipefail
 
 readonly VERSION="${1:-$(date +%Y.%-m.%-d)}"
+readonly IS_JUJUTSU="$(if jj root &> /dev/null; then echo 1; else echo 0; fi)"
 
 cd "$(git rev-parse --show-toplevel)"
+
+if [ "${IS_JUJUTSU}" -eq 1 ]
+then
+  jj new -m "chore: version ${VERSION}"
+fi
 
 cargo set-version "${VERSION}"
 
@@ -16,14 +22,28 @@ cargo test --bins
 
 RUST_LOG=warn cargo run -- list-systemd-options | head -n -1 > systemd_options.md
 
-git add Cargo.{toml,lock} systemd_options.md
+if [ "${IS_JUJUTSU}" -eq 0 ]
+then
+  git add Cargo.{toml,lock} systemd_options.md
 
-git commit -m "chore: version ${VERSION}"
+  git commit -m "chore: version ${VERSION}"
+fi
+
+if [ "${IS_JUJUTSU}" -eq 1 ]
+then
+  jj new
+fi
+
 git tag -f -m "Version ${VERSION}" "v${VERSION}"
-
 git cliff | head -n -3 > CHANGELOG.md
-git add CHANGELOG.md
-git commit --amend --no-edit
-
 git tag -d "v${VERSION}"
+
+if [ "${IS_JUJUTSU}" -eq 1 ]
+then
+  jj squash -u
+else
+  git add CHANGELOG.md
+  git commit --amend --no-edit
+fi
+
 git tag -f -m "Version ${VERSION}" "v${VERSION}"
