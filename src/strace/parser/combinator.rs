@@ -690,14 +690,9 @@ fn parse_buffer(i: &str) -> IResult<&str, BufferExpression> {
 #[function_name::named]
 fn parse_buffer_byte(i: &str) -> IResult<&str, u8> {
     dbg_parser_entry!(i);
-    alt((
-        map_res(preceded(tag("\\x"), take(2_usize)), |s| {
-            u8::from_str_radix(s, 16)
-        }),
-        #[expect(clippy::indexing_slicing)]
-        // first elem is guaranteed to be here by take(1) parser
-        map(take(1_usize), |s: &str| s.as_bytes()[0]),
-    ))
+    map_res(preceded(tag("\\x"), take(2_usize)), |s| {
+        u8::from_str_radix(s, 16)
+    })
     .parse(i)
     .inspect(|r| dbg_parser_success!(r))
 }

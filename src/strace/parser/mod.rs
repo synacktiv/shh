@@ -257,7 +257,7 @@ mod tests {
 
         assert_eq!(
             parse_line(
-                "382944      0.000036 access(\"/etc/ld.so.preload\", R_OK) = -1 ENOENT (No such file or directory)",
+                "382944      0.000036 access(\"\\x2f\\x65\\x74\\x63\\x2f\\x6c\\x64\\x2e\\x73\\x6f\\x2e\\x70\\x72\\x65\\x6c\\x6f\\x61\\x64\", R_OK) = -1 ENOENT (No such file or directory)",
             ).unwrap(),
             ParseResult::Syscall(Syscall {
                 pid: 382944,
@@ -437,7 +437,7 @@ mod tests {
 
         assert_eq!(
             parse_line(
-                "772627      0.000010 newfstatat(AT_FDCWD, \"/a/path\", {st_dev=makedev(0xfd, 0x1), st_ino=26427782, st_mode=S_IFDIR|0755, st_nlink=2, st_uid=1000, st_gid=1000, st_blksize=4096, st_blocks=112, st_size=53248, st_atime=1689948680 /* 2023-07-21T16:11:20.028467954+0200 */, st_atime_nsec=28467954, st_mtime=1692975712 /* 2023-08-25T17:01:52.252908565+0200 */, st_mtime_nsec=252908565, st_ctime=1692975712 /* 2023-08-25T17:01:52.252908565+0200 */, st_ctime_nsec=252908565}, 0) = 0",
+                "772627      0.000010 newfstatat(AT_FDCWD, \"\\x2f\\x61\\x2f\\x70\\x61\\x74\\x68\", {st_dev=makedev(0xfd, 0x1), st_ino=26427782, st_mode=S_IFDIR|0755, st_nlink=2, st_uid=1000, st_gid=1000, st_blksize=4096, st_blocks=112, st_size=53248, st_atime=1689948680 /* 2023-07-21T16:11:20.028467954+0200 */, st_atime_nsec=28467954, st_mtime=1692975712 /* 2023-08-25T17:01:52.252908565+0200 */, st_mtime_nsec=252908565, st_ctime=1692975712 /* 2023-08-25T17:01:52.252908565+0200 */, st_ctime_nsec=252908565}, 0) = 0",
             ).unwrap(),
             ParseResult::Syscall(Syscall {
                 pid: 772627,
@@ -2246,7 +2246,7 @@ mod tests {
 
         assert_eq!(
             parse_line(
-                "237494      0.000026 getpeername(3, {sa_family=AF_UNIX, sun_path=@\"nope\"}, [124 => 20]) = 0",
+                "237494      0.000026 getpeername(3, {sa_family=AF_UNIX, sun_path=@\"\\x6e\\x6f\\x70\\x65\"}, [124 => 20]) = 0",
             )
             .unwrap(),
             ParseResult::Syscall(Syscall {
