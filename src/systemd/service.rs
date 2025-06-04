@@ -200,8 +200,13 @@ impl Service {
         Self::write_fragment_header(&mut fragment_file)?;
         writeln!(fragment_file, "[Service]")?;
         // writeln!(fragment_file, "AmbientCapabilities=CAP_SYS_PTRACE")?;
-        // needed because strace becomes the main process
-        writeln!(fragment_file, "NotifyAccess=all")?;
+        if Self::config_vals("Type", &config_paths)?
+            .last()
+            .is_some_and(|v| v.starts_with("notify"))
+        {
+            // needed because strace becomes the main process
+            writeln!(fragment_file, "NotifyAccess=all")?;
+        }
         writeln!(fragment_file, "Environment=RUST_BACKTRACE=1")?;
         if !Self::config_vals("SystemCallFilter", &config_paths)?.is_empty() {
             // Allow ptracing, only if a syscall filter is already in place, otherwise it becomes a whitelist
