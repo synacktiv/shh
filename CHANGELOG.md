@@ -1,5 +1,48 @@
 # Changelog
 
+## v2025.6.4
+
+### <!-- 01 -->💡 Features
+
+- Static strace path support at compile time ([da62cee](https://github.com/desbma/shh/commit/da62ceeb227de853be06610721744667c6fe994b) by kuflierl)
+- Add support for shell auto-complete generation with clap_complete ([74914dc](https://github.com/desbma/shh/commit/74914dc8cfd74dbd7e051a090cc4c1f561b8cdde) by kuflierl)
+- Initial experimental support for systemd user instances ([8114943](https://github.com/desbma/shh/commit/8114943d615e6e0238294af2d3f083dc835f1d0b) by desbma)
+- Improve timeout logic when waiting for profiling result ([2b0e5ec](https://github.com/desbma/shh/commit/2b0e5ecdec3f0a763552f282e469a4e18dfa0006) by desbma)
+- strace: Parse mac addresses ([8da117a](https://github.com/desbma/shh/commit/8da117afce96ad63529a2a6821af0b85d25a6812) by desbma)
+- strace: Handle in/out struct members ([40354fa](https://github.com/desbma/shh/commit/40354fac5e53b010a64985ff42970346df822f2d) by desbma)
+- strace: Array index substraction & comments ([b66f934](https://github.com/desbma/shh/commit/b66f934daf340e4f56e6f1f36237bd04c8decd83) by desbma)
+- strace: Output macro expressions ([b7b2d8b](https://github.com/desbma/shh/commit/b7b2d8b8ea0197d2e137658fc5c863aba7978fb6) by desbma)
+- Remove duplicate options ([eb1b51b](https://github.com/desbma/shh/commit/eb1b51b20affdca110acdcc2bd0ab91de9157067) by desbma)
+- strace: More debugging macros ([cec9289](https://github.com/desbma/shh/commit/cec9289a4d6945db9f64d5b4cd1cf98cec2d8684) by desbma)
+- Support jujutsu in release script ([00a5f8e](https://github.com/desbma/shh/commit/00a5f8e4805502b0e15f06602b5907ede919b82c) by desbma)
+
+### <!-- 02 -->🐛 Bug fixes
+
+- Use journalctl cursors and a retry loop to fix unreliability/fuzzyness ([c91a967](https://github.com/desbma/shh/commit/c91a96755d6ba6750f74e46f3f54fb428fb5e650) by desbma)
+- Improve journald cursor handling logic ([ce02c5c](https://github.com/desbma/shh/commit/ce02c5c4bd7d9542e8927f09a5ca2c3f0bb5ab5e) by desbma)
+- Only set NotifyAccess=all in profiling fragment for notify services ([815d0cb](https://github.com/desbma/shh/commit/815d0cb32ec30f9c93b91252f6f00dcf16505736) by desbma)
+
+### <!-- 03 -->🏃 Performance
+
+- Box some large enum members ([57c91bb](https://github.com/desbma/shh/commit/57c91bbe7523ee8958d68d7ef7c3977f5480c3e8) by desbma)
+
+### <!-- 05 -->🧪 Testing
+
+- Update for user instance ([06dacaf](https://github.com/desbma/shh/commit/06dacaf668b19a8b7156241b905bc97ab9e36c0b) by desbma)
+
+### <!-- 06 -->🚜 Refactor
+
+- Man page generation command ([849b9a6](https://github.com/desbma/shh/commit/849b9a6646981c83a72a977b6398371e29d3b928) by desbma)
+- strace: Macro as integer expression ([9bb8c28](https://github.com/desbma/shh/commit/9bb8c287597338ac74b84af6ab9e56f3bd2293a6) by desbma)
+- NamedConst -> NamedSymbol ([4dcebed](https://github.com/desbma/shh/commit/4dcebed9e44b925c10bfda7a545794ac0c8780eb) by desbma)
+- strace: Remove unused buffer format handling ([ad8866a](https://github.com/desbma/shh/commit/ad8866a8007fef98a34de15cbcc45613e98b17fb) by desbma)
+
+### <!-- 10 -->🧰 Miscellaneous tasks
+
+- Fix rust 1.87 clipp::unnecessary_debug_formatting spam ([3ce85c4](https://github.com/desbma/shh/commit/3ce85c44c7228255539f9293591cd8d6b2659ea5) by desbma)
+
+---
+
 ## v2025.4.12
 
 ### <!-- 01 -->💡 Features

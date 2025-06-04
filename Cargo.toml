@@ -7,7 +7,7 @@ repository = "https://github.com/desbma/shh"
 keywords = ["systemd", "hardening", "strace", "system", "security"]
 categories = ["command-line-utilities"]
 license = "GPL-3.0-only"
-version = "2025.4.12"
+version = "2025.6.4"
 rust-version = "1.86"
 edition = "2024"
 
@@ -24,10 +24,10 @@ strip = true
 const-gen = { version = "1.6.6", default-features = false, features = ["std", "phf"] }
 
 [dependencies]
-anyhow = { version = "1.0.97", default-features = false, features = ["std", "backtrace"] }
+anyhow = { version = "1.0.98", default-features = false, features = ["std", "backtrace"] }
 bincode = { version = "2.0.1", default-features = false, features = ["std", "serde"] }
-clap = { version = "4.5.36", default-features = false, features = ["std", "color", "help", "usage", "error-context", "suggestions", "derive"] }
-clap_complete = { version = "4.5.48", default-features = false, optional = true }
+clap = { version = "4.5.39", default-features = false, features = ["std", "color", "help", "usage", "error-context", "suggestions", "derive"] }
+clap_complete = { version = "4.5.52", default-features = false, optional = true }
 clap_mangen = { version = "0.2.26", default-features = false, optional = true }
 function_name = { version = "0.3.0", default-features = false }
 goblin = { version = "0.9.3", default-features = false, features = ["std", "elf32", "elf64", "endian_fd"] }
@@ -37,18 +37,18 @@ nix = { version = "0.29.0", default-features = false, features = ["fs", "user"] 
 nom = { version = "8.0.0", default-features = false, features = ["std"] }
 path-clean = { version = "1.0.1", default-features = false }
 phf = { version = "0.11.3", default-features = false, features = ["std", "macros"] }
-rand = { version = "0.9.0", default-features = false, features = ["std", "thread_rng"] }
+rand = { version = "0.9.1", default-features = false, features = ["std", "thread_rng"] }
 regex = { version = "1.11.1", default-features = false, features = ["std", "perf"] }
 serde = { version = "1.0.219", default-features = false, features = ["std", "derive"] }
 shlex = { version = "1.3.0", default-features = false, features = ["std"] }
-signal-hook = { version = "0.3.17", default-features = false, features = ["iterator"] }
+signal-hook = { version = "0.3.18", default-features = false, features = ["iterator"] }
 simple_logger = { version = "5.0.0", default-features = false, features = ["colors", "stderr"] }
 strum = { version = "0.27.1", default-features = false, features = ["std", "derive"] }
-tempfile = { version = "3.19.1", default-features = false }
+tempfile = { version = "3.20.0", default-features = false }
 thiserror = { version = "2.0.12", default-features = false, features = ["std"] }
 
 [dev-dependencies]
-assert_cmd = { version = "2.0.16", default-features = false, features = ["color", "color-auto"] }
+assert_cmd = { version = "2.0.17", default-features = false, features = ["color", "color-auto"] }
 fastrand = { version = "2.3.0", default-features = false, features = ["std"] }
 nix = { version = "0.29.0", default-features = false, features = ["user"] }
 predicates = { version = "3.1.3", default-features = false, features = ["color", "regex"] }
