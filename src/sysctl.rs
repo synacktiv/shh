@@ -1,6 +1,6 @@
 //! Sysctl handling
 
-use std::{any::type_name, fs, path::PathBuf, str::FromStr};
+use std::{any::type_name, fs, io, path::PathBuf, str::FromStr};
 
 use anyhow::Context as _;
 
@@ -13,7 +13,22 @@ impl State {
     /// Fetch current state
     pub(crate) fn fetch() -> anyhow::Result<Self> {
         Ok(Self {
-            kernel_unprivileged_userns_clone: Self::read_bool("kernel/unprivileged_userns_clone")?,
+            kernel_unprivileged_userns_clone: match Self::read_bool(
+                "kernel/unprivileged_userns_clone",
+            ) {
+                Ok(v) => v,
+                Err(err)
+                    if err
+                        .root_cause()
+                        .downcast_ref::<io::Error>()
+                        .is_some_and(|ioerr| ioerr.kind() == io::ErrorKind::NotFound) =>
+                {
+                    // This sysctl comes from a patch commonly applied by Linux distros, but may not be here
+                    // In this case the vanilla behavior is to allow unprivileged user namespaces
+                    true
+                }
+                Err(err) => return Err(err),
+            },
         })
     }
 
