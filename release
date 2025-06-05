@@ -9,7 +9,12 @@ cd "$(git rev-parse --show-toplevel)"
 
 if [ "${IS_JUJUTSU}" -eq 1 ]
 then
-  jj new -m "chore: version ${VERSION}"
+  if jj show --stat | tail -n -1 | grep -q '^0 files changed'
+  then
+    jj describe -m "chore: version ${VERSION}"
+  else
+    jj new -m "chore: version ${VERSION}"
+  fi
 fi
 
 cargo set-version "${VERSION}"
