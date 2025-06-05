@@ -1,5 +1,17 @@
 # Changelog
 
+## v2025.6.5
+
+### <!-- 02 -->🐛 Bug fixes
+
+- Support kernels without /proc/sys/kernel/unprivileged_userns_clone ([f103b06](https://github.com/desbma/shh/commit/f103b06c756dbb43aec615b590680cc99cbb0f00) by desbma)
+
+### <!-- 08 -->🏗  Build
+
+- Fix empty commit created by release script when using jujutsu ([4c3e73e](https://github.com/desbma/shh/commit/4c3e73e0d1230ef417f6790a65a78c69d1552678) by desbma)
+
+---
+
 ## v2025.6.4
 
 ### <!-- 01 -->💡 Features

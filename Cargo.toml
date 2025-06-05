@@ -7,7 +7,7 @@ repository = "https://github.com/desbma/shh"
 keywords = ["systemd", "hardening", "strace", "system", "security"]
 categories = ["command-line-utilities"]
 license = "GPL-3.0-only"
-version = "2025.6.4"
+version = "2025.6.5"
 rust-version = "1.86"
 edition = "2024"
 
