@@ -1,9 +1,10 @@
 //! Strace invocation code
 
 use std::{
+    env,
     fs::File,
     io::BufReader,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Child, Command, Stdio},
 };
 
@@ -14,20 +15,33 @@ use crate::strace::{STRACE_BIN, parser::LogParser};
 pub(crate) struct Strace {
     /// Strace process
     process: Child,
+    /// Pipe dir
+    pipe_dir: PathBuf,
     /// Temp dir for pipe location
-    pipe_dir: tempfile::TempDir,
+    _tmp_pipe_dir: Option<tempfile::TempDir>,
     /// Strace log mirror path
     log_path: Option<PathBuf>,
 }
 
 impl Strace {
     pub(crate) fn run(command: &[&str], log_path: Option<PathBuf>) -> anyhow::Result<Self> {
+        // Use runtime directory or a temp dir for named pipe
+        let (pipe_dir, tmp_dir) = env::var_os("RUNTIME_DIRECTORY")
+            .and_then(|rd| env::split_paths(&rd).last())
+            .map_or_else(
+                || -> anyhow::Result<_> {
+                    let tmp_dir =
+                        tempfile::tempdir().context("Failed to create temporary directory")?;
+                    Ok((tmp_dir.path().to_owned(), Some(tmp_dir)))
+                },
+                |d| Ok((d, None)),
+            )?;
+
         // Create named pipe
-        let pipe_dir = tempfile::tempdir().context("Failed to create temporary directory")?;
         let pipe_path = Self::pipe_path(&pipe_dir);
         #[expect(clippy::unwrap_used)]
         nix::unistd::mkfifo(&pipe_path, nix::sys::stat::Mode::from_bits(0o600).unwrap())
-            .context("Failed to create named pipe")?;
+            .with_context(|| format!("Failed to create named pipe in {pipe_path:?}"))?;
 
         // Start process
         // TODO setuid/setgid execution will be broken unless strace runs as root
@@ -64,12 +78,13 @@ impl Strace {
         Ok(Self {
             process: child,
             pipe_dir,
+            _tmp_pipe_dir: tmp_dir,
             log_path,
         })
     }
 
-    fn pipe_path(dir: &tempfile::TempDir) -> PathBuf {
-        dir.path().join("strace.pipe")
+    fn pipe_path(dir: &Path) -> PathBuf {
+        dir.join("strace.pipe")
     }
 
     pub(crate) fn log_lines(&self) -> anyhow::Result<LogParser> {
