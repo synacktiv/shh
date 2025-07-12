@@ -2,9 +2,10 @@
 //! and allow the program to execute normally
 
 #![expect(
+    clippy::ignore_without_reason,
+    clippy::shadow_unrelated,
     clippy::tests_outside_test_module,
-    clippy::unwrap_used,
-    clippy::shadow_unrelated
+    clippy::unwrap_used
 )]
 
 use std::{

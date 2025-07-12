@@ -1,6 +1,6 @@
 //! Integration tests for generated options
 
-#![expect(clippy::tests_outside_test_module)]
+#![expect(clippy::ignore_without_reason, clippy::tests_outside_test_module)]
 
 use std::env;
 
