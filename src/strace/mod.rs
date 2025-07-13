@@ -22,6 +22,21 @@ pub(crate) struct Syscall {
     pub ret_val: IntegerExpression,
 }
 
+impl Syscall {
+    pub(crate) fn is_successful_or_pending(&self) -> bool {
+        // strace `--successful-only` argument makes us miss stuff like connect returning -EINPROGRESS,
+        // followed by epoll to check for readiness.
+        // So identify "successful" syscalls with our own logic
+        self.ret_val.value().is_some_and(|v| v != -1)
+            || self
+                .ret_val
+                .metadata
+                .as_ref()
+                .and_then(|m| str::from_utf8(m).ok())
+                .is_some_and(|m| m.starts_with("EINPROGRESS "))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum BufferType {
     AbstractPath,

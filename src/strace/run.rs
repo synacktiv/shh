@@ -50,9 +50,7 @@ impl Strace {
                 "--daemonize=grandchild",
                 "--relative-timestamps",
                 "--follow-forks",
-                // TODO APPROXIMATION this can make us miss interesting stuff like open with O_EXCL|O_CREAT which
-                // returns -1 because file exists
-                "--successful-only",
+                "--status=successful,failed",
                 "--strings-in-hex=all",
                 // Despite this, some structs are still truncated
                 "-e",

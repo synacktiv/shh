@@ -111,22 +111,23 @@ impl Iterator for LogParser {
             match parse_line(line) {
                 Ok(ParseResult::Syscall(sc)) => {
                     log::trace!("Parsed line: {line:?}");
-                    break sc;
+                    if sc.is_successful_or_pending() {
+                        break sc;
+                    }
                 }
                 Ok(ParseResult::SyscallStart(sc)) => {
                     self.unfinished_syscalls.push(sc);
                 }
                 Ok(ParseResult::SyscallEnd(sc_end)) => {
-                    let Some(unfinished_index) = self
+                    if let Some(unfinished_index) = self
                         .unfinished_syscalls
                         .iter()
                         .position(|sc| (sc.name == sc_end.name) && (sc.pid == sc_end.pid))
-                    else {
-                        log::warn!("Unable to find first part of syscall");
-                        continue;
-                    };
-                    let sc_start = self.unfinished_syscalls.swap_remove(unfinished_index); // I fucking love Rust <3
-                    break sc_start.end(&sc_end);
+                    {
+                        let sc_start = self.unfinished_syscalls.swap_remove(unfinished_index); // I fucking love Rust <3
+                        break sc_start.end(&sc_end);
+                    }
+                    log::warn!("Unable to find first part of syscall");
                 }
                 Ok(ParseResult::IgnoredLine) => {
                     log::warn!("Ignored line: {line:?}");
@@ -273,7 +274,10 @@ mod tests {
                         metadata: None,
                     }),
                 ],
-                ret_val: IntegerExpression { value: IntegerExpressionValue::Literal(-1), metadata: None }
+                ret_val: IntegerExpression {
+                    value: IntegerExpressionValue::Literal(-1),
+                    metadata: Some("ENOENT (No such file or directory)".as_bytes().to_vec()),
+                }
             })
         );
     }
@@ -1463,7 +1467,7 @@ mod tests {
                     ],
                     ret_val: IntegerExpression {
                         value: IntegerExpressionValue::Literal(1),
-                        metadata: None
+                        metadata: Some("(in [3])".as_bytes().to_vec()),
                     }
                 }
             ]
@@ -2600,6 +2604,75 @@ mod tests {
                 ret_val: IntegerExpression {
                     value: IntegerExpressionValue::Literal(30247),
                     metadata: None
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn test_ret_code() {
+        let _ = simple_logger::SimpleLogger::new().init();
+        assert_eq!(
+            parse_line(
+                r#"39270      0.000020 connect(11<\x73\x6f\x63\x6b\x65\x74\x3a\x5b\x32\x31\x34\x31\x30\x37\x5d>, {sa_family=AF_INET, sin_port=htons(4321), sin_addr=inet_addr("\x31\x2e\x32\x2e\x33\x2e\x34")}, 16) = -1 EINPROGRESS (Operation now in progress)"#,
+            )
+            .unwrap(),
+            ParseResult::Syscall(Syscall {
+                pid: 39270,
+                rel_ts: 0.000020,
+                name: "connect".to_owned(),
+                args: vec![
+                    Expression::Integer(IntegerExpression {
+                        value: IntegerExpressionValue::Literal(11),
+                        metadata: Some("socket:[214107]".as_bytes().to_vec()),
+                    }),
+                    Expression::Struct(HashMap::from([
+                        (
+                            "sa_family".to_owned(),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::NamedSymbol("AF_INET".to_owned()),
+                                metadata: None,
+                            }),
+                        ),
+                        (
+                            "sin_port".to_owned(),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Macro {
+                                    name: "htons".to_owned(),
+                                    args: vec![
+                                        Expression::Integer(IntegerExpression {
+                                            value: IntegerExpressionValue::Literal(4321),
+                                            metadata: None,
+                                        }),
+                                    ],
+                                },
+                                metadata: None,
+                            }),
+                        ),
+                        (
+                            "sin_addr".to_owned(),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Macro {
+                                    name: "inet_addr".to_owned(),
+                                    args: vec![
+                                        Expression::Buffer(BufferExpression {
+                                            value: "1.2.3.4".as_bytes().to_vec(),
+                                            type_: BufferType::Unknown
+                                        }),
+                                    ],
+                                },
+                                metadata: None,
+                            }),
+                        ),
+                    ])),
+                    Expression::Integer(IntegerExpression {
+                        value: IntegerExpressionValue::Literal(16),
+                        metadata: None,
+                    }),
+                ],
+                ret_val: IntegerExpression {
+                    value: IntegerExpressionValue::Literal(-1),
+                    metadata: Some("EINPROGRESS (Operation now in progress)".as_bytes().to_vec())
                 }
             })
         );
