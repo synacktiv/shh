@@ -1,5 +1,26 @@
 # Changelog
 
+## v2025.7.13
+
+### <!-- 01 -->💡 Features
+
+- Try to use RUNTIME_DIRECTORY first for strace pipe location ([8f3ce35](https://github.com/desbma/shh/commit/8f3ce3543a45707a698156dd3a88aacf19f818ec) by desbma)
+- Consider errored syscalls to catch cases like EINPROGRESS ([3e8e4ad](https://github.com/desbma/shh/commit/3e8e4ad8285027d08a6c63f342fb53705650795b) by desbma)
+- Identify more successful sycalls returning -1 ([1d971d4](https://github.com/desbma/shh/commit/1d971d458443a60226f9582450669b003426192c) by desbma)
+
+### <!-- 04 -->📗 Documentation
+
+- README: Mention nixpkgs repo ([53f37ce](https://github.com/desbma/shh/commit/53f37ce3ac28e043ce9e483cec0109a6934b11ac) by kuflierl)
+
+### <!-- 10 -->🧰 Miscellaneous tasks
+
+- Ignore verbose clippy lints ([2e96cb3](https://github.com/desbma/shh/commit/2e96cb348bafc45cd85c5d37f9343bf63d857aaa) by desbma)
+- Update .gitignore ([e741484](https://github.com/desbma/shh/commit/e741484510211ef912d9570a006abe9eae03bebb) by desbma)
+- Update dependencies ([5a398fa](https://github.com/desbma/shh/commit/5a398fa390f30039c4b2ff1472337a4cf5f0c2e7) by desbma)
+- Update clippy template ([ee68b02](https://github.com/desbma/shh/commit/ee68b025ad446bff6781159e906cf0bcee1b4c3f) by desbma)
+
+---
+
 ## v2025.6.5
 
 ### <!-- 02 -->🐛 Bug fixes
