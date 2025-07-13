@@ -77,7 +77,7 @@ unused-qualifications = "warn"
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 unnecessary_debug_formatting = "allow"
-# below lints are from clippy::restriction, and assume clippy >= 1.86
+# below lints are from clippy::restriction
 # https://rust-lang.github.io/rust-clippy/master/index.html#/?levels=allow&groups=restriction
 allow_attributes = "warn"
 as_pointer_underscore = "warn"
@@ -104,6 +104,7 @@ panic = "warn"
 pathbuf_init_then_push = "warn"
 precedence_bits = "warn"
 pub_without_shorthand = "warn"
+# redundant_test_prefix = "warn"
 redundant_type_annotations = "warn"
 ref_patterns = "warn"
 renamed_function_params = "warn"
