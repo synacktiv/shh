@@ -24,16 +24,25 @@ pub(crate) struct Syscall {
 
 impl Syscall {
     pub(crate) fn is_successful_or_pending(&self) -> bool {
-        // strace `--successful-only` argument makes us miss stuff like connect returning -EINPROGRESS,
-        // followed by epoll to check for readiness.
-        // So identify "successful" syscalls with our own logic
+        // Strace `--successful-only` argument can make us miss interesting stuff,
+        // so identify "successful" syscalls with our own logic
+
+        /// Errors codes considered as "successful"
+        /// They are 2 cases in which we allow this:
+        /// - The code means "pending", and the operation can be waited for with another syscall,
+        ///   for example `connect` can return `EINPROGRESS` "error", and successful connect completion
+        ///   can then be waited for with `epoll`
+        /// - The operation is idempotent, and the code means "already done", for example `open`
+        ///   with `O_EXCL|O_CREAT` flags that returns EEXIST error
+        const SUCCESSFUL_ERRNO_VALUES: [&str; 3] = ["EAGAIN", "EEXIST", "EINPROGRESS"];
+
         self.ret_val.value().is_some_and(|v| v != -1)
             || self
                 .ret_val
                 .metadata
                 .as_ref()
                 .and_then(|m| str::from_utf8(m).ok())
-                .is_some_and(|m| m.starts_with("EINPROGRESS "))
+                .is_some_and(|m| SUCCESSFUL_ERRNO_VALUES.iter().any(|e| m.starts_with(e)))
     }
 }
 
