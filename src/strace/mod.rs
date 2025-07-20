@@ -34,7 +34,8 @@ impl Syscall {
         ///   can then be waited for with `epoll`
         /// - The operation is idempotent, and the code means "already done", for example `open`
         ///   with `O_EXCL|O_CREAT` flags that returns EEXIST error
-        const SUCCESSFUL_ERRNO_VALUES: [&str; 3] = ["EAGAIN", "EEXIST", "EINPROGRESS"];
+        const SUCCESSFUL_ERRNO_VALUES: [&str; 4] =
+            ["EAGAIN", "EEXIST", "EINPROGRESS", "EWOULDBLOCK"];
 
         self.ret_val.value().is_some_and(|v| v != -1)
             || self
