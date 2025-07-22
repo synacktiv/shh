@@ -415,12 +415,12 @@ mod tests {
         systemd::{self, KernelVersion, SystemdVersion, build_options},
     };
 
-    fn test_options_safe(names: &[&str]) -> (Vec<OptionDescription>, HardeningOptions) {
+    fn test_options_standard(names: &[&str]) -> (Vec<OptionDescription>, HardeningOptions) {
         let sd_version = SystemdVersion::new(254, 0);
         let kernel_version = KernelVersion::new(6, 4, 0);
         let hardening_opts = HardeningOptions {
             systemd_options: Some(names.iter().map(|n| (*n).to_owned()).collect()),
-            ..HardeningOptions::safe()
+            ..HardeningOptions::standard()
         };
         let sysctl = sysctl::State::none();
         (
@@ -459,7 +459,7 @@ mod tests {
     fn test_resolve_protect_system() {
         let _ = simple_logger::SimpleLogger::new().init();
 
-        let (opts, hardening_opts) = test_options_safe(&["ProtectSystem"]);
+        let (opts, hardening_opts) = test_options_standard(&["ProtectSystem"]);
 
         let actions = vec![];
         let candidates = resolve(&opts, &actions, &hardening_opts);
@@ -490,7 +490,7 @@ mod tests {
     fn test_resolve_protect_home() {
         let _ = simple_logger::SimpleLogger::new().init();
 
-        let (opts, hardening_opts) = test_options_safe(&["ProtectHome"]);
+        let (opts, hardening_opts) = test_options_standard(&["ProtectHome"]);
 
         let actions = vec![];
         let candidates = resolve(&opts, &actions, &hardening_opts);
@@ -580,7 +580,7 @@ mod tests {
     fn test_resolve_private_tmp() {
         let _ = simple_logger::SimpleLogger::new().init();
 
-        let (opts, hardening_opts) = test_options_safe(&["PrivateTmp"]);
+        let (opts, hardening_opts) = test_options_standard(&["PrivateTmp"]);
 
         let actions = vec![];
         let candidates = resolve(&opts, &actions, &hardening_opts);

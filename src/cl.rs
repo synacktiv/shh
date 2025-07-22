@@ -18,11 +18,15 @@ pub(crate) struct Args {
 #[derive(Debug, Clone, Default, clap::ValueEnum, strum::Display)]
 #[strum(serialize_all = "snake_case")]
 pub(crate) enum HardeningMode {
-    /// Only generate hardening options if they have a very low risk of breaking things
+    /// Try to generate hardening options that are more likely be portable across different systems for this service.
+    /// WARNING: This is a best effort attempt, and NOT a guarantee. The only way to ensure the options will
+    /// work is to run profiling on the same exact system.
+    Generic,
+    /// Only generate hardening options if they have a negligible risk of breaking things
     #[default]
-    Safe,
+    Standard,
     /// Will harden further and prevent circumventing restrictions of some options, but may increase the risk of
-    /// breaking services
+    /// breaking services. It is highly recommended to manually review the generated options.
     Aggressive,
 }
 
@@ -53,11 +57,11 @@ pub(crate) struct HardeningOptions {
 }
 
 impl HardeningOptions {
-    /// Build the most safe options
+    /// Build the standard options options
     #[cfg_attr(not(test), expect(dead_code))]
-    pub(crate) fn safe() -> Self {
+    pub(crate) fn standard() -> Self {
         Self {
-            mode: HardeningMode::Safe,
+            mode: HardeningMode::Standard,
             network_firewalling: false,
             filesystem_whitelisting: false,
             #[expect(clippy::unwrap_used)]
@@ -91,6 +95,18 @@ impl HardeningOptions {
             self.merge_paths_threshold.to_string(),
         ]);
         args
+    }
+
+    pub(crate) fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !(matches!(self.mode, HardeningMode::Generic) && self.network_firewalling),
+            "Network firewalling is incompatible with generic hardening mode"
+        );
+        anyhow::ensure!(
+            !(matches!(self.mode, HardeningMode::Generic) && self.filesystem_whitelisting),
+            "Filesystem whitelisting is incompatible with generic hardening mode"
+        );
+        Ok(())
     }
 }
 

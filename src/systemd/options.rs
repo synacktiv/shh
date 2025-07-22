@@ -1927,32 +1927,34 @@ pub(crate) fn build_options(
     // signal when it makes the call, so change the default to just return EPERM.
     // Real world example: https://github.com/tjko/jpegoptim/blob/v1.5.5/jpegoptim.c#L1097-L1099
     //
-    let mut syscall_classes: Vec<_> = SYSCALL_CLASSES.keys().copied().collect();
-    syscall_classes.sort_unstable();
-    options.push(OptionDescription {
-        name: "SystemCallFilter",
-        possible_values: vec![OptionValueDescription {
-            value: OptionValue::List(ListOptionValue {
-                values: syscall_classes
-                    .iter()
-                    .map(|c| format!("@{c}:EPERM"))
-                    .collect(),
-                value_if_empty: None,
-                option_prefix: "~",
-                elem_prefix: "",
-                repeat_option: false,
-                mode: ListMode::BlackList,
-                mergeable_paths: false,
-            }),
-            desc: OptionEffect::Cumulative(
-                syscall_classes
-                    .into_iter()
-                    .map(|class| OptionValueEffect::DenySyscalls(DenySyscalls::Class(class)))
-                    .collect(),
-            ),
-        }],
-        updater: None,
-    });
+    if !matches!(hardening_opts.mode, HardeningMode::Generic) {
+        let mut syscall_classes: Vec<_> = SYSCALL_CLASSES.keys().copied().collect();
+        syscall_classes.sort_unstable();
+        options.push(OptionDescription {
+            name: "SystemCallFilter",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::List(ListOptionValue {
+                    values: syscall_classes
+                        .iter()
+                        .map(|c| format!("@{c}:EPERM"))
+                        .collect(),
+                    value_if_empty: None,
+                    option_prefix: "~",
+                    elem_prefix: "",
+                    repeat_option: false,
+                    mode: ListMode::BlackList,
+                    mergeable_paths: false,
+                }),
+                desc: OptionEffect::Cumulative(
+                    syscall_classes
+                        .into_iter()
+                        .map(|class| OptionValueEffect::DenySyscalls(DenySyscalls::Class(class)))
+                        .collect(),
+                ),
+            }],
+            updater: None,
+        });
+    }
 
     if let Some(options_to_keep) = &hardening_opts.systemd_options {
         options.retain(|o| options_to_keep.iter().any(|k| o.name == k));

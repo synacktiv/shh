@@ -67,6 +67,7 @@ fn edit_file(path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[expect(clippy::too_many_lines)]
 fn main() -> anyhow::Result<()> {
     // Init logger
     simple_logger::SimpleLogger::new()
@@ -107,6 +108,10 @@ fn main() -> anyhow::Result<()> {
             profile_data_path,
             strace_log_path,
         } => {
+            hardening_opts
+                .validate()
+                .context("Invalid command line options")?;
+
             // Build supported systemd options
             let sysctl_state = sysctl::State::fetch()?;
             let sd_opts = sd_options(
@@ -173,6 +178,10 @@ fn main() -> anyhow::Result<()> {
             hardening_opts,
             paths,
         } => {
+            hardening_opts
+                .validate()
+                .context("Invalid command line options")?;
+
             // Build supported systemd options
             let sysctl_state = sysctl::State::fetch()?;
             let sd_opts = sd_options(
@@ -212,6 +221,10 @@ fn main() -> anyhow::Result<()> {
             hardening_opts,
             no_restart,
         }) => {
+            hardening_opts
+                .validate()
+                .context("Invalid command line options")?;
+
             let service = systemd::Service::new(&service.name, service.instance.instance)
                 .context("Invalid service name")?;
             log::info!(

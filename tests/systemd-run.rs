@@ -107,7 +107,7 @@ fn systemd_run(cmd: &[&str], sd_opts: &[String], user: bool) -> Assert {
 
 /// Generate all combinations of `shh run` args to test
 fn all_shh_run_opts() -> Vec<Vec<&'static str>> {
-    let args_mode = vec![vec![], vec!["-m", "aggressive"]];
+    let args_mode = vec![vec!["-m", "generic"], vec![], vec!["-m", "aggressive"]];
     let args_fs = vec![
         vec![],
         vec!["-w"],
@@ -121,6 +121,12 @@ fn all_shh_run_opts() -> Vec<Vec<&'static str>> {
     for arg_mode in &args_mode {
         for arg_fs in &args_fs {
             for arg_fw in &args_fw {
+                if arg_mode.get(1).is_some_and(|m| *m == "generic")
+                    && (!arg_fs.is_empty() || !arg_fw.is_empty())
+                {
+                    // Generic mode is incompatible with those
+                    continue;
+                }
                 let mut args = Vec::with_capacity(arg_mode.len() + arg_fs.len() + arg_fw.len());
                 args.extend(arg_mode);
                 args.extend(arg_fs);
