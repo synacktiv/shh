@@ -26,30 +26,30 @@ mod handlers;
 /// This does *not* map 1-1 with a syscall, and does *not* necessarily respect chronology
 #[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum ProgramAction {
-    /// Path was accessed (open, stat'ed, read...)
-    Read(PathBuf),
-    /// Path was written to (data, metadata, path removal...)
-    Write(PathBuf),
     /// Path was created
     Create(PathBuf),
     /// Path was exec'd
     Exec(PathBuf),
+    /// Create special files
+    MknodSpecial,
     /// Mount propagated to host
     MountToHost,
     /// Network (socket) activity
     NetworkActivity(Box<NetworkActivity>),
-    /// Memory mapping with write and execute bits
-    WriteExecuteMemoryMapping,
-    /// Set scheduler to a real time one
-    SetRealtimeScheduler,
-    /// Inhibit suspend
-    Wakeup,
-    /// Create special files
-    MknodSpecial,
+    /// Path was accessed (open, stat'ed, read...)
+    Read(PathBuf),
     /// Set privileged timer alarm
     SetAlarm,
+    /// Set scheduler to a real time one
+    SetRealtimeScheduler,
     /// Names of the syscalls made by the program
     Syscalls(HashSet<String>),
+    /// Inhibit suspend
+    Wakeup,
+    /// Path was written to (data, metadata, path removal...)
+    Write(PathBuf),
+    /// Memory mapping with write and execute bits
+    WriteExecuteMemoryMapping,
 }
 
 /// Network (socket) activity

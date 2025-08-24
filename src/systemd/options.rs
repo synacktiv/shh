@@ -254,18 +254,18 @@ impl EmptyPathDescription {
 pub(crate) enum OptionValueEffect {
     /// Deny an action
     DenyAction(ProgramAction),
-    /// Mount path as read only
-    DenyWrite(PathDescription),
     /// Mount path as noexec
     DenyExec(PathDescription),
-    /// Mount an empty tmpfs under given directory
-    EmptyPath(EmptyPathDescription),
-    /// Don't mount path in target namespace
-    RemovePath(PathDescription),
     /// Deny syscall(s)
     DenySyscalls(DenySyscalls),
+    /// Mount path as read only
+    DenyWrite(PathDescription),
+    /// Mount an empty tmpfs under given directory
+    EmptyPath(EmptyPathDescription),
     /// Union of multiple effects
     Multiple(Vec<OptionValueEffect>),
+    /// Don't mount path in target namespace
+    RemovePath(PathDescription),
 }
 
 impl OptionValueEffect {
