@@ -50,7 +50,8 @@ impl OptionValueEffect {
                 | ProgramAction::Wakeup
                 | ProgramAction::MknodSpecial
                 | ProgramAction::SetAlarm
-                | ProgramAction::MountToHost => vec![action != denied],
+                | ProgramAction::MountToHost
+                | ProgramAction::KillOther => vec![action != denied],
                 ProgramAction::Syscalls(_)
                 | ProgramAction::Write(_)
                 | ProgramAction::Create(_)

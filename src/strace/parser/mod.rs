@@ -10,6 +10,7 @@ use crate::strace::Syscall;
 
 mod combinator;
 use combinator::parse_line;
+use nix::libc::pid_t;
 
 use super::{Expression, IntegerExpression};
 
@@ -53,7 +54,7 @@ enum ParseResult {
 /// A syscall started that did not yet return
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SyscallStart {
-    pub pid: u32,
+    pub pid: pid_t,
     pub rel_ts: f64,
     pub name: String,
     pub args: Vec<Expression>,
@@ -77,7 +78,7 @@ impl SyscallStart {
 /// A syscall that ended
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SyscallEnd {
-    pub pid: u32,
+    pub pid: pid_t,
     pub rel_ts: f64,
     pub name: String,
     pub ret_val: IntegerExpression,
@@ -316,7 +317,7 @@ mod tests {
                                         None,
                                         Expression::Integer(
                                             IntegerExpression {
-                                                value: IntegerExpressionValue::NamedSymbol("RTMIN".to_owned()), 
+                                                value: IntegerExpressionValue::NamedSymbol("RTMIN".to_owned()),
                                                 metadata: None
                                             }
                                         )
@@ -325,7 +326,7 @@ mod tests {
                                         None,
                                         Expression::Integer(
                                             IntegerExpression {
-                                                value: IntegerExpressionValue::NamedSymbol("RT_1".to_owned()), 
+                                                value: IntegerExpressionValue::NamedSymbol("RT_1".to_owned()),
                                                 metadata: None
                                             }
                                         )

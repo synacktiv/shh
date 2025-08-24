@@ -2,10 +2,11 @@
 
 use std::{
     any::{type_name, type_name_of_val},
+    borrow::ToOwned,
     collections::HashMap,
     ffi::OsStr,
     fs::{self, File},
-    io::{self, BufRead as _, BufReader},
+    io::{self, BufRead as _, BufReader, Read},
     net::IpAddr,
     os::{
         fd::RawFd,
@@ -16,7 +17,10 @@ use std::{
     sync::LazyLock,
 };
 
+use anyhow::Context as _;
 use goblin::elf;
+use itertools::Itertools as _;
+use nix::libc::{pid_t, uid_t};
 use path_clean::PathClean as _;
 
 use super::{
@@ -56,6 +60,7 @@ pub(crate) fn summarize_syscall(
         SyscallArgsInfo::Chdir(p) => handle_chdir(&sc.name, p, actions, state),
         SyscallArgsInfo::EpollCtl { op, event } => handle_epoll_ctl(&sc.name, op, event, actions),
         SyscallArgsInfo::Exec { relfd, path } => handle_exec(&sc.name, relfd, path, actions, state),
+        SyscallArgsInfo::Kill { pid, sig } => handle_kill(&sc.name, sc.pid, pid, sig, actions),
         SyscallArgsInfo::Mkdir { relfd, path } => {
             handle_mkdir(&sc.name, relfd, path, actions, state)
         }
@@ -210,6 +215,73 @@ fn handle_exec(
     Ok(())
 }
 
+/// Handle kill syscall
+fn handle_kill(
+    name: &str,
+    caller_pid: pid_t,
+    pid: &Expression,
+    sig: &Expression,
+    actions: &mut Vec<ProgramAction>,
+) -> Result<(), HandlerError> {
+    let pid_val = match pid {
+        Expression::Integer(IntegerExpression {
+            value: IntegerExpressionValue::Literal(pid_val),
+            ..
+        }) => pid_t::try_from(*pid_val).map_err(|_| HandlerError::ConversionFailed {
+            src: format!("{pid_val:?}"),
+            type_src: type_name_of_val(pid_val),
+            type_dst: type_name::<pid_t>(),
+        })?,
+        _ => {
+            return Err(HandlerError::ArgTypeMismatch {
+                sc_name: name.to_owned(),
+                arg: pid.to_owned(),
+            });
+        }
+    };
+    let Expression::Integer(IntegerExpression {
+        value: IntegerExpressionValue::NamedSymbol(sig_name),
+        ..
+    }) = sig
+    else {
+        return Err(HandlerError::ArgTypeMismatch {
+            sc_name: name.to_owned(),
+            arg: pid.to_owned(),
+        });
+    };
+    // https://man7.org/linux/man-pages/man2/kill.2.html
+    if pid_val > 0 {
+        if (sig_name == "SIGCONT")
+            && (nix::unistd::getsid(Some(nix::unistd::Pid::from_raw(pid_val)))
+                .and_then(|s| {
+                    nix::unistd::getsid(Some(nix::unistd::Pid::from_raw(caller_pid)))
+                        .map(|cs| s == cs)
+                })
+                .unwrap_or_default())
+        {
+            return Ok(());
+        }
+        // Note: for signals that stop the target process, most of the time we will
+        // fail to parse target UIDs here because it is already dead,
+        // which will lead to "under" hardening
+        if process_uids(pid_val)
+            .and_then(|u| {
+                process_uids(caller_pid).map(|cu| {
+                    (cu.real == u.real)
+                        || (cu.real == u.saved)
+                        || (cu.effective == u.real)
+                        || (cu.effective == u.saved)
+                })
+            })
+            .unwrap_or_default()
+        {
+            return Ok(());
+        }
+    }
+    actions.push(ProgramAction::KillOther);
+    Ok(())
+}
+
 /// Handle mkdir-like syscalls
 fn handle_mkdir(
     name: &str,
@@ -314,7 +386,7 @@ fn handle_mount(
 /// Handle network syscalls
 fn handle_network(
     name: &str,
-    pid: u32,
+    pid: pid_t,
     fd: &Expression,
     sockaddr: &Expression,
     actions: &mut Vec<ProgramAction>,
@@ -648,7 +720,7 @@ fn handle_setscheduler(
 /// Handle socket syscall
 fn handle_socket(
     name: &str,
-    pid: u32,
+    pid: pid_t,
     ret_val: &IntegerExpression,
     af: &Expression,
     flags: &Expression,
@@ -928,6 +1000,47 @@ fn read_shebang_interpreter(path: &Path) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+#[derive(Debug)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
+struct ProcessUids {
+    real: uid_t,
+    effective: uid_t,
+    saved: uid_t,
+    _fs: uid_t,
+}
+
+/// Get process Uid
+/// See <https://man7.org/linux/man-pages/man5/proc_pid_status.5.html>
+fn process_uids(pid: pid_t) -> anyhow::Result<ProcessUids> {
+    let path: PathBuf = ["/proc", pid.to_string().as_str(), "status"]
+        .iter()
+        .collect();
+    let file = File::open(&path).with_context(|| format!("Failed to open {path:?}"))?;
+    read_process_uids(file)
+}
+
+fn read_process_uids<R>(reader: R) -> anyhow::Result<ProcessUids>
+where
+    R: Read,
+{
+    let reader = BufReader::new(reader);
+    let (real, effective, saved, fs) = reader
+        .lines()
+        .map_while(Result::ok)
+        .find_map(|l| l.strip_prefix("Uid:").map(ToOwned::to_owned))
+        .ok_or_else(|| anyhow::anyhow!("Failed to parse process status file"))?
+        .split_ascii_whitespace()
+        .map(str::parse::<uid_t>)
+        .collect_tuple()
+        .ok_or_else(|| anyhow::anyhow!("Failed to parse process status file UID line"))?;
+    Ok(ProcessUids {
+        real: real.context("Failed to parse process real UID")?,
+        effective: effective.context("Failed to parse process effective UID")?,
+        saved: saved.context("Failed to parse process saved UID")?,
+        _fs: fs.context("Failed to parse process FS UID")?,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -1000,5 +1113,80 @@ mod tests {
             vec![tmp_dir.path().join("a/b/c"),]
         );
         assert_eq!(in_path, tmp_dir.path().join("a/e"));
+    }
+
+    #[test]
+    fn test_read_process_uids() {
+        let data = "Name:	bat
+Umask:	0022
+State:	R (running)
+Tgid:	144479
+Ngid:	0
+Pid:	144479
+PPid:	2725
+TracerPid:	0
+Uid:	1001	1002	1003	1004
+Gid:	1000	1000	1000	1000
+FDSize:	64
+Groups:	50 964 968 998 1000
+NStgid:	144479
+NSpid:	144479
+NSpgid:	144479
+NSsid:	2725
+Kthread:	0
+VmPeak:	  151444 kB
+VmSize:	   86016 kB
+VmLck:	       0 kB
+VmPin:	       0 kB
+VmHWM:	    7468 kB
+VmRSS:	    7468 kB
+RssAnon:	    1288 kB
+RssFile:	    6180 kB
+RssShmem:	       0 kB
+VmData:	    2620 kB
+VmStk:	     144 kB
+VmExe:	    2784 kB
+VmLib:	    8388 kB
+VmPTE:	      84 kB
+VmSwap:	       0 kB
+HugetlbPages:	       0 kB
+CoreDumping:	0
+THP_enabled:	1
+untag_mask:	0xffffffffffffffff
+Threads:	2
+SigQ:	2/256555
+SigPnd:	0000000000000000
+ShdPnd:	0000000000000000
+SigBlk:	0000000000000000
+SigIgn:	0000000000001000
+SigCgt:	0000000100000440
+CapInh:	0000000800000000
+CapPrm:	0000000000000000
+CapEff:	0000000000000000
+CapBnd:	000001ffffffffff
+CapAmb:	0000000000000000
+NoNewPrivs:	0
+Seccomp:	0
+Seccomp_filters:	0
+Speculation_Store_Bypass:	thread vulnerable
+SpeculationIndirectBranch:	conditional enabled
+Cpus_allowed:	ffffffff
+Cpus_allowed_list:	0-31
+Mems_allowed:	00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000001
+Mems_allowed_list:	0
+voluntary_ctxt_switches:	0
+nonvoluntary_ctxt_switches:	1
+x86_Thread_features:
+x86_Thread_features_locked:
+".as_bytes();
+        assert_eq!(
+            read_process_uids(data).unwrap(),
+            ProcessUids {
+                real: 1001,
+                effective: 1002,
+                saved: 1003,
+                _fs: 1004
+            }
+        );
     }
 }

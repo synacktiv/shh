@@ -5,6 +5,7 @@ use std::{collections::HashMap, fmt, io::BufRead as _, process::Command, str};
 mod parser;
 mod run;
 
+use nix::libc::pid_t;
 pub(crate) use run::Strace;
 
 const STRACE_BIN: &str = if let Some(p) = option_env!("SHH_STRACE_BIN_PATH") {
@@ -15,7 +16,7 @@ const STRACE_BIN: &str = if let Some(p) = option_env!("SHH_STRACE_BIN_PATH") {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Syscall {
-    pub pid: u32,
+    pub pid: pid_t,
     pub rel_ts: f64,
     pub name: String,
     pub args: Vec<Expression>,

@@ -1777,7 +1777,13 @@ pub(crate) fn build_options(
         // CAP_FSETID: too complex?
         // TODO CAP_IPC_LOCK
         // CAP_IPC_OWNER: too complex?
-        // TODO CAP_KILL
+        (
+            "CAP_KILL",
+            OptionValueEffect::Multiple(vec![
+                OptionValueEffect::DenyAction(ProgramAction::KillOther),
+                OptionValueEffect::DenySyscalls(DenySyscalls::Single("ioctl")), // TODO KDSIGACCEPT only
+            ]),
+        ),
         // TODO CAP_LEASE
         // TODO CAP_LINUX_IMMUTABLE
         // CAP_MAC_ADMIN: too complex?

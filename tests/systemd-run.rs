@@ -543,3 +543,30 @@ fn systemd_netns_create() {
         del_netns(&ns);
     }
 }
+
+#[test]
+#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
+fn systemd_kill() {
+    for sig in ["URG", "KILL"] {
+        let code = format!(
+            "import signal, subprocess; p = subprocess.Popen((\"sleep\", \"0.5s\")); p.send_signal(signal.SIG{sig}); p.wait(); print(f\"rc={{p.returncode}}\")",
+        );
+        let cmd = ["python3", "-c", &code];
+        for user in SYSTEMD_RUN_USER {
+            for shh_opts in &*ALL_SHH_RUN_OPTS {
+                let mut shh_opts = shh_opts.clone();
+                if *user {
+                    shh_opts.extend(["-i", "user"]);
+                }
+                eprintln!("shh run option: {}", shh_opts.join(" "));
+                let sd_opts = generate_options(&cmd, &shh_opts);
+                let asrt = systemd_run(&cmd, &sd_opts, *user);
+                asrt.stdout(predicate::str::contains(if sig == "KILL" {
+                    "-9"
+                } else {
+                    "0"
+                }));
+            }
+        }
+    }
+}

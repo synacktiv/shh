@@ -15,12 +15,11 @@ use anyhow::Context as _;
 use itertools::Itertools as _;
 use rand::Rng as _;
 
+use super::InstanceKind;
 use crate::{
     cl::HardeningOptions,
     systemd::{END_OPTION_OUTPUT_SNIPPET, START_OPTION_OUTPUT_SNIPPET, options::OptionWithValue},
 };
-
-use super::InstanceKind;
 
 pub(crate) struct Service {
     name: String,

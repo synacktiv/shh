@@ -339,8 +339,7 @@ fn main() -> anyhow::Result<()> {
         }
         #[cfg(feature = "generate-extra")]
         cl::Action::GenShellComplete { shell, dir } => {
-            use clap::CommandFactory as _;
-            use clap::ValueEnum as _;
+            use clap::{CommandFactory as _, ValueEnum as _};
             use clap_complete::{Shell, generate, generate_to};
 
             // Use the binary name instead of the default of the package name

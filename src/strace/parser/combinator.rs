@@ -2,6 +2,7 @@
 
 use std::iter;
 
+use nix::libc::pid_t;
 use nom::{
     IResult, Parser as _,
     branch::alt,
@@ -101,7 +102,7 @@ fn parse_syscall_line(i: &str) -> IResult<&str, ParseResult> {
 }
 
 #[function_name::named]
-fn parse_pid(i: &str) -> IResult<&str, u32> {
+fn parse_pid(i: &str) -> IResult<&str, pid_t> {
     dbg_parser_entry!(i);
     terminated(map_res(digit1, str::parse), space1)
         .parse(i)

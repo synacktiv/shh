@@ -11,6 +11,7 @@ use std::{
 };
 
 use anyhow::Context as _;
+use nix::libc::pid_t;
 
 use crate::{
     strace::{
@@ -30,6 +31,8 @@ pub(crate) enum ProgramAction {
     Create(PathBuf),
     /// Path was exec'd
     Exec(PathBuf),
+    /// Send signal to other process ("other" being defined as requiring `CAP_KILL`)
+    KillOther,
     /// Create special files
     MknodSpecial,
     /// Mount propagated to host
@@ -207,6 +210,10 @@ enum SyscallArgsInfo<T> {
         relfd: Option<T>,
         path: T,
     },
+    Kill {
+        pid: T,
+        sig: T,
+    },
     Mkdir {
         relfd: Option<T>,
         path: T,
@@ -278,6 +285,10 @@ impl SyscallArgsIndex {
                     .map(|relfd| Self::extract_arg(sc, relfd))
                     .transpose()?,
                 path: Self::extract_arg(sc, *path)?,
+            },
+            Self::Kill { pid, sig } => SyscallArgs::Kill {
+                pid: Self::extract_arg(sc, *pid)?,
+                sig: Self::extract_arg(sc, *sig)?,
             },
             Self::Mkdir { relfd, path } => SyscallArgs::Mkdir {
                 relfd: relfd
@@ -387,6 +398,8 @@ static SYSCALL_MAP: LazyLock<HashMap<&'static str, SyscallArgsIndex>> = LazyLock
                 path: 1,
             },
         ),
+        // kill
+        ("kill", SyscallArgsIndex::Kill { pid: 0, sig: 1 }),
         // mkdir
         (
             "mkdir",
@@ -527,7 +540,7 @@ static SYSCALL_MAP: LazyLock<HashMap<&'static str, SyscallArgsIndex>> = LazyLock
 struct ProgramState {
     /// Keep known socket protocols (per process) for bind handling, we don't care for the socket closings
     /// because the fd will be reused or never bound again
-    known_sockets_proto: HashMap<(u32, RawFd), SocketProtocol>,
+    known_sockets_proto: HashMap<(pid_t, RawFd), SocketProtocol>,
     /// Current working directory
     // TODO initialize with startup current dir?
     cur_dir: Option<PathBuf>,
