@@ -605,7 +605,11 @@ fn parse_int_literal(i: &str) -> IResult<&str, IntegerExpression> {
 fn parse_int_left_shift(i: &str) -> IResult<&str, IntegerExpression> {
     dbg_parser_entry!(i);
     map(
-        separated_pair(parse_int_literal, tag("<<"), parse_int),
+        separated_pair(
+            alt((parse_int_literal, parse_int_named)),
+            tag("<<"),
+            parse_int,
+        ),
         |(b, s)| IntegerExpression {
             value: IntegerExpressionValue::LeftBitShift {
                 bits: Box::new(b.value),
