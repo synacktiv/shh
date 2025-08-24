@@ -911,7 +911,7 @@ fn is_pseudo_path(path: &Path) -> bool {
 
 /// Parse ELF and return interpreter path if we can
 fn read_elf_interpreter(path: &Path) -> Option<PathBuf> {
-    // TODO Find a way to parse opnly the first few pages
+    // TODO Find a way to parse only the first few pages
     let buf = fs::read(path).ok()?;
     let elf = elf::Elf::parse(&buf).ok()?;
     elf.interpreter.map(PathBuf::from)
