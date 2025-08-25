@@ -51,7 +51,9 @@ impl OptionValueEffect {
                 | ProgramAction::MknodSpecial
                 | ProgramAction::SetAlarm
                 | ProgramAction::MountToHost
-                | ProgramAction::KillOther => vec![action != denied],
+                | ProgramAction::KillOther
+                | ProgramAction::HugePageMemoryMapping
+                | ProgramAction::LockMemoryMapping => vec![action != denied],
                 ProgramAction::Syscalls(_)
                 | ProgramAction::Write(_)
                 | ProgramAction::Create(_)

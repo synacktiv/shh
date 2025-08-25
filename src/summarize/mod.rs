@@ -31,8 +31,12 @@ pub(crate) enum ProgramAction {
     Create(PathBuf),
     /// Path was exec'd
     Exec(PathBuf),
+    /// Memory mapping with huge pages
+    HugePageMemoryMapping,
     /// Send signal to other process ("other" being defined as requiring `CAP_KILL`)
     KillOther,
+    /// Lock memory mapping
+    LockMemoryMapping,
     /// Create special files
     MknodSpecial,
     /// Mount propagated to host
@@ -214,6 +218,9 @@ enum SyscallArgsInfo<T> {
         pid: T,
         sig: T,
     },
+    MemfdCreate {
+        flags: T,
+    },
     Mkdir {
         relfd: Option<T>,
         path: T,
@@ -223,6 +230,7 @@ enum SyscallArgsInfo<T> {
     },
     Mmap {
         prot: T,
+        flags: Option<T>,
         fd: Option<T>,
     },
     Mount {
@@ -246,6 +254,9 @@ enum SyscallArgsInfo<T> {
     },
     SetScheduler {
         policy: T,
+    },
+    ShmCtl {
+        op: T,
     },
     Socket {
         af: T,
@@ -290,6 +301,9 @@ impl SyscallArgsIndex {
                 pid: Self::extract_arg(sc, *pid)?,
                 sig: Self::extract_arg(sc, *sig)?,
             },
+            Self::MemfdCreate { flags } => SyscallArgs::MemfdCreate {
+                flags: Self::extract_arg(sc, *flags)?,
+            },
             Self::Mkdir { relfd, path } => SyscallArgs::Mkdir {
                 relfd: relfd
                     .map(|relfd| Self::extract_arg(sc, relfd))
@@ -299,8 +313,11 @@ impl SyscallArgsIndex {
             Self::Mknod { mode } => SyscallArgs::Mknod {
                 mode: Self::extract_arg(sc, *mode)?,
             },
-            Self::Mmap { prot, fd } => SyscallArgs::Mmap {
+            Self::Mmap { prot, flags, fd } => SyscallArgs::Mmap {
                 prot: Self::extract_arg(sc, *prot)?,
+                flags: flags
+                    .map(|flags| Self::extract_arg(sc, flags))
+                    .transpose()?,
                 fd: fd.map(|fd| Self::extract_arg(sc, fd)).transpose()?,
             },
             Self::Mount { flags } => SyscallArgs::Mount {
@@ -338,6 +355,9 @@ impl SyscallArgsIndex {
             },
             Self::SetScheduler { policy } => SyscallArgs::SetScheduler {
                 policy: Self::extract_arg(sc, *policy)?,
+            },
+            Self::ShmCtl { op } => SyscallArgs::ShmCtl {
+                op: Self::extract_arg(sc, *op)?,
             },
             Self::Socket { af, flags } => SyscallArgs::Socket {
                 af: Self::extract_arg(sc, *af)?,
@@ -400,6 +420,8 @@ static SYSCALL_MAP: LazyLock<HashMap<&'static str, SyscallArgsIndex>> = LazyLock
         ),
         // kill
         ("kill", SyscallArgsIndex::Kill { pid: 0, sig: 1 }),
+        // memfd_create
+        ("memfd_create", SyscallArgsIndex::MemfdCreate { flags: 1 }),
         // mkdir
         (
             "mkdir",
@@ -423,6 +445,7 @@ static SYSCALL_MAP: LazyLock<HashMap<&'static str, SyscallArgsIndex>> = LazyLock
             "mmap",
             SyscallArgsIndex::Mmap {
                 prot: 2,
+                flags: Some(3),
                 fd: Some(4),
             },
         ),
@@ -430,13 +453,25 @@ static SYSCALL_MAP: LazyLock<HashMap<&'static str, SyscallArgsIndex>> = LazyLock
             "mmap2",
             SyscallArgsIndex::Mmap {
                 prot: 2,
+                flags: Some(3),
                 fd: Some(4),
             },
         ),
-        ("mprotect", SyscallArgsIndex::Mmap { prot: 2, fd: None }),
+        (
+            "mprotect",
+            SyscallArgsIndex::Mmap {
+                prot: 2,
+                flags: None,
+                fd: None,
+            },
+        ),
         (
             "pkey_mprotect",
-            SyscallArgsIndex::Mmap { prot: 2, fd: None },
+            SyscallArgsIndex::Mmap {
+                prot: 2,
+                flags: None,
+                fd: None,
+            },
         ),
         // mount
         ("mount", SyscallArgsIndex::Mount { flags: 3 }),
@@ -502,6 +537,8 @@ static SYSCALL_MAP: LazyLock<HashMap<&'static str, SyscallArgsIndex>> = LazyLock
             "sched_setscheduler",
             SyscallArgsIndex::SetScheduler { policy: 1 },
         ),
+        // shmctl
+        ("shmctl", SyscallArgsIndex::ShmCtl { op: 1 }),
         // socket
         ("socket", SyscallArgsIndex::Socket { af: 0, flags: 1 }),
         // stat fd

@@ -61,11 +61,14 @@ pub(crate) fn summarize_syscall(
         SyscallArgsInfo::EpollCtl { op, event } => handle_epoll_ctl(&sc.name, op, event, actions),
         SyscallArgsInfo::Exec { relfd, path } => handle_exec(&sc.name, relfd, path, actions, state),
         SyscallArgsInfo::Kill { pid, sig } => handle_kill(&sc.name, sc.pid, pid, sig, actions),
+        SyscallArgsInfo::MemfdCreate { flags } => handle_memfd_create(&sc.name, flags, actions),
         SyscallArgsInfo::Mkdir { relfd, path } => {
             handle_mkdir(&sc.name, relfd, path, actions, state)
         }
         SyscallArgsInfo::Mknod { mode } => handle_mknod(&sc.name, mode, actions),
-        SyscallArgsInfo::Mmap { prot, fd } => handle_mmap(&sc.name, prot, fd, actions),
+        SyscallArgsInfo::Mmap { prot, flags, fd } => {
+            handle_mmap(&sc.name, prot, flags, fd, actions)
+        }
         SyscallArgsInfo::Mount { flags } => handle_mount(&sc.name, flags, actions),
         SyscallArgsInfo::Network { fd, sockaddr } => {
             handle_network(&sc.name, sc.pid, fd, sockaddr, actions, state)
@@ -83,6 +86,7 @@ pub(crate) fn summarize_syscall(
             &sc.name, relfd_src, path_src, relfd_dst, path_dst, flags, actions, state,
         ),
         SyscallArgsInfo::SetScheduler { policy } => handle_setscheduler(&sc.name, policy, actions),
+        SyscallArgsInfo::ShmCtl { op } => handle_shmctl(&sc.name, op, actions),
         SyscallArgsInfo::Socket { af, flags } => {
             handle_socket(&sc.name, sc.pid, &sc.ret_val, af, flags, actions, state)
         }
@@ -282,6 +286,23 @@ fn handle_kill(
     Ok(())
 }
 
+fn handle_memfd_create(
+    name: &str,
+    flags: &Expression,
+    actions: &mut Vec<ProgramAction>,
+) -> Result<(), HandlerError> {
+    let Expression::Integer(IntegerExpression { value: flags, .. }) = flags else {
+        return Err(HandlerError::ArgTypeMismatch {
+            sc_name: name.to_owned(),
+            arg: flags.to_owned(),
+        });
+    };
+    if flags.is_flag_set("MFD_HUGETLB") {
+        actions.push(ProgramAction::HugePageMemoryMapping);
+    }
+    Ok(())
+}
+
 /// Handle mkdir-like syscalls
 fn handle_mkdir(
     name: &str,
@@ -335,6 +356,7 @@ fn handle_mknod(
 fn handle_mmap(
     name: &str,
     prot: &Expression,
+    flags: Option<&Expression>,
     fd: Option<&Expression>,
     actions: &mut Vec<ProgramAction>,
 ) -> Result<(), HandlerError> {
@@ -347,6 +369,20 @@ fn handle_mmap(
             arg: prot.to_owned(),
         });
     };
+    if let Some(flags) = flags {
+        let Expression::Integer(IntegerExpression { value: flags, .. }) = flags else {
+            return Err(HandlerError::ArgTypeMismatch {
+                sc_name: name.to_owned(),
+                arg: flags.to_owned(),
+            });
+        };
+        if flags.is_flag_set("MAP_HUGETLB") {
+            actions.push(ProgramAction::HugePageMemoryMapping);
+        }
+        if flags.is_flag_set("MAP_LOCKED") {
+            actions.push(ProgramAction::LockMemoryMapping);
+        }
+    }
     let path = fd
         .and_then(|e| e.metadata())
         .map(|m| PathBuf::from(OsStr::from_bytes(m)));
@@ -713,6 +749,23 @@ fn handle_setscheduler(
     };
     if RT_SCHEDULERS.iter().any(|s| policy_val.is_flag_set(s)) {
         actions.push(ProgramAction::SetRealtimeScheduler);
+    }
+    Ok(())
+}
+
+fn handle_shmctl(
+    name: &str,
+    op: &Expression,
+    actions: &mut Vec<ProgramAction>,
+) -> Result<(), HandlerError> {
+    let Expression::Integer(IntegerExpression { value: op, .. }) = op else {
+        return Err(HandlerError::ArgTypeMismatch {
+            sc_name: name.to_owned(),
+            arg: op.to_owned(),
+        });
+    };
+    if op.is_flag_set("SHM_LOCK") || op.is_flag_set("SHM_UNLOCK") {
+        actions.push(ProgramAction::LockMemoryMapping);
     }
     Ok(())
 }

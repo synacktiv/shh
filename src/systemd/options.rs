@@ -1775,7 +1775,14 @@ pub(crate) fn build_options(
         // CAP_DAC_READ_SEARCH: too complex?
         // CAP_FOWNER: too complex?
         // CAP_FSETID: too complex?
-        // TODO CAP_IPC_LOCK
+        (
+            "CAP_IPC_LOCK",
+            OptionValueEffect::Multiple(vec![
+                OptionValueEffect::DenySyscalls(DenySyscalls::Class("memlock")),
+                OptionValueEffect::DenyAction(ProgramAction::LockMemoryMapping),
+                OptionValueEffect::DenyAction(ProgramAction::HugePageMemoryMapping),
+            ]),
+        ),
         // CAP_IPC_OWNER: too complex?
         (
             "CAP_KILL",
