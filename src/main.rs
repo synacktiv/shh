@@ -220,6 +220,7 @@ fn main() -> anyhow::Result<()> {
             service,
             hardening_opts,
             no_restart,
+            refresh,
         }) => {
             hardening_opts
                 .validate()
@@ -233,6 +234,16 @@ fn main() -> anyhow::Result<()> {
                     .get_exposure_level()
                     .context("Failed to get exposure level")?
             );
+            if refresh {
+                let moved = service
+                    .rename_hardening_fragment()
+                    .context("Failed to move existing systemd hardening fragment")?;
+                if moved {
+                    service
+                        .reload_unit_config()
+                        .context("Failed to reload systemd config")?;
+                }
+            }
             service
                 .add_profile_fragment(&hardening_opts)
                 .context("Failed to write systemd unit profiling fragment")?;

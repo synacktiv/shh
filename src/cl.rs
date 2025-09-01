@@ -188,6 +188,9 @@ pub(crate) enum ServiceAction {
         /// Disable immediate service restart
         #[arg(short, long, default_value_t = false)]
         no_restart: bool,
+        /// Disable previous hardening fragment, if it exists
+        #[arg(short, long, default_value_t = false)]
+        refresh: bool,
     },
     /// Get profiling result and remove fragment config from service
     FinishProfile {
