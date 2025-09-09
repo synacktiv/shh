@@ -616,12 +616,14 @@ where
     actions.extend(env_paths.iter().cloned().map(ProgramAction::Read));
 
     // Report stats
-    let mut syscall_names = stats.keys().collect::<Vec<_>>();
-    syscall_names.sort_unstable();
-    for syscall_name in syscall_names {
-        #[expect(clippy::unwrap_used)]
-        let count = stats.get(syscall_name).unwrap();
-        log::debug!("{:24} {: >12}", format!("{syscall_name}:"), count);
+    if log::log_enabled!(log::Level::Debug) {
+        let mut syscall_names = stats.keys().collect::<Vec<_>>();
+        syscall_names.sort_unstable();
+        for syscall_name in syscall_names {
+            #[expect(clippy::unwrap_used)]
+            let count = stats.get(syscall_name).unwrap();
+            log::debug!("{:24} {: >12}", format!("{syscall_name}:"), count);
+        }
     }
 
     Ok(actions)
