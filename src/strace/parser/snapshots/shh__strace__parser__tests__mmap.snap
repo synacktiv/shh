@@ -1,0 +1,45 @@
+---
+source: src/strace/parser/mod.rs
+expression: "parse_line(\"382944      0.000054 mmap(NULL, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7f52a332e000\",).unwrap()"
+---
+Syscall(Syscall(
+  pid: 382944,
+  rel_ts: 0.000054,
+  name: "mmap",
+  args: [
+    Integer(IntegerExpression(
+      value: NamedSymbol("NULL"),
+      metadata: None,
+    )),
+    Integer(IntegerExpression(
+      value: Literal(8192),
+      metadata: None,
+    )),
+    Integer(IntegerExpression(
+      value: BinaryOr([
+        NamedSymbol("PROT_READ"),
+        NamedSymbol("PROT_WRITE"),
+      ]),
+      metadata: None,
+    )),
+    Integer(IntegerExpression(
+      value: BinaryOr([
+        NamedSymbol("MAP_PRIVATE"),
+        NamedSymbol("MAP_ANONYMOUS"),
+      ]),
+      metadata: None,
+    )),
+    Integer(IntegerExpression(
+      value: Literal(-1),
+      metadata: None,
+    )),
+    Integer(IntegerExpression(
+      value: Literal(0),
+      metadata: None,
+    )),
+  ],
+  ret_val: IntegerExpression(
+    value: Literal(139992902066176),
+    metadata: None,
+  ),
+))

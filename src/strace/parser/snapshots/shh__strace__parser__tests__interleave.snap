@@ -1,0 +1,76 @@
+---
+source: src/strace/parser/mod.rs
+expression: syscalls
+---
+[
+  Syscall(
+    pid: 2,
+    rel_ts: 0.000002,
+    name: "clock_gettime",
+    args: [
+      Integer(IntegerExpression(
+        value: NamedSymbol("CLOCK_REALTIME"),
+        metadata: None,
+      )),
+      Struct({
+        "tv_nsec": Integer(IntegerExpression(
+          value: Literal(3977000),
+          metadata: None,
+        )),
+        "tv_sec": Integer(IntegerExpression(
+          value: Literal(1130322148),
+          metadata: None,
+        )),
+      }),
+    ],
+    ret_val: IntegerExpression(
+      value: Literal(0),
+      metadata: None,
+    ),
+  ),
+  Syscall(
+    pid: 1,
+    rel_ts: 0.000003,
+    name: "select",
+    args: [
+      Integer(IntegerExpression(
+        value: Literal(4),
+        metadata: None,
+      )),
+      Collection(
+        complement: false,
+        values: [
+          (None, Integer(IntegerExpression(
+            value: Literal(3),
+            metadata: None,
+          ))),
+        ],
+      ),
+      Integer(IntegerExpression(
+        value: NamedSymbol("NULL"),
+        metadata: None,
+      )),
+      Integer(IntegerExpression(
+        value: NamedSymbol("NULL"),
+        metadata: None,
+      )),
+      Integer(IntegerExpression(
+        value: NamedSymbol("NULL"),
+        metadata: None,
+      )),
+    ],
+    ret_val: IntegerExpression(
+      value: Literal(1),
+      metadata: Some([
+        40,
+        105,
+        110,
+        32,
+        91,
+        51,
+        93,
+        41,
+      ]),
+    ),
+  ),
+]

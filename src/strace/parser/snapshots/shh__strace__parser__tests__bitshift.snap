@@ -1,0 +1,45 @@
+---
+source: src/strace/parser/mod.rs
+expression: "parse_line(\"794046      0.000024 capset({version=_LINUX_CAPABILITY_VERSION_3, pid=0}, {effective=1<<CAP_SYS_CHROOT, permitted=1<<CAP_SYS_CHROOT, inheritable=0}) = 0\",).unwrap()"
+---
+Syscall(Syscall(
+  pid: 794046,
+  rel_ts: 0.000024,
+  name: "capset",
+  args: [
+    Struct({
+      "pid": Integer(IntegerExpression(
+        value: Literal(0),
+        metadata: None,
+      )),
+      "version": Integer(IntegerExpression(
+        value: NamedSymbol("_LINUX_CAPABILITY_VERSION_3"),
+        metadata: None,
+      )),
+    }),
+    Struct({
+      "effective": Integer(IntegerExpression(
+        value: LeftBitShift(
+          bits: Literal(1),
+          shift: NamedSymbol("CAP_SYS_CHROOT"),
+        ),
+        metadata: None,
+      )),
+      "inheritable": Integer(IntegerExpression(
+        value: Literal(0),
+        metadata: None,
+      )),
+      "permitted": Integer(IntegerExpression(
+        value: LeftBitShift(
+          bits: Literal(1),
+          shift: NamedSymbol("CAP_SYS_CHROOT"),
+        ),
+        metadata: None,
+      )),
+    }),
+  ],
+  ret_val: IntegerExpression(
+    value: Literal(0),
+    metadata: None,
+  ),
+))

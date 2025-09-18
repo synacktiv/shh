@@ -1,0 +1,112 @@
+---
+source: src/strace/parser/mod.rs
+expression: "parse_line(\"772627      0.000010 newfstatat(AT_FDCWD, \\\"\\\\x2f\\\\x61\\\\x2f\\\\x70\\\\x61\\\\x74\\\\x68\\\", {st_dev=makedev(0xfd, 0x1), st_ino=26427782, st_mode=S_IFDIR|0755, st_nlink=2, st_uid=1000, st_gid=1000, st_blksize=4096, st_blocks=112, st_size=53248, st_atime=1689948680 /* 2023-07-21T16:11:20.028467954+0200 */, st_atime_nsec=28467954, st_mtime=1692975712 /* 2023-08-25T17:01:52.252908565+0200 */, st_mtime_nsec=252908565, st_ctime=1692975712 /* 2023-08-25T17:01:52.252908565+0200 */, st_ctime_nsec=252908565}, 0) = 0\",).unwrap()"
+---
+Syscall(Syscall(
+  pid: 772627,
+  rel_ts: 0.00001,
+  name: "newfstatat",
+  args: [
+    Integer(IntegerExpression(
+      value: NamedSymbol("AT_FDCWD"),
+      metadata: None,
+    )),
+    Buffer(BufferExpression(
+      value: [
+        47,
+        97,
+        47,
+        112,
+        97,
+        116,
+        104,
+      ],
+      type_: Unknown,
+    )),
+    Struct({
+      "st_atime": Integer(IntegerExpression(
+        value: Literal(1689948680),
+        metadata: None,
+      )),
+      "st_atime_nsec": Integer(IntegerExpression(
+        value: Literal(28467954),
+        metadata: None,
+      )),
+      "st_blksize": Integer(IntegerExpression(
+        value: Literal(4096),
+        metadata: None,
+      )),
+      "st_blocks": Integer(IntegerExpression(
+        value: Literal(112),
+        metadata: None,
+      )),
+      "st_ctime": Integer(IntegerExpression(
+        value: Literal(1692975712),
+        metadata: None,
+      )),
+      "st_ctime_nsec": Integer(IntegerExpression(
+        value: Literal(252908565),
+        metadata: None,
+      )),
+      "st_dev": Integer(IntegerExpression(
+        value: Macro(
+          name: "makedev",
+          args: [
+            Integer(IntegerExpression(
+              value: Literal(253),
+              metadata: None,
+            )),
+            Integer(IntegerExpression(
+              value: Literal(1),
+              metadata: None,
+            )),
+          ],
+        ),
+        metadata: None,
+      )),
+      "st_gid": Integer(IntegerExpression(
+        value: Literal(1000),
+        metadata: None,
+      )),
+      "st_ino": Integer(IntegerExpression(
+        value: Literal(26427782),
+        metadata: None,
+      )),
+      "st_mode": Integer(IntegerExpression(
+        value: BinaryOr([
+          NamedSymbol("S_IFDIR"),
+          Literal(493),
+        ]),
+        metadata: None,
+      )),
+      "st_mtime": Integer(IntegerExpression(
+        value: Literal(1692975712),
+        metadata: None,
+      )),
+      "st_mtime_nsec": Integer(IntegerExpression(
+        value: Literal(252908565),
+        metadata: None,
+      )),
+      "st_nlink": Integer(IntegerExpression(
+        value: Literal(2),
+        metadata: None,
+      )),
+      "st_size": Integer(IntegerExpression(
+        value: Literal(53248),
+        metadata: None,
+      )),
+      "st_uid": Integer(IntegerExpression(
+        value: Literal(1000),
+        metadata: None,
+      )),
+    }),
+    Integer(IntegerExpression(
+      value: Literal(0),
+      metadata: None,
+    )),
+  ],
+  ret_val: IntegerExpression(
+    value: Literal(0),
+    metadata: None,
+  ),
+))

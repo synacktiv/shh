@@ -1,0 +1,36 @@
+---
+source: src/strace/parser/mod.rs
+expression: "parse_line(\"815537      0.000017 getrandom(\\\"\\\\x42\\\\x18\\\\x81\\\\x90\\\\x40\\\\x63\\\\x1a\\\\x2c\\\", 8, GRND_NONBLOCK) = 8\",).unwrap()"
+---
+Syscall(Syscall(
+  pid: 815537,
+  rel_ts: 0.000017,
+  name: "getrandom",
+  args: [
+    Buffer(BufferExpression(
+      value: [
+        66,
+        24,
+        129,
+        144,
+        64,
+        99,
+        26,
+        44,
+      ],
+      type_: Unknown,
+    )),
+    Integer(IntegerExpression(
+      value: Literal(8),
+      metadata: None,
+    )),
+    Integer(IntegerExpression(
+      value: NamedSymbol("GRND_NONBLOCK"),
+      metadata: None,
+    )),
+  ],
+  ret_val: IntegerExpression(
+    value: Literal(8),
+    metadata: None,
+  ),
+))

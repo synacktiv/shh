@@ -1,0 +1,59 @@
+---
+source: src/strace/parser/mod.rs
+expression: "parse_line(\"664767      0.000014 clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7f3b7c000990, parent_tid=0x7f3b7c000990, exit_signal=0, stack=0x7f3b7b800000, stack_size=0x7ff880, tls=0x7f3b7c0006c0} => {parent_tid=[664773]}, 88) = 664773\",).unwrap()"
+---
+Syscall(Syscall(
+  pid: 664767,
+  rel_ts: 0.000014,
+  name: "clone3",
+  args: [
+    Struct({
+      "child_tid": Integer(IntegerExpression(
+        value: Literal(139893460175248),
+        metadata: None,
+      )),
+      "exit_signal": Integer(IntegerExpression(
+        value: Literal(0),
+        metadata: None,
+      )),
+      "flags": Integer(IntegerExpression(
+        value: BinaryOr([
+          NamedSymbol("CLONE_VM"),
+          NamedSymbol("CLONE_FS"),
+          NamedSymbol("CLONE_FILES"),
+          NamedSymbol("CLONE_SIGHAND"),
+          NamedSymbol("CLONE_THREAD"),
+          NamedSymbol("CLONE_SYSVSEM"),
+          NamedSymbol("CLONE_SETTLS"),
+          NamedSymbol("CLONE_PARENT_SETTID"),
+          NamedSymbol("CLONE_CHILD_CLEARTID"),
+        ]),
+        metadata: None,
+      )),
+      "parent_tid": Integer(IntegerExpression(
+        value: Literal(139893460175248),
+        metadata: None,
+      )),
+      "stack": Integer(IntegerExpression(
+        value: Literal(139893451784192),
+        metadata: None,
+      )),
+      "stack_size": Integer(IntegerExpression(
+        value: Literal(8386688),
+        metadata: None,
+      )),
+      "tls": Integer(IntegerExpression(
+        value: Literal(139893460174528),
+        metadata: None,
+      )),
+    }),
+    Integer(IntegerExpression(
+      value: Literal(88),
+      metadata: None,
+    )),
+  ],
+  ret_val: IntegerExpression(
+    value: Literal(664773),
+    metadata: None,
+  ),
+))

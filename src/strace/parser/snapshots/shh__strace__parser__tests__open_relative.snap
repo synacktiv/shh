@@ -1,0 +1,67 @@
+---
+source: src/strace/parser/mod.rs
+expression: "parse_line(\"998518      0.000033 openat(AT_FDCWD<\\\\x2f\\\\x68\\\\x6f\\\\x6d\\\\x65\\\\x2f\\\\x6d\\\\x64\\\\x65\\\\x2f\\\\x73\\\\x72\\\\x63\\\\x2f\\\\x73\\\\x68\\\\x68>, \\\"\\\\x2e\\\\x2e\\\", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 3<\\\\x2f\\\\x68\\\\x6f\\\\x6d\\\\x65\\\\x2f\\\\x6d\\\\x64\\\\x65\\\\x2f\\\\x73\\\\x72\\\\x63>\",).unwrap()"
+---
+Syscall(Syscall(
+  pid: 998518,
+  rel_ts: 0.000033,
+  name: "openat",
+  args: [
+    Integer(IntegerExpression(
+      value: NamedSymbol("AT_FDCWD"),
+      metadata: Some([
+        47,
+        104,
+        111,
+        109,
+        101,
+        47,
+        109,
+        100,
+        101,
+        47,
+        115,
+        114,
+        99,
+        47,
+        115,
+        104,
+        104,
+      ]),
+    )),
+    Buffer(BufferExpression(
+      value: [
+        46,
+        46,
+      ],
+      type_: Unknown,
+    )),
+    Integer(IntegerExpression(
+      value: BinaryOr([
+        NamedSymbol("O_RDONLY"),
+        NamedSymbol("O_NONBLOCK"),
+        NamedSymbol("O_CLOEXEC"),
+        NamedSymbol("O_DIRECTORY"),
+      ]),
+      metadata: None,
+    )),
+  ],
+  ret_val: IntegerExpression(
+    value: Literal(3),
+    metadata: Some([
+      47,
+      104,
+      111,
+      109,
+      101,
+      47,
+      109,
+      100,
+      101,
+      47,
+      115,
+      114,
+      99,
+    ]),
+  ),
+))

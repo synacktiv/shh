@@ -15,6 +15,7 @@ const STRACE_BIN: &str = if let Some(p) = option_env!("SHH_STRACE_BIN_PATH") {
 };
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(test, derive(serde::Serialize))]
 pub(crate) struct Syscall {
     pub pid: pid_t,
     pub rel_ts: f64,
@@ -49,12 +50,14 @@ impl Syscall {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(test, derive(serde::Serialize))]
 pub(crate) enum BufferType {
     AbstractPath,
     Unknown,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(test, derive(serde::Serialize))]
 pub(crate) struct IntegerExpression {
     pub value: IntegerExpressionValue,
     pub metadata: Option<Vec<u8>>,
@@ -67,12 +70,14 @@ impl IntegerExpression {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(test, derive(serde::Serialize))]
 pub(crate) struct BufferExpression {
     pub value: Vec<u8>,
     pub type_: BufferType,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(test, derive(serde::Serialize))]
 pub(crate) enum Expression {
     Buffer(BufferExpression),
     MacAddress([u8; 6]),
@@ -99,6 +104,7 @@ impl Expression {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(test, derive(serde::Serialize))]
 pub(crate) enum IntegerExpressionValue {
     BinaryOr(Vec<IntegerExpressionValue>),
     BooleanAnd(Vec<IntegerExpressionValue>),

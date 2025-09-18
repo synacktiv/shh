@@ -1,0 +1,43 @@
+---
+source: src/strace/parser/mod.rs
+expression: "parse_line(\"85195      0.000038 prlimit64(0, RLIMIT_NOFILE, {rlim_cur=512*1024, rlim_max=512*1024}, NULL) = 0\",).unwrap()"
+---
+Syscall(Syscall(
+  pid: 85195,
+  rel_ts: 0.000038,
+  name: "prlimit64",
+  args: [
+    Integer(IntegerExpression(
+      value: Literal(0),
+      metadata: None,
+    )),
+    Integer(IntegerExpression(
+      value: NamedSymbol("RLIMIT_NOFILE"),
+      metadata: None,
+    )),
+    Struct({
+      "rlim_cur": Integer(IntegerExpression(
+        value: Multiplication([
+          Literal(512),
+          Literal(1024),
+        ]),
+        metadata: None,
+      )),
+      "rlim_max": Integer(IntegerExpression(
+        value: Multiplication([
+          Literal(512),
+          Literal(1024),
+        ]),
+        metadata: None,
+      )),
+    }),
+    Integer(IntegerExpression(
+      value: NamedSymbol("NULL"),
+      metadata: None,
+    )),
+  ],
+  ret_val: IntegerExpression(
+    value: Literal(0),
+    metadata: None,
+  ),
+))

@@ -1,0 +1,79 @@
+---
+source: src/strace/parser/mod.rs
+expression: "parse_line(\"132360      0.000022 bind(6<\\\\x73\\\\x6f\\\\x63\\\\x6b\\\\x65\\\\x74\\\\x3a\\\\x5b\\\\x38\\\\x31\\\\x35\\\\x36\\\\x39\\\\x33\\\\x5d>, {sa_family=AF_INET, sin_port=htons(8025), sin_addr=inet_addr(\\\"\\\\x31\\\\x32\\\\x37\\\\x2e\\\\x30\\\\x2e\\\\x30\\\\x2e\\\\x31\\\")}, 16) = 0\",).unwrap()"
+---
+Syscall(Syscall(
+  pid: 132360,
+  rel_ts: 0.000022,
+  name: "bind",
+  args: [
+    Integer(IntegerExpression(
+      value: Literal(6),
+      metadata: Some([
+        115,
+        111,
+        99,
+        107,
+        101,
+        116,
+        58,
+        91,
+        56,
+        49,
+        53,
+        54,
+        57,
+        51,
+        93,
+      ]),
+    )),
+    Struct({
+      "sa_family": Integer(IntegerExpression(
+        value: NamedSymbol("AF_INET"),
+        metadata: None,
+      )),
+      "sin_addr": Integer(IntegerExpression(
+        value: Macro(
+          name: "inet_addr",
+          args: [
+            Buffer(BufferExpression(
+              value: [
+                49,
+                50,
+                55,
+                46,
+                48,
+                46,
+                48,
+                46,
+                49,
+              ],
+              type_: Unknown,
+            )),
+          ],
+        ),
+        metadata: None,
+      )),
+      "sin_port": Integer(IntegerExpression(
+        value: Macro(
+          name: "htons",
+          args: [
+            Integer(IntegerExpression(
+              value: Literal(8025),
+              metadata: None,
+            )),
+          ],
+        ),
+        metadata: None,
+      )),
+    }),
+    Integer(IntegerExpression(
+      value: Literal(16),
+      metadata: None,
+    )),
+  ],
+  ret_val: IntegerExpression(
+    value: Literal(0),
+    metadata: None,
+  ),
+))

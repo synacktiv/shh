@@ -1,0 +1,37 @@
+---
+source: src/strace/parser/mod.rs
+expression: "parse_line(\"176051      0.000020 recvmsg(3, {msg_namelen=128 => 16, msg_controllen=56, msg_flags=0}, 0) = 64\").unwrap()"
+---
+Syscall(Syscall(
+  pid: 176051,
+  rel_ts: 0.00002,
+  name: "recvmsg",
+  args: [
+    Integer(IntegerExpression(
+      value: Literal(3),
+      metadata: None,
+    )),
+    Struct({
+      "msg_controllen": Integer(IntegerExpression(
+        value: Literal(56),
+        metadata: None,
+      )),
+      "msg_flags": Integer(IntegerExpression(
+        value: Literal(0),
+        metadata: None,
+      )),
+      "msg_namelen": Integer(IntegerExpression(
+        value: Literal(128),
+        metadata: None,
+      )),
+    }),
+    Integer(IntegerExpression(
+      value: Literal(0),
+      metadata: None,
+    )),
+  ],
+  ret_val: IntegerExpression(
+    value: Literal(64),
+    metadata: None,
+  ),
+))

@@ -1,0 +1,46 @@
+---
+source: src/strace/parser/mod.rs
+expression: "parse_line(\"601646      0.000011 mmap(0x7f2fce8dc000, 1396736, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0x26000) = 0x7f2fce8dc000\",).unwrap()"
+---
+Syscall(Syscall(
+  pid: 601646,
+  rel_ts: 0.000011,
+  name: "mmap",
+  args: [
+    Integer(IntegerExpression(
+      value: Literal(139843305586688),
+      metadata: None,
+    )),
+    Integer(IntegerExpression(
+      value: Literal(1396736),
+      metadata: None,
+    )),
+    Integer(IntegerExpression(
+      value: BinaryOr([
+        NamedSymbol("PROT_READ"),
+        NamedSymbol("PROT_EXEC"),
+      ]),
+      metadata: None,
+    )),
+    Integer(IntegerExpression(
+      value: BinaryOr([
+        NamedSymbol("MAP_PRIVATE"),
+        NamedSymbol("MAP_FIXED"),
+        NamedSymbol("MAP_DENYWRITE"),
+      ]),
+      metadata: None,
+    )),
+    Integer(IntegerExpression(
+      value: Literal(3),
+      metadata: None,
+    )),
+    Integer(IntegerExpression(
+      value: Literal(155648),
+      metadata: None,
+    )),
+  ],
+  ret_val: IntegerExpression(
+    value: Literal(139843305586688),
+    metadata: None,
+  ),
+))

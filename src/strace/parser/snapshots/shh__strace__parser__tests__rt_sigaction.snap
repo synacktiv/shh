@@ -1,0 +1,54 @@
+---
+source: src/strace/parser/mod.rs
+expression: "parse_line(\"720313      0.000064 rt_sigaction(SIGTERM, {sa_handler=SIG_DFL, sa_mask=~[RTMIN RT_1], sa_flags=SA_RESTORER, sa_restorer=0x7f6da716c510}, NULL, 8) = 0\",).unwrap()"
+---
+Syscall(Syscall(
+  pid: 720313,
+  rel_ts: 0.000064,
+  name: "rt_sigaction",
+  args: [
+    Integer(IntegerExpression(
+      value: NamedSymbol("SIGTERM"),
+      metadata: None,
+    )),
+    Struct({
+      "sa_flags": Integer(IntegerExpression(
+        value: NamedSymbol("SA_RESTORER"),
+        metadata: None,
+      )),
+      "sa_handler": Integer(IntegerExpression(
+        value: NamedSymbol("SIG_DFL"),
+        metadata: None,
+      )),
+      "sa_mask": Collection(
+        complement: true,
+        values: [
+          (None, Integer(IntegerExpression(
+            value: NamedSymbol("RTMIN"),
+            metadata: None,
+          ))),
+          (None, Integer(IntegerExpression(
+            value: NamedSymbol("RT_1"),
+            metadata: None,
+          ))),
+        ],
+      ),
+      "sa_restorer": Integer(IntegerExpression(
+        value: Literal(140108931450128),
+        metadata: None,
+      )),
+    }),
+    Integer(IntegerExpression(
+      value: NamedSymbol("NULL"),
+      metadata: None,
+    )),
+    Integer(IntegerExpression(
+      value: Literal(8),
+      metadata: None,
+    )),
+  ],
+  ret_val: IntegerExpression(
+    value: Literal(0),
+    metadata: None,
+  ),
+))

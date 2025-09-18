@@ -1,0 +1,53 @@
+---
+source: src/strace/parser/mod.rs
+expression: "parse_line(\"30192      0.000010 wait4(30247, [{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 30247\",).unwrap()"
+---
+Syscall(Syscall(
+  pid: 30192,
+  rel_ts: 0.00001,
+  name: "wait4",
+  args: [
+    Integer(IntegerExpression(
+      value: Literal(30247),
+      metadata: None,
+    )),
+    Integer(IntegerExpression(
+      value: BooleanAnd([
+        Macro(
+          name: "WIFEXITED",
+          args: [
+            Integer(IntegerExpression(
+              value: NamedSymbol("s"),
+              metadata: None,
+            )),
+          ],
+        ),
+        Equality([
+          Macro(
+            name: "WEXITSTATUS",
+            args: [
+              Integer(IntegerExpression(
+                value: NamedSymbol("s"),
+                metadata: None,
+              )),
+            ],
+          ),
+          Literal(0),
+        ]),
+      ]),
+      metadata: None,
+    )),
+    Integer(IntegerExpression(
+      value: Literal(0),
+      metadata: None,
+    )),
+    Integer(IntegerExpression(
+      value: NamedSymbol("NULL"),
+      metadata: None,
+    )),
+  ],
+  ret_val: IntegerExpression(
+    value: Literal(30247),
+    metadata: None,
+  ),
+))

@@ -1,0 +1,117 @@
+---
+source: src/strace/parser/mod.rs
+expression: "parse_line(r#\"39270      0.000020 connect(11<\\x73\\x6f\\x63\\x6b\\x65\\x74\\x3a\\x5b\\x32\\x31\\x34\\x31\\x30\\x37\\x5d>, {sa_family=AF_INET, sin_port=htons(4321), sin_addr=inet_addr(\"\\x31\\x2e\\x32\\x2e\\x33\\x2e\\x34\")}, 16) = -1 EINPROGRESS (Operation now in progress)\"#,).unwrap()"
+---
+Syscall(Syscall(
+  pid: 39270,
+  rel_ts: 0.00002,
+  name: "connect",
+  args: [
+    Integer(IntegerExpression(
+      value: Literal(11),
+      metadata: Some([
+        115,
+        111,
+        99,
+        107,
+        101,
+        116,
+        58,
+        91,
+        50,
+        49,
+        52,
+        49,
+        48,
+        55,
+        93,
+      ]),
+    )),
+    Struct({
+      "sa_family": Integer(IntegerExpression(
+        value: NamedSymbol("AF_INET"),
+        metadata: None,
+      )),
+      "sin_addr": Integer(IntegerExpression(
+        value: Macro(
+          name: "inet_addr",
+          args: [
+            Buffer(BufferExpression(
+              value: [
+                49,
+                46,
+                50,
+                46,
+                51,
+                46,
+                52,
+              ],
+              type_: Unknown,
+            )),
+          ],
+        ),
+        metadata: None,
+      )),
+      "sin_port": Integer(IntegerExpression(
+        value: Macro(
+          name: "htons",
+          args: [
+            Integer(IntegerExpression(
+              value: Literal(4321),
+              metadata: None,
+            )),
+          ],
+        ),
+        metadata: None,
+      )),
+    }),
+    Integer(IntegerExpression(
+      value: Literal(16),
+      metadata: None,
+    )),
+  ],
+  ret_val: IntegerExpression(
+    value: Literal(-1),
+    metadata: Some([
+      69,
+      73,
+      78,
+      80,
+      82,
+      79,
+      71,
+      82,
+      69,
+      83,
+      83,
+      32,
+      40,
+      79,
+      112,
+      101,
+      114,
+      97,
+      116,
+      105,
+      111,
+      110,
+      32,
+      110,
+      111,
+      119,
+      32,
+      105,
+      110,
+      32,
+      112,
+      114,
+      111,
+      103,
+      114,
+      101,
+      115,
+      115,
+      41,
+    ]),
+  ),
+))

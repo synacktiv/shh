@@ -1,0 +1,60 @@
+---
+source: src/strace/parser/mod.rs
+expression: "parse_line(\"231196      0.000017 sched_getaffinity(0, 512, [0 1 2 3 4 5 6 7]) = 8\",).unwrap()"
+---
+Syscall(Syscall(
+  pid: 231196,
+  rel_ts: 0.000017,
+  name: "sched_getaffinity",
+  args: [
+    Integer(IntegerExpression(
+      value: Literal(0),
+      metadata: None,
+    )),
+    Integer(IntegerExpression(
+      value: Literal(512),
+      metadata: None,
+    )),
+    Collection(
+      complement: false,
+      values: [
+        (None, Integer(IntegerExpression(
+          value: Literal(0),
+          metadata: None,
+        ))),
+        (None, Integer(IntegerExpression(
+          value: Literal(1),
+          metadata: None,
+        ))),
+        (None, Integer(IntegerExpression(
+          value: Literal(2),
+          metadata: None,
+        ))),
+        (None, Integer(IntegerExpression(
+          value: Literal(3),
+          metadata: None,
+        ))),
+        (None, Integer(IntegerExpression(
+          value: Literal(4),
+          metadata: None,
+        ))),
+        (None, Integer(IntegerExpression(
+          value: Literal(5),
+          metadata: None,
+        ))),
+        (None, Integer(IntegerExpression(
+          value: Literal(6),
+          metadata: None,
+        ))),
+        (None, Integer(IntegerExpression(
+          value: Literal(7),
+          metadata: None,
+        ))),
+      ],
+    ),
+  ],
+  ret_val: IntegerExpression(
+    value: Literal(8),
+    metadata: None,
+  ),
+))

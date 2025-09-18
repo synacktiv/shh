@@ -1,0 +1,43 @@
+---
+source: src/strace/parser/mod.rs
+expression: "parse_line(\"1234      0.000000 execve(\\\"\\\\x12\\\", [\\\"\\\\x34\\\"], [\\\"\\\\x56\\\"]) = 0\",).unwrap()"
+---
+Syscall(Syscall(
+  pid: 1234,
+  rel_ts: 0.0,
+  name: "execve",
+  args: [
+    Buffer(BufferExpression(
+      value: [
+        18,
+      ],
+      type_: Unknown,
+    )),
+    Collection(
+      complement: false,
+      values: [
+        (None, Buffer(BufferExpression(
+          value: [
+            52,
+          ],
+          type_: Unknown,
+        ))),
+      ],
+    ),
+    Collection(
+      complement: false,
+      values: [
+        (None, Buffer(BufferExpression(
+          value: [
+            86,
+          ],
+          type_: Unknown,
+        ))),
+      ],
+    ),
+  ],
+  ret_val: IntegerExpression(
+    value: Literal(0),
+    metadata: None,
+  ),
+))

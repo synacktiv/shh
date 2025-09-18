@@ -1,0 +1,38 @@
+---
+source: src/strace/parser/mod.rs
+expression: "parse_line(\"246722      0.000003 close(39<\\\\x2f\\\\x6d\\\\x65\\\\x6d\\\\x66\\\\x64\\\\x3a\\\\x6d\\\\x6f\\\\x7a\\\\x69\\\\x6c\\\\x6c\\\\x61\\\\x2d\\\\x69\\\\x70\\\\x63>(deleted)) = 0\").unwrap()"
+---
+Syscall(Syscall(
+  pid: 246722,
+  rel_ts: 0.000003,
+  name: "close",
+  args: [
+    Integer(IntegerExpression(
+      value: Literal(39),
+      metadata: Some([
+        47,
+        109,
+        101,
+        109,
+        102,
+        100,
+        58,
+        109,
+        111,
+        122,
+        105,
+        108,
+        108,
+        97,
+        45,
+        105,
+        112,
+        99,
+      ]),
+    )),
+  ],
+  ret_val: IntegerExpression(
+    value: Literal(0),
+    metadata: None,
+  ),
+))

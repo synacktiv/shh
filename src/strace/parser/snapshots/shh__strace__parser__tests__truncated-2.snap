@@ -1,0 +1,30 @@
+---
+source: src/strace/parser/mod.rs
+expression: "parse_line(\"215947      0.000022 read(3, \\\"\\\\x12\\\\xef\\\"..., 832) = 832\",).unwrap()"
+---
+Syscall(Syscall(
+  pid: 215947,
+  rel_ts: 0.000022,
+  name: "read",
+  args: [
+    Integer(IntegerExpression(
+      value: Literal(3),
+      metadata: None,
+    )),
+    Buffer(BufferExpression(
+      value: [
+        18,
+        239,
+      ],
+      type_: Unknown,
+    )),
+    Integer(IntegerExpression(
+      value: Literal(832),
+      metadata: None,
+    )),
+  ],
+  ret_val: IntegerExpression(
+    value: Literal(832),
+    metadata: None,
+  ),
+))

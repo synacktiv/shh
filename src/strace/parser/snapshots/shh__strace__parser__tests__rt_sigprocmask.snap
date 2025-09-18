@@ -1,0 +1,48 @@
+---
+source: src/strace/parser/mod.rs
+expression: "parse_line(\"440663      0.002174 rt_sigprocmask(SIG_SETMASK, [], ~[KILL STOP RTMIN RT_1], 8) = 0\").unwrap()"
+---
+Syscall(Syscall(
+  pid: 440663,
+  rel_ts: 0.002174,
+  name: "rt_sigprocmask",
+  args: [
+    Integer(IntegerExpression(
+      value: NamedSymbol("SIG_SETMASK"),
+      metadata: None,
+    )),
+    Collection(
+      complement: false,
+      values: [],
+    ),
+    Collection(
+      complement: true,
+      values: [
+        (None, Integer(IntegerExpression(
+          value: NamedSymbol("KILL"),
+          metadata: None,
+        ))),
+        (None, Integer(IntegerExpression(
+          value: NamedSymbol("STOP"),
+          metadata: None,
+        ))),
+        (None, Integer(IntegerExpression(
+          value: NamedSymbol("RTMIN"),
+          metadata: None,
+        ))),
+        (None, Integer(IntegerExpression(
+          value: NamedSymbol("RT_1"),
+          metadata: None,
+        ))),
+      ],
+    ),
+    Integer(IntegerExpression(
+      value: Literal(8),
+      metadata: None,
+    )),
+  ],
+  ret_val: IntegerExpression(
+    value: Literal(0),
+    metadata: None,
+  ),
+))
