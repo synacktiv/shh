@@ -1301,7 +1301,7 @@ pub(crate) fn build_options(
                             let merged_exceptions_rw: Vec<_> = {
                                 let merged_paths =
                                     merge_similar_paths(exceptions_rw, hopts.merge_paths_threshold);
-                                if merged_paths.iter().any(|p| (p == base)) {
+                                if merged_paths.iter().any(|p| p == base) {
                                     // The exception nullifies the option, bail out
                                     return vec![];
                                 }
