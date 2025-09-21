@@ -171,8 +171,7 @@ impl NetworkActivityKind {
     }
 }
 
-// TODO review Derive
-#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct NetworkPort(NonZeroU16);
 
 impl Display for NetworkPort {
@@ -181,7 +180,7 @@ impl Display for NetworkPort {
     }
 }
 
-#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct NetworkAddress(IpAddr);
 
 impl From<IpAddr> for NetworkAddress {
