@@ -937,6 +937,9 @@ fn socket_address_uds_path(
 /// Resolve relative path if possible, and normalize it
 /// Does not access filesystem to resolve symlinks
 fn resolve_path(path: &Path, relfd: Option<&Expression>, cur_dir: &Path) -> Option<PathBuf> {
+    if is_pseudo_path(path) {
+        return None;
+    }
     let path = if path.is_relative() {
         let metadata = relfd.and_then(|a| a.metadata());
         if let Some(metadata) = metadata {
