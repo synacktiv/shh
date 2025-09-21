@@ -572,23 +572,37 @@ static SYSCALL_MAP: LazyLock<HashMap<&'static str, SyscallArgsIndex>> = LazyLock
 
 /// Information that persists between syscalls and that we need to handle
 /// Obviously, keeping this to a minimum is a goal
-#[derive(Debug, Default)]
-struct ProgramState {
+#[derive(Debug)]
+pub(crate) struct ProgramState {
     /// Keep known socket protocols (per process) for bind handling, we don't care for the socket closings
     /// because the fd will be reused or never bound again
     known_sockets_proto: HashMap<(pid_t, RawFd), SocketProtocol>,
     /// Current working directory
-    // TODO initialize with startup current dir?
-    cur_dir: Option<PathBuf>,
+    cur_dir: PathBuf,
 }
 
-pub(crate) fn summarize<I>(syscalls: I, env_paths: &[PathBuf]) -> anyhow::Result<Vec<ProgramAction>>
+impl ProgramState {
+    pub(crate) fn new<P>(cur_dir: P) -> Self
+    where
+        P: Into<PathBuf>,
+    {
+        Self {
+            known_sockets_proto: HashMap::new(),
+            cur_dir: cur_dir.into(),
+        }
+    }
+}
+
+pub(crate) fn summarize<I>(
+    syscalls: I,
+    env_paths: &[PathBuf],
+    mut program_state: ProgramState,
+) -> anyhow::Result<Vec<ProgramAction>>
 where
     I: IntoIterator<Item = anyhow::Result<Syscall>>,
 {
     let mut actions = Vec::new();
     let mut stats: HashMap<String, u64> = HashMap::new();
-    let mut program_state = ProgramState::default();
     for syscall in syscalls {
         let syscall = syscall?;
         log::trace!("{syscall:?}");
@@ -644,6 +658,7 @@ mod tests {
             PathBuf::from("/path/from/env/1"),
             PathBuf::from("/path/from/env/2"),
         ];
+        let state = ProgramState::new("/");
 
         let temp_dir_src = tempfile::tempdir().unwrap();
         let temp_dir_dst = tempfile::tempdir().unwrap();
@@ -679,7 +694,7 @@ mod tests {
             },
         })];
         assert_eq!(
-            summarize(syscalls, &env_paths).unwrap(),
+            summarize(syscalls, &env_paths, state).unwrap(),
             vec![
                 ProgramAction::Read(temp_dir_src.path().join("a")),
                 ProgramAction::Write(temp_dir_src.path().join("a")),
@@ -700,6 +715,7 @@ mod tests {
             PathBuf::from("/path/from/env/1"),
             PathBuf::from("/path/from/env/2"),
         ];
+        let state = ProgramState::new("/");
 
         let syscalls = [Ok(Syscall {
             pid: 598056,
@@ -737,7 +753,7 @@ mod tests {
             },
         })];
         assert_eq!(
-            summarize(syscalls, &env_paths).unwrap(),
+            summarize(syscalls, &env_paths, state).unwrap(),
             vec![
                 ProgramAction::Read("/run/user/1000/systemd/private".into()),
                 ProgramAction::Syscalls(["connect".to_owned()].into()),

@@ -122,11 +122,6 @@ fn main() -> anyhow::Result<()> {
                 &hardening_opts,
             );
 
-            // Run strace
-            let cmd = command.iter().map(|a| &**a).collect::<Vec<&str>>();
-            let st = strace::Strace::run(&cmd, strace_log_path)
-                .context("Failed to setup strace profiling")?;
-
             // Start signal handling thread
             let mut signals = signal_hook::iterator::Signals::new([
                 signal_hook::consts::signal::SIGINT,
@@ -146,12 +141,22 @@ fn main() -> anyhow::Result<()> {
                 .map(|ev| env::split_paths(&ev).collect())
                 .unwrap_or_default();
 
+            // Initialize state
+            let state = summarize::ProgramState::new(
+                env::current_dir().context("Failed to read current directory")?,
+            );
+
+            // Run strace
+            let cmd = command.iter().map(|a| &**a).collect::<Vec<&str>>();
+            let st = strace::Strace::run(&cmd, strace_log_path)
+                .context("Failed to setup strace profiling")?;
+
             // Summarize actions
             let logs = st
                 .log_lines()
                 .context("Failed to setup strace output reader")?;
-            let actions =
-                summarize::summarize(logs, &env_paths).context("Failed to summarize syscalls")?;
+            let actions = summarize::summarize(logs, &env_paths, state)
+                .context("Failed to summarize syscalls")?;
             log::debug!("{actions:?}");
 
             if let Some(profile_data_path) = profile_data_path {

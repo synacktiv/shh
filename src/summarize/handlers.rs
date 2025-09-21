@@ -125,7 +125,7 @@ fn handle_chdir(
     if let Some(mut dir) = dir {
         traverse_symlinks(&mut dir, actions);
         debug_assert!(dir.is_absolute());
-        state.cur_dir = Some(dir);
+        state.cur_dir = dir;
     }
     Ok(())
 }
@@ -447,7 +447,7 @@ fn handle_network(
     #[expect(clippy::single_match)]
     match af_str {
         "AF_UNIX" => {
-            if let Some(path) = socket_address_uds_path(addr_struct, state.cur_dir.as_ref()) {
+            if let Some(path) = socket_address_uds_path(addr_struct, &state.cur_dir) {
                 actions.push(ProgramAction::Read(path));
             }
         }
@@ -921,7 +921,7 @@ fn handle_timer_create(
 /// Extract path for socket address structure if it's a non abstract one
 fn socket_address_uds_path(
     members: &HashMap<String, Expression>,
-    cur_dir: Option<&PathBuf>,
+    cur_dir: &Path,
 ) -> Option<PathBuf> {
     if let Some(Expression::Buffer(BufferExpression {
         value: b,
@@ -936,11 +936,7 @@ fn socket_address_uds_path(
 
 /// Resolve relative path if possible, and normalize it
 /// Does not access filesystem to resolve symlinks
-fn resolve_path(
-    path: &Path,
-    relfd: Option<&Expression>,
-    cur_dir: Option<&PathBuf>,
-) -> Option<PathBuf> {
+fn resolve_path(path: &Path, relfd: Option<&Expression>, cur_dir: &Path) -> Option<PathBuf> {
     let path = if path.is_relative() {
         let metadata = relfd.and_then(|a| a.metadata());
         if let Some(metadata) = metadata {
@@ -949,10 +945,8 @@ fn resolve_path(
             }
             let rel_path = PathBuf::from(OsStr::from_bytes(metadata));
             rel_path.join(path)
-        } else if let Some(cur_dir) = cur_dir {
-            cur_dir.join(path)
         } else {
-            return None;
+            cur_dir.join(path)
         }
     } else {
         path.to_path_buf()
