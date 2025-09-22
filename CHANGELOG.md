@@ -1,5 +1,46 @@
 # Changelog
 
+## v2025.9.22
+
+### <!-- 01 -->💡 Features
+
+- Add EWOULDBLOCK to "maybe successful" errnos ([238b20b](https://github.com/desbma/shh/commit/238b20b6c09ce1f95e6a1304626d4eccb499d2d5) by desbma)
+- Generic hardening mode (closes #15) ([455336f](https://github.com/desbma/shh/commit/455336f38e8529cbd53dadb4e0b70f22c4ab85e1) by desbma)
+- Initial CAP_KILL support ([d2edd5b](https://github.com/desbma/shh/commit/d2edd5bda8e2757fe35212d43430555019bb7175) by desbma)
+- CAP_IPC_LOCK support ([343edb7](https://github.com/desbma/shh/commit/343edb792d4a2116f67b2f26935873acadbb3376) by desbma)
+- Refresh existing hardening fragment ([b991c28](https://github.com/desbma/shh/commit/b991c2801203bc2a8b138effffb45e1571c2d6e1) by desbma)
+- Initialize current working directory ([d2cd3ce](https://github.com/desbma/shh/commit/d2cd3ce56d058f54bbd95d37d5fb82e40b704fa0) by desbma)
+
+### <!-- 02 -->🐛 Bug fixes
+
+- Minor comment typo ([a6f5281](https://github.com/desbma/shh/commit/a6f5281486f7a417e0ba3b19c8d89c18801c1c8f) by desbma)
+- Bit shift parsing error ([b004891](https://github.com/desbma/shh/commit/b0048915e303c05bf70a695f944efd1832821ceb) by desbma)
+- Msrv ([2b6411c](https://github.com/desbma/shh/commit/2b6411cdbf5b6f97e38b0a9d99c2af0454816b88) by desbma)
+- Path resolution for special files ([fe5f2e5](https://github.com/desbma/shh/commit/fe5f2e567493fb150d73fc6c24b3aff977e51792) by desbma)
+
+### <!-- 03 -->🏃 Performance
+
+- Avoid sorting syscall names if we don't show them ([4626c67](https://github.com/desbma/shh/commit/4626c674b6da527c7d9d8d94256cf4a7340c9d04) by desbma)
+
+### <!-- 05 -->🧪 Testing
+
+- Use snapshot testing for verbose unit tests ([f737f55](https://github.com/desbma/shh/commit/f737f55ea3ab5c9810ab5b1010b2ba3017463f30) by desbma)
+
+### <!-- 06 -->🚜 Refactor
+
+- Sort enum members ([76f756d](https://github.com/desbma/shh/commit/76f756d1142e524e52733fae572a04ed67abb484) by desbma)
+
+### <!-- 09 -->🤖 Continuous integration
+
+- Add cargo audit workflow ([3620abe](https://github.com/desbma/shh/commit/3620abea9d34c73fc5c02f86046821b53203e6d4) by desbma)
+
+### <!-- 10 -->🧰 Miscellaneous tasks
+
+- Fix lint ([71e9c81](https://github.com/desbma/shh/commit/71e9c8159f59baf6b435fb444f7b228311541d23) by desbma)
+- Cleanup unneeded derive ([eb81f33](https://github.com/desbma/shh/commit/eb81f339097a9a4efdf921fbf0c491bc3403c4a3) by desbma)
+
+---
+
 ## v2025.7.13
 
 ### <!-- 01 -->💡 Features
