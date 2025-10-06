@@ -2,7 +2,7 @@
 
 use std::{
     fs::File,
-    io::{self, BufRead, BufWriter, Write as _},
+    io::{BufRead, Write as _},
     path::Path,
 };
 
@@ -16,7 +16,7 @@ use super::{Expression, IntegerExpression};
 
 pub(crate) struct LogParser {
     reader: Box<dyn BufRead>,
-    log: Option<BufWriter<File>>,
+    log: Option<File>,
     buf: String,
     unfinished_syscalls: Vec<SyscallStart>,
 }
@@ -24,10 +24,7 @@ pub(crate) struct LogParser {
 impl LogParser {
     pub(crate) fn new(reader: Box<dyn BufRead>, log_path: Option<&Path>) -> anyhow::Result<Self> {
         let log = log_path
-            .map(|p| -> io::Result<_> {
-                let file = File::options().create(true).append(true).open(p)?;
-                Ok(BufWriter::with_capacity(64 * 1024, file))
-            })
+            .map(|p| File::options().create(true).append(true).open(p))
             .transpose()?;
         Ok(Self {
             reader,
