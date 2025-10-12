@@ -4,6 +4,7 @@ use std::{
     env,
     fs::File,
     io::BufReader,
+    os::unix::process::CommandExt as _,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
 };
@@ -46,8 +47,10 @@ impl Strace {
         // Start process
         // TODO setuid/setgid execution will be broken unless strace runs as root
         let child = Command::new(STRACE_BIN)
+            .process_group(0) // set dedicated process group for easy signal handling, without affecting the shh process
             .args([
                 "--daemonize=grandchild",
+                "--kill-on-exit",
                 "--relative-timestamps",
                 "--follow-forks",
                 "--status=successful,failed",
@@ -79,6 +82,18 @@ impl Strace {
             _tmp_pipe_dir: tmp_dir,
             log_path,
         })
+    }
+
+    pub(crate) fn stop(&self) {
+        // Strace runs with `--deamonize=grandchild`, so will become child of the init process.
+        // Consequently, the pid we have is already gone, but because we have started it with a unique process group,
+        // we can still reliably kill strace.
+        // Strace also runs with `--kill-on-exit` so the subtree will be reliably killed even if the tracee created
+        // another process group (sshd does this).
+        #[expect(clippy::cast_possible_wrap)]
+        let pgid = nix::unistd::Pid::from_raw(-(self.process.id() as i32));
+        // Ignore errors because it may have already naturally stopped
+        let _ = nix::sys::signal::kill(pgid, nix::sys::signal::Signal::SIGKILL);
     }
 
     fn pipe_path(dir: &Path) -> PathBuf {

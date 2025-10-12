@@ -21,7 +21,7 @@ Automatic [systemd](https://systemd.io/) service hardening guided by [strace](ht
 
 ### Dependencies
 
-Strace needs to be installed and its executable available in the path. A recent Strace version is strongly recommended.
+Strace needs to be installed and its executable reachable in `PATH`. **Strace version >= 6.6 is currently required.**
 
 ### From source
 

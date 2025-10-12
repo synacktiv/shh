@@ -34,7 +34,7 @@ function_name = { version = "0.3.0", default-features = false }
 goblin = { version = "0.10.1", default-features = false, features = ["std", "elf32", "elf64", "endian_fd"] }
 itertools = { version = "0.14.0", default-features = false, features = ["use_std"] }
 log = { version = "0.4.28", default-features = false, features = ["max_level_trace", "release_max_level_info"] }
-nix = { version = "0.30.1", default-features = false, features = ["fs", "user", "process"] }
+nix = { version = "0.30.1", default-features = false, features = ["fs", "user", "process", "signal"] }
 nom = { version = "8.0.0", default-features = false, features = ["std"] }
 path-clean = { version = "1.0.1", default-features = false }
 phf = { version = "0.12.1", default-features = false, features = ["std", "macros"] }

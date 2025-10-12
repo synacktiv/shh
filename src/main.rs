@@ -8,7 +8,9 @@ use std::{
     io,
     path::Path,
     process::Command,
-    thread,
+    sync::Arc,
+    thread::{self, sleep},
+    time::Duration,
 };
 
 use anyhow::Context as _;
@@ -90,11 +92,10 @@ fn main() -> anyhow::Result<()> {
     log::info!(
         "Detected versions: Systemd {sd_version}, Linux kernel {kernel_version}, strace {strace_version}"
     );
-    if strace_version < strace::StraceVersion::new(6, 4) {
-        log::warn!(
-            "Strace version >=6.4 is strongly recommended, if you experience strace output parsing errors, please consider upgrading"
-        );
-    }
+    anyhow::ensure!(
+        strace_version >= strace::StraceVersion::new(6, 6),
+        "Strace version >=6.6 is required"
+    );
 
     // Parse cl args
     let args = cl::Args::parse();
@@ -122,6 +123,13 @@ fn main() -> anyhow::Result<()> {
                 &hardening_opts,
             );
 
+            // Run strace
+            let cmd = command.iter().map(|a| &**a).collect::<Vec<&str>>();
+            let st = Arc::new(
+                strace::Strace::run(&cmd, strace_log_path)
+                    .context("Failed to setup strace profiling")?,
+            );
+
             // Start signal handling thread
             let mut signals = signal_hook::iterator::Signals::new([
                 signal_hook::consts::signal::SIGINT,
@@ -129,10 +137,16 @@ fn main() -> anyhow::Result<()> {
                 signal_hook::consts::signal::SIGTERM,
             ])
             .context("Failed to setup signal handlers")?;
+            let st_sig = Arc::clone(&st);
             thread::spawn(move || {
                 for sig in signals.forever() {
-                    // The strace, and its watched child processes already get the signal, so the iterator will stop naturally
-                    log::info!("Got signal {sig:?}, ignoring");
+                    // Propagate signal to strace after this delay, in most cases everything should have already stopped
+                    const SIGNAL_STRACE_STOP_DELAY: Duration = Duration::from_secs(5);
+
+                    log::info!("Got signal {sig:?}");
+                    sleep(SIGNAL_STRACE_STOP_DELAY);
+                    log::info!("Stopping strace");
+                    st_sig.stop();
                 }
             });
 
@@ -145,11 +159,6 @@ fn main() -> anyhow::Result<()> {
             let state = summarize::ProgramState::new(
                 env::current_dir().context("Failed to read current directory")?,
             );
-
-            // Run strace
-            let cmd = command.iter().map(|a| &**a).collect::<Vec<&str>>();
-            let st = strace::Strace::run(&cmd, strace_log_path)
-                .context("Failed to setup strace profiling")?;
 
             // Summarize actions
             let logs = st
