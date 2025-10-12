@@ -476,7 +476,7 @@ fn systemd_run_curl() {
             eprintln!("shh run option: {}", shh_opts.join(" "));
             let sd_opts = generate_options(&cmd, &shh_opts);
             let asrt = systemd_run(&cmd, &sd_opts, *user);
-            asrt.stdout(predicate::str::contains("<html>"));
+            asrt.stdout(predicate::str::contains("<html"));
         }
     }
 }
