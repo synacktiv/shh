@@ -211,6 +211,13 @@ mod tests {
     }
 
     #[test]
+    fn test_kill_no_sig() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        assert_snapshot!(parse_line("51667      0.000002 kill(51668, 0)      = 0").unwrap());
+    }
+
+    #[test]
     fn test_newfstatat() {
         let _ = simple_logger::SimpleLogger::new().init();
 

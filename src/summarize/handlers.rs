@@ -243,19 +243,25 @@ fn handle_kill(
             });
         }
     };
-    let Expression::Integer(IntegerExpression {
-        value: IntegerExpressionValue::NamedSymbol(sig_name),
-        ..
-    }) = sig
-    else {
-        return Err(HandlerError::ArgTypeMismatch {
-            sc_name: name.to_owned(),
-            arg: pid.to_owned(),
-        });
+    let sig_name = match sig {
+        Expression::Integer(IntegerExpression {
+            value: IntegerExpressionValue::NamedSymbol(sig_name),
+            ..
+        }) => Some(sig_name),
+        Expression::Integer(IntegerExpression {
+            value: IntegerExpressionValue::Literal(0),
+            ..
+        }) => None,
+        _ => {
+            return Err(HandlerError::ArgTypeMismatch {
+                sc_name: name.to_owned(),
+                arg: pid.to_owned(),
+            });
+        }
     };
     // https://man7.org/linux/man-pages/man2/kill.2.html
     if pid_val > 0 {
-        if (sig_name == "SIGCONT")
+        if sig_name.is_some_and(|s| s == "SIGCONT")
             && (nix::unistd::getsid(Some(nix::unistd::Pid::from_raw(pid_val)))
                 .and_then(|s| {
                     nix::unistd::getsid(Some(nix::unistd::Pid::from_raw(caller_pid)))
