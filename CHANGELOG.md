@@ -1,5 +1,23 @@
 # Changelog
 
+## v2025.10.22
+
+### <!-- 01 -->💡 Features
+
+- Don't buffer strace log output ([506cace](https://github.com/desbma/shh/commit/506caceb7068747aed051dbcb1c8b930d5e7b8f8) by desbma)
+
+### <!-- 02 -->🐛 Bug fixes
+
+- Kill(pid, 0) handling ([9885c1a](https://github.com/desbma/shh/commit/9885c1a1444eabb52e2358fc82cf8d1c91d95d82) by desbma)
+- Curl integration test ([2f027f1](https://github.com/desbma/shh/commit/2f027f13fb2724a18083152b95a1de96d2f3d7f7) by desbma)
+- Stop sequence for sshd ([b3b3248](https://github.com/desbma/shh/commit/b3b32481cbebc49ad374b5b5489c3409a3b02415) by desbma)
+
+### <!-- 10 -->🧰 Miscellaneous tasks
+
+- Fix lint ([c6f5ac7](https://github.com/desbma/shh/commit/c6f5ac74acf2434684133592b03ce44036ec2e8a) by desbma)
+
+---
+
 ## v2025.9.22
 
 ### <!-- 01 -->💡 Features
