@@ -196,9 +196,11 @@ impl StraceVersion {
 
     pub(crate) fn local_system() -> anyhow::Result<Self> {
         let output = Command::new(STRACE_BIN).arg("--version").output()?;
-        if !output.status.success() {
-            anyhow::bail!("strace invocation failed with code {:?}", output.status);
-        }
+        anyhow::ensure!(
+            output.status.success(),
+            "strace invocation failed with code {:?}",
+            output.status
+        );
         let version_line = output
             .stdout
             .lines()

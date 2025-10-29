@@ -15,9 +15,11 @@ impl SystemdVersion {
 
     pub(crate) fn local_system() -> anyhow::Result<Self> {
         let output = Command::new("systemctl").arg("--version").output()?;
-        if !output.status.success() {
-            anyhow::bail!("systemctl invocation failed with code {:?}", output.status);
-        }
+        anyhow::ensure!(
+            output.status.success(),
+            "systemctl invocation failed with code {:?}",
+            output.status
+        );
         let line = output
             .stdout
             .lines()
@@ -79,9 +81,11 @@ impl KernelVersion {
 
     pub(crate) fn local_system() -> anyhow::Result<Self> {
         let output = Command::new("uname").arg("-r").output()?;
-        if !output.status.success() {
-            anyhow::bail!("uname invocation failed with code {:?}", output.status);
-        }
+        anyhow::ensure!(
+            output.status.success(),
+            "uname invocation failed with code {:?}",
+            output.status
+        );
         let tokens: Vec<_> = str::from_utf8(&output.stdout)?.splitn(3, '.').collect();
         let release = tokens
             .get(2)

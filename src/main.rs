@@ -63,9 +63,7 @@ fn edit_file(path: &Path) -> anyhow::Result<()> {
         .args(other_args)
         .arg(path)
         .status()?;
-    if !status.success() {
-        anyhow::bail!("Editor failed with status {status}");
-    }
+    anyhow::ensure!(status.success(), "Editor failed with status {status}");
     Ok(())
 }
 

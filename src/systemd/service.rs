@@ -76,9 +76,7 @@ impl JournalCursor {
                     .ok_or_else(|| anyhow::anyhow!("Invalid temporary filepath"))?,
             ])
             .status()?;
-        if !status.success() {
-            anyhow::bail!("journalctl failed: {status}");
-        }
+        anyhow::ensure!(status.success(), "journalctl failed: {status}");
         let val = fs::read_to_string(tmp_file.path())?;
         Ok(Self(val))
     }
@@ -152,9 +150,11 @@ impl Service {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .output()?;
-        if !output.status.success() {
-            anyhow::bail!("systemd-analyze failed: {}", output.status);
-        }
+        anyhow::ensure!(
+            output.status.success(),
+            "systemd-analyze failed: {}",
+            output.status
+        );
         let last_line = output
             .stdout
             .lines()
@@ -369,9 +369,7 @@ impl Service {
             cmd.arg("--user");
         }
         let status = cmd.arg("daemon-reload").status()?;
-        if !status.success() {
-            anyhow::bail!("systemctl failed: {status}");
-        }
+        anyhow::ensure!(status.success(), "systemctl failed: {status}");
         Ok(())
     }
 
@@ -387,9 +385,7 @@ impl Service {
         }
         cmd.push(&unit_name);
         let status = Command::new("systemctl").args(cmd).status()?;
-        if !status.success() {
-            anyhow::bail!("systemctl failed: {status}");
-        }
+        anyhow::ensure!(status.success(), "systemctl failed: {status}");
         Ok(())
     }
 
