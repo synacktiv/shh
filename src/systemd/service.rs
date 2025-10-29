@@ -5,7 +5,7 @@ use std::{
     fs::{self, File},
     io::{self, BufRead as _, BufReader, BufWriter, Write},
     ops::RangeInclusive,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::{Command, Stdio},
     thread::sleep,
     time::{Duration, Instant},
@@ -127,9 +127,9 @@ impl Service {
             "{}{}.service",
             &self.name,
             if let Some(arg) = self.arg.as_ref() {
-                format!("@{arg}")
+                &format!("@{arg}")
             } else {
-                String::new()
+                ""
             }
         )
     }
@@ -185,12 +185,8 @@ impl Service {
             "Hardening config already exists at {harden_fragment_path:?} and may conflict with profiling"
         );
 
-        let config_paths_bufs = self.config_paths()?;
-        let config_paths = config_paths_bufs
-            .iter()
-            .map(PathBuf::as_path)
-            .collect::<Vec<_>>();
-        log::info!("Located unit config file(s): {config_paths:?}");
+        // Read current config
+        let current_config = self.cat_config().context("Failed to cat service config")?;
 
         // Write new fragment
         #[expect(clippy::unwrap_used)] // fragment_path guarantees by construction we have a parent
@@ -199,7 +195,7 @@ impl Service {
         Self::write_fragment_header(&mut fragment_file)?;
         writeln!(fragment_file, "[Service]")?;
         // writeln!(fragment_file, "AmbientCapabilities=CAP_SYS_PTRACE")?;
-        if Self::config_vals("Type", &config_paths)?
+        if Self::config_vals("Type", &current_config)?
             .last()
             .is_some_and(|v| v.starts_with("notify"))
         {
@@ -207,7 +203,7 @@ impl Service {
             writeln!(fragment_file, "NotifyAccess=all")?;
         }
         writeln!(fragment_file, "Environment=RUST_BACKTRACE=1")?;
-        if !Self::config_vals("SystemCallFilter", &config_paths)?.is_empty() {
+        if !Self::config_vals("SystemCallFilter", &current_config)?.is_empty() {
             // Allow ptracing, only if a syscall filter is already in place, otherwise it becomes a whitelist
             writeln!(fragment_file, "SystemCallFilter=@debug")?;
         }
@@ -240,7 +236,7 @@ impl Service {
         let mut exec_start_idx = 1;
         let mut profile_data_paths = Vec::new();
         for exec_start_opt in ["ExecStartPre", "ExecStart", "ExecStartPost"] {
-            let exec_start_cmds = Self::config_vals(exec_start_opt, &config_paths)?;
+            let exec_start_cmds = Self::config_vals(exec_start_opt, &current_config)?;
             if !exec_start_cmds.is_empty() {
                 writeln!(fragment_file, "{exec_start_opt}=")?;
             }
@@ -493,117 +489,48 @@ impl Service {
         Ok(opts)
     }
 
-    fn config_vals(key: &str, config_paths: &[&Path]) -> anyhow::Result<Vec<String>> {
+    fn config_vals(key: &str, config: &str) -> anyhow::Result<Vec<String>> {
         // Note: we could use 'systemctl show -p xxx' but its output is different from config
         // files, and we would need to interpret it anyway
         let mut vals = Vec::new();
-        for config_path in config_paths {
-            let config_file = BufReader::new(File::open(config_path)?);
-            let prefix = format!("{key}=");
-            let mut file_vals = vec![];
-            let mut lines = config_file.lines();
-            while let Some(line) = lines.next() {
-                let line = line?;
-                if line.starts_with(&prefix) {
-                    let val = if line.ends_with('\\') {
-                        let mut val = line
-                            .split_once('=')
-                            .ok_or_else(|| anyhow::anyhow!("Unable to parse service option line"))?
-                            .1
-                            .trim()
-                            .to_owned();
-                        // Remove trailing '\'
-                        val.pop();
-                        // Append next lines
-                        loop {
-                            let next_line = lines
-                                .next()
-                                .ok_or_else(|| anyhow::anyhow!("Unexpected end of file"))??;
-                            val = format!("{} {}", val, next_line.trim_start());
-                            if next_line.ends_with('\\') {
-                                // Remove trailing '\'
-                                val.pop();
-                            } else {
-                                break;
-                            }
+        let prefix = format!("{key}=");
+        let mut lines = config.lines();
+        while let Some(line) = lines.next() {
+            if let Some(line_val) = line.strip_prefix(&prefix) {
+                let val = if line_val.ends_with('\\') {
+                    let mut val = line_val.trim_start().to_owned();
+                    // Remove trailing '\'
+                    val.pop();
+                    // Append next lines
+                    loop {
+                        let next_line = lines
+                            .next()
+                            .ok_or_else(|| anyhow::anyhow!("Unexpected end of file"))?;
+                        val = format!("{} {}", val, next_line.trim_start());
+                        if next_line.ends_with('\\') {
+                            // Remove trailing '\'
+                            val.pop();
+                        } else {
+                            break;
                         }
-                        val
-                    } else {
-                        line.split_once('=')
-                            .ok_or_else(|| anyhow::anyhow!("Unable to parse service option line"))?
-                            .1
-                            .trim()
-                            .to_owned()
-                    };
-                    file_vals.push(val);
-                }
+                    }
+                    val
+                } else {
+                    line_val.trim().to_owned()
+                };
+                vals.push(val);
             }
-            // Handles lines that reset previously set options
-            if let Some((last, _)) = file_vals
-                .split_inclusive(String::is_empty)
-                .rev()
-                .take(2)
-                .collect_tuple()
-            {
-                file_vals = last.to_vec();
-                vals.clear();
-            }
-            vals.extend(file_vals);
+        }
+        // Handles lines that reset previously set options
+        if let Some((last, _)) = vals
+            .split_inclusive(String::is_empty)
+            .rev()
+            .take(2)
+            .collect_tuple()
+        {
+            vals = last.to_vec();
         }
         Ok(vals)
-    }
-
-    fn config_paths(&self) -> anyhow::Result<Vec<PathBuf>> {
-        let mut cmd = Command::new("systemctl");
-        if matches!(self.instance, InstanceKind::User) {
-            cmd.arg("--user");
-        }
-        let output = cmd
-            .args(["status", "-n", "0", &self.unit_name()])
-            .env("LANG", "C")
-            .output()?;
-        let mut paths = Vec::new();
-        let mut drop_in_dir = None;
-        for line in output.stdout.lines() {
-            let line = line?;
-            let line = line.trim_start();
-            if line.starts_with("Loaded:") {
-                // Main unit file
-                anyhow::ensure!(paths.is_empty());
-                let path = line
-                    .split_once('(')
-                    .ok_or_else(|| anyhow::anyhow!("Failed to locate main unit file"))?
-                    .1
-                    .split_once(';')
-                    .ok_or_else(|| anyhow::anyhow!("Failed to locate main unit file"))?
-                    .0;
-                paths.push(PathBuf::from(path));
-            } else if line.starts_with("Drop-In:") {
-                // Drop in base dir
-                anyhow::ensure!(paths.len() == 1);
-                anyhow::ensure!(drop_in_dir.is_none());
-                let dir = line
-                    .split_once(':')
-                    .ok_or_else(|| anyhow::anyhow!("Failed to locate unit config fragment dir"))?
-                    .1
-                    .trim_start();
-                drop_in_dir = Some(PathBuf::from(dir));
-            } else if let Some(dir) = drop_in_dir.as_ref() {
-                if line.contains(':') {
-                    // Not a path, next key: val line
-                    break;
-                } else if line.starts_with('/') {
-                    // New base dir
-                    drop_in_dir = Some(PathBuf::from(line));
-                } else {
-                    for filename in line.trim().chars().skip(2).collect::<String>().split(", ") {
-                        let path = dir.join(filename);
-                        paths.push(path);
-                    }
-                }
-            }
-        }
-        Ok(paths)
     }
 
     fn fragment_path(&self, name: &str, persistent: bool) -> PathBuf {
@@ -654,34 +581,46 @@ impl Service {
         .iter()
         .collect()
     }
+
+    fn cat_config(&self) -> anyhow::Result<String> {
+        let unit_name = self.unit_name();
+        let mut cmd = vec!["cat"];
+        if matches!(self.instance, InstanceKind::User) {
+            cmd.push("--user");
+        }
+        cmd.push(&unit_name);
+        let output = Command::new("systemctl").args(cmd).output()?;
+        anyhow::ensure!(
+            output.status.success(),
+            "systemctl failed: {}",
+            output.status
+        );
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write as _;
+
     use super::*;
 
     #[test]
     fn test_config_vals() {
         let _ = simple_logger::SimpleLogger::new().init();
 
-        let mut cfg_file1 = tempfile::NamedTempFile::new().unwrap();
-        let mut cfg_file2 = tempfile::NamedTempFile::new().unwrap();
-        let mut cfg_file3 = tempfile::NamedTempFile::new().unwrap();
+        let mut cfg_file = String::new();
 
-        writeln!(cfg_file1, "blah=a").unwrap();
-        writeln!(cfg_file1, "blah=b").unwrap();
-        writeln!(cfg_file2, "blah=").unwrap();
-        writeln!(cfg_file2, "blah=c").unwrap();
-        writeln!(cfg_file2, "blih=e").unwrap();
-        writeln!(cfg_file2, "bloh=f").unwrap();
-        writeln!(cfg_file3, "blah=d").unwrap();
+        writeln!(cfg_file, "blah=a").unwrap();
+        writeln!(cfg_file, "blah=b").unwrap();
+        writeln!(cfg_file, "blah=").unwrap();
+        writeln!(cfg_file, "blah=c").unwrap();
+        writeln!(cfg_file, "blih=e").unwrap();
+        writeln!(cfg_file, "bloh=f").unwrap();
+        writeln!(cfg_file, "blah=d").unwrap();
 
         assert_eq!(
-            Service::config_vals(
-                "blah",
-                &[cfg_file1.path(), cfg_file2.path(), cfg_file3.path()]
-            )
-            .unwrap(),
+            Service::config_vals("blah", &cfg_file).unwrap(),
             vec!["c", "d"]
         );
     }
@@ -690,7 +629,7 @@ mod tests {
     fn test_config_val_multiline() {
         let _ = simple_logger::SimpleLogger::new().init();
 
-        let mut cfg_file = tempfile::NamedTempFile::new().unwrap();
+        let mut cfg_file = String::new();
 
         writeln!(
             cfg_file,
@@ -701,7 +640,7 @@ VAR=`cd /usr/bin/..; /usr/bin/galera_recovery`; [ $? -eq 0 ] \
         .unwrap();
 
         assert_eq!(
-            Service::config_vals("ExecStartPre", &[cfg_file.path()]).unwrap(),
+            Service::config_vals("ExecStartPre", &cfg_file).unwrap(),
             vec![
                 r#"/bin/sh -c "[ ! -e /usr/bin/galera_recovery ] && VAR= ||  VAR=`cd /usr/bin/..; /usr/bin/galera_recovery`; [ $? -eq 0 ]  && systemctl set-environment _WSREP_START_POSITION=$VAR || exit 1""#
             ]
