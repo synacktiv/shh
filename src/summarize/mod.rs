@@ -762,4 +762,159 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn fstat_unknown() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let state = ProgramState::new("/");
+
+        let syscalls = [Ok(Syscall {
+            pid: 498133,
+            rel_ts: 7.5e-5,
+            name: "fstat".to_owned(),
+            args: vec![
+                Expression::Integer(IntegerExpression {
+                    value: IntegerExpressionValue::Literal(3),
+                    metadata: None,
+                }),
+                Expression::Struct(
+                    [
+                        (
+                            "st_dev".to_owned(),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Macro {
+                                    name: "makedev".to_owned(),
+                                    args: vec![
+                                        Expression::Integer(IntegerExpression {
+                                            value: IntegerExpressionValue::Literal(0),
+                                            metadata: None,
+                                        }),
+                                        Expression::Integer(IntegerExpression {
+                                            value: IntegerExpressionValue::Literal(101),
+                                            metadata: None,
+                                        }),
+                                    ],
+                                },
+                                metadata: None,
+                            }),
+                        ),
+                        (
+                            "st_ctime_nsec".to_owned(),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(381300641),
+                                metadata: None,
+                            }),
+                        ),
+                        (
+                            "st_size".to_owned(),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(49962383),
+                                metadata: None,
+                            }),
+                        ),
+                        (
+                            "st_mtime".to_owned(),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(1759308185),
+                                metadata: None,
+                            }),
+                        ),
+                        (
+                            "st_mtime_nsec".to_owned(),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(0),
+                                metadata: None,
+                            }),
+                        ),
+                        (
+                            "st_ctime".to_owned(),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(1761822274),
+                                metadata: None,
+                            }),
+                        ),
+                        (
+                            "st_blksize".to_owned(),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(4096),
+                                metadata: None,
+                            }),
+                        ),
+                        (
+                            "st_ino".to_owned(),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(5369),
+                                metadata: None,
+                            }),
+                        ),
+                        (
+                            "st_uid".to_owned(),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(1000),
+                                metadata: None,
+                            }),
+                        ),
+                        (
+                            "st_gid".to_owned(),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(1000),
+                                metadata: None,
+                            }),
+                        ),
+                        (
+                            "st_blocks".to_owned(),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(97584),
+                                metadata: None,
+                            }),
+                        ),
+                        (
+                            "st_nlink".to_owned(),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(1),
+                                metadata: None,
+                            }),
+                        ),
+                        (
+                            "st_mode".to_owned(),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::BinaryOr(vec![
+                                    IntegerExpressionValue::NamedSymbol("S_IFREG".to_owned()),
+                                    IntegerExpressionValue::Literal(493),
+                                ]),
+                                metadata: None,
+                            }),
+                        ),
+                        (
+                            "st_atime".to_owned(),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(1761822274),
+                                metadata: None,
+                            }),
+                        ),
+                        (
+                            "st_atime_nsec".to_owned(),
+                            Expression::Integer(IntegerExpression {
+                                value: IntegerExpressionValue::Literal(486303215),
+                                metadata: None,
+                            }),
+                        ),
+                    ]
+                    .into_iter()
+                    .collect(),
+                ),
+            ],
+            ret_val: IntegerExpression {
+                value: IntegerExpressionValue::Literal(0),
+                metadata: None,
+            },
+        })];
+        assert_eq!(
+            summarize(syscalls, &[], state).unwrap(),
+            vec![ProgramAction::Syscalls(
+                ["fstat".to_owned()].into_iter().collect()
+            )]
+        );
+    }
 }

@@ -854,19 +854,16 @@ fn handle_socket(
 }
 
 /// Handle stat-like syscalls operating on file descriptors
+#[expect(clippy::unnecessary_wraps)]
 fn handle_stat_fd(
-    name: &str,
+    _name: &str,
     fd: &Expression,
     actions: &mut Vec<ProgramAction>,
     state: &ProgramState,
 ) -> Result<(), HandlerError> {
-    let path = fd
-        .metadata()
-        .map(|m| PathBuf::from(OsStr::from_bytes(m)))
-        .ok_or_else(|| HandlerError::ArgTypeMismatch {
-            sc_name: name.to_owned(),
-            arg: fd.to_owned(),
-        })?;
+    let Some(path) = fd.metadata().map(|m| PathBuf::from(OsStr::from_bytes(m))) else {
+        return Ok(());
+    };
     if let Some(mut path) = resolve_path(&path, None, state.cur_dir.as_ref()) {
         traverse_symlinks(&mut path, actions);
         actions.push(ProgramAction::Read(path));
