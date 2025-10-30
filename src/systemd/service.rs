@@ -606,7 +606,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_config_vals() {
+    fn config_vals_override() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         let mut cfg_file = String::new();
@@ -626,7 +626,7 @@ mod tests {
     }
 
     #[test]
-    fn test_config_val_multiline() {
+    fn config_val_multiline() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         let mut cfg_file = String::new();

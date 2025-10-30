@@ -738,7 +738,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_expression_array() {
+    fn parse_expression_array_works() {
         assert_eq!(
             parse_expression_array(
                 "[[IPV4_DEVCONF_BC_FORWARDING-1]=0, [IPV4_DEVCONF_ARP_EVICT_NOCARRIER-1]=1, [37 /* IPSTATS_MIB_??? */]=22]"

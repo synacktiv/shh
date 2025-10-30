@@ -1982,7 +1982,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_merge_similar_paths() {
+    fn merge_similar_paths_works() {
         assert_eq!(
             merge_similar_paths(
                 &[

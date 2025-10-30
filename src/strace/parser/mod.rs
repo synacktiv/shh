@@ -163,7 +163,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mmap() {
+    fn mmap() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -180,7 +180,7 @@ mod tests {
     }
 
     #[test]
-    fn test_access() {
+    fn access() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -191,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn test_rt_sigaction() {
+    fn rt_sigaction() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -202,7 +202,7 @@ mod tests {
     }
 
     #[test]
-    fn test_rt_sigprocmask() {
+    fn rt_sigprocmask() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -211,14 +211,14 @@ mod tests {
     }
 
     #[test]
-    fn test_kill_no_sig() {
+    fn kill_no_sig() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(parse_line("51667      0.000002 kill(51668, 0)      = 0").unwrap());
     }
 
     #[test]
-    fn test_newfstatat() {
+    fn newfstatat() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -229,7 +229,7 @@ mod tests {
     }
 
     #[test]
-    fn test_getrandom() {
+    fn getrandom() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -240,7 +240,7 @@ mod tests {
     }
 
     #[test]
-    fn test_fstatfs() {
+    fn fstatfs() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -257,7 +257,7 @@ mod tests {
     }
 
     #[test]
-    fn test_open_relative() {
+    fn open_relative() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -268,7 +268,7 @@ mod tests {
     }
 
     #[test]
-    fn test_truncated() {
+    fn truncated() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -283,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid() {
+    fn invalid() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         // Bogus output ('{{', note the missing field name) that strace 5.10 can generate
@@ -294,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bind() {
+    fn bind() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -311,7 +311,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multiplication() {
+    fn multiplication() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -322,7 +322,7 @@ mod tests {
     }
 
     #[test]
-    fn test_epoll() {
+    fn epoll() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -339,7 +339,7 @@ mod tests {
     }
 
     #[test]
-    fn test_interleave() {
+    fn interleave() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         let lines = Cursor::new(
@@ -356,14 +356,14 @@ mod tests {
     }
 
     #[test]
-    fn test_getpid() {
+    fn getpid() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(parse_line("641342      0.000022 getpid()           = 641314").unwrap());
     }
 
     #[test]
-    fn test_close() {
+    fn close() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -372,7 +372,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sched_getaffinity() {
+    fn sched_getaffinity() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -382,7 +382,7 @@ mod tests {
     }
 
     #[test]
-    fn test_execve() {
+    fn execve() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -392,7 +392,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ioctl() {
+    fn ioctl() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -402,7 +402,7 @@ mod tests {
     }
 
     #[test]
-    fn test_in_out_args() {
+    fn in_out_args() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -429,7 +429,7 @@ mod tests {
     }
 
     #[test]
-    fn test_named_args() {
+    fn named_args() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -441,7 +441,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bitshift() {
+    fn bitshift() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -453,7 +453,7 @@ mod tests {
     }
 
     #[test]
-    fn test_macro_addr_arg() {
+    fn macro_addr_arg() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -465,7 +465,7 @@ mod tests {
     }
 
     #[test]
-    fn test_wait() {
+    fn wait() {
         let _ = simple_logger::SimpleLogger::new().init();
         assert_snapshot!(
             parse_line(
@@ -476,7 +476,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ret_code() {
+    fn ret_code() {
         let _ = simple_logger::SimpleLogger::new().init();
         assert_snapshot!(
             parse_line(

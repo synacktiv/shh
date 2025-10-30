@@ -1107,14 +1107,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_is_socket_or_pipe_pseudo_path() {
+    fn is_socket_or_pipe_pseudo_path() {
         assert!(!is_fd_pseudo_path("plop".as_bytes()));
         assert!(is_fd_pseudo_path("pipe:[12334]".as_bytes()));
         assert!(is_fd_pseudo_path("socket:[1234]/".as_bytes()));
     }
 
     #[test]
-    fn test_path_symlinks_lib() {
+    fn path_symlinks_lib() {
         let tmp_dir = tempfile::tempdir().unwrap();
         fs::create_dir_all(tmp_dir.path().join("usr/lib/x86_64-linux-gnu")).unwrap();
         unix::fs::symlink(tmp_dir.path().join("usr/lib"), tmp_dir.path().join("lib")).unwrap();
@@ -1153,7 +1153,7 @@ mod tests {
     }
 
     #[test]
-    fn test_path_symlinks_parent() {
+    fn path_symlinks_parent() {
         let tmp_dir = tempfile::tempdir().unwrap();
         fs::create_dir_all(tmp_dir.path().join("a/b")).unwrap();
         fs::create_dir_all(tmp_dir.path().join("d/e")).unwrap();
@@ -1172,7 +1172,7 @@ mod tests {
     }
 
     #[test]
-    fn test_read_process_uids() {
+    fn read_process_uids_works() {
         let data = "Name:	bat
 Umask:	0022
 State:	R (running)

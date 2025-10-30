@@ -118,7 +118,7 @@ mod tests {
     use crate::systemd::SystemdVersion;
 
     #[test]
-    fn test_parse_version() {
+    fn parse_version() {
         assert_eq!(
             SystemdVersion::parse_version_line("systemd 254 (254.1)").unwrap(),
             SystemdVersion::new(254, 1)

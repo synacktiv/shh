@@ -459,7 +459,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_protect_system() {
+    fn resolve_protect_system() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         let (opts, hardening_opts) = test_options_standard(&["ProtectSystem"]);
@@ -490,7 +490,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_protect_home() {
+    fn resolve_protect_home() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         let (opts, hardening_opts) = test_options_standard(&["ProtectHome"]);
@@ -580,7 +580,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_private_tmp() {
+    fn resolve_private_tmp() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         let (opts, hardening_opts) = test_options_standard(&["PrivateTmp"]);
@@ -633,7 +633,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_inaccessible_paths() {
+    fn resolve_inaccessible_paths() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         let (opts, hardening_opts) = test_options_strict(&["InaccessiblePaths"]);

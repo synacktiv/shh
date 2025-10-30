@@ -651,7 +651,7 @@ mod tests {
     use crate::strace::*;
 
     #[test]
-    fn test_relative_rename() {
+    fn relative_rename() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         let env_paths = [
@@ -708,7 +708,7 @@ mod tests {
     }
 
     #[test]
-    fn test_connect_uds() {
+    fn connect_uds() {
         let _ = simple_logger::SimpleLogger::new().init();
 
         let env_paths = [
