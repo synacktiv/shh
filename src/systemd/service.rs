@@ -127,9 +127,9 @@ impl Service {
             "{}{}.service",
             &self.name,
             if let Some(arg) = self.arg.as_ref() {
-                &format!("@{arg}")
+                format!("@{arg}")
             } else {
-                ""
+                String::new()
             }
         )
     }
