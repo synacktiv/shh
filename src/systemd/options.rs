@@ -1749,186 +1749,192 @@ pub(crate) fn build_options(
         });
     }
 
-    // https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#CapabilityBoundingSet=
-    // Note: we don't want to duplicate the kernel permission checking logic here, which would be
-    // a maintenance nightmare, so in most case we over (never under!) simplify the capability's effect
-    // or we don't implement it at all if too complex because the risk of breakage is too high
-    let cap_effects = [
-        // CAP_AUDIT_CONTROL, CAP_AUDIT_READ, CAP_AUDIT_WRITE: requires netlink socket message handling
-        (
-            "CAP_BLOCK_SUSPEND",
-            OptionValueEffect::Multiple(vec![
-                OptionValueEffect::DenyWrite(PathDescription::base("/proc/sys/wake_lock")),
-                OptionValueEffect::DenyAction(ProgramAction::Wakeup),
-            ]),
-        ),
-        (
-            "CAP_BPF",
-            OptionValueEffect::DenySyscalls(DenySyscalls::Single("bpf")),
-        ),
-        // CAP_CHECKPOINT_RESTORE: too complex?
-        (
-            "CAP_CHOWN",
-            OptionValueEffect::DenySyscalls(DenySyscalls::Class("chown")),
-        ),
-        // CAP_DAC_OVERRIDE: too complex?
-        // CAP_DAC_READ_SEARCH: too complex?
-        // CAP_FOWNER: too complex?
-        // CAP_FSETID: too complex?
-        (
-            "CAP_IPC_LOCK",
-            OptionValueEffect::Multiple(vec![
-                OptionValueEffect::DenySyscalls(DenySyscalls::Class("memlock")),
-                OptionValueEffect::DenyAction(ProgramAction::LockMemoryMapping),
-                OptionValueEffect::DenyAction(ProgramAction::HugePageMemoryMapping),
-            ]),
-        ),
-        // CAP_IPC_OWNER: too complex?
-        (
-            "CAP_KILL",
-            OptionValueEffect::Multiple(vec![
-                OptionValueEffect::DenyAction(ProgramAction::KillOther),
-                OptionValueEffect::DenySyscalls(DenySyscalls::Single("ioctl")), // TODO KDSIGACCEPT only
-            ]),
-        ),
-        // TODO CAP_LEASE
-        // TODO CAP_LINUX_IMMUTABLE
-        // CAP_MAC_ADMIN: too complex?
-        // CAP_MAC_OVERRIDE: too complex?
-        (
-            "CAP_MKNOD",
-            OptionValueEffect::DenyAction(ProgramAction::MknodSpecial),
-        ),
-        // CAP_NET_ADMIN: too complex?
-        // CAP_NET_BIND_SERVICE would be too complex/unreliable to handle:
-        // - for IPv4 sockets, either PROT_SOCK or net.ipv4.ip_unprivileged_port_start sysctl control the provileged port threshold
-        // - for other socket families, rules are different
-        // CAP_NET_BROADCAST: unused
-        (
-            "CAP_NET_RAW",
-            OptionValueEffect::Multiple(
-                iter::once(OptionValueEffect::DenyAction(
-                    ProgramAction::NetworkActivity(
-                        NetworkActivity {
-                            af: SetSpecifier::One(SocketFamily::Other("AF_PACKET".into())),
-                            proto: SetSpecifier::All,
-                            kind: SetSpecifier::All,
-                            local_port: SetSpecifier::All,
-                            address: SetSpecifier::All,
-                        }
-                        .into(),
-                    ),
-                ))
-                .chain(
-                    // AF_NETLINK sockets use SOCK_RAW, but does not require CAP_NET_RAW
-                    afs.iter().filter(|af| **af != "AF_NETLINK").map(|af| {
-                        OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(
+    if matches!(instance_kind, systemd::InstanceKind::System)
+        || sysctl_state.kernel_unprivileged_userns_clone
+    {
+        // https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#CapabilityBoundingSet=
+        // Note: we don't want to duplicate the kernel permission checking logic here, which would be
+        // a maintenance nightmare, so in most case we over (never under!) simplify the capability's effect
+        // or we don't implement it at all if too complex because the risk of breakage is too high
+        let cap_effects = [
+            // CAP_AUDIT_CONTROL, CAP_AUDIT_READ, CAP_AUDIT_WRITE: requires netlink socket message handling
+            (
+                "CAP_BLOCK_SUSPEND",
+                OptionValueEffect::Multiple(vec![
+                    OptionValueEffect::DenyWrite(PathDescription::base("/proc/sys/wake_lock")),
+                    OptionValueEffect::DenyAction(ProgramAction::Wakeup),
+                ]),
+            ),
+            (
+                "CAP_BPF",
+                OptionValueEffect::DenySyscalls(DenySyscalls::Single("bpf")),
+            ),
+            // CAP_CHECKPOINT_RESTORE: too complex?
+            (
+                "CAP_CHOWN",
+                OptionValueEffect::DenySyscalls(DenySyscalls::Class("chown")),
+            ),
+            // CAP_DAC_OVERRIDE: too complex?
+            // CAP_DAC_READ_SEARCH: too complex?
+            // CAP_FOWNER: too complex?
+            // CAP_FSETID: too complex?
+            (
+                "CAP_IPC_LOCK",
+                OptionValueEffect::Multiple(vec![
+                    OptionValueEffect::DenySyscalls(DenySyscalls::Class("memlock")),
+                    OptionValueEffect::DenyAction(ProgramAction::LockMemoryMapping),
+                    OptionValueEffect::DenyAction(ProgramAction::HugePageMemoryMapping),
+                ]),
+            ),
+            // CAP_IPC_OWNER: too complex?
+            (
+                "CAP_KILL",
+                OptionValueEffect::Multiple(vec![
+                    OptionValueEffect::DenyAction(ProgramAction::KillOther),
+                    OptionValueEffect::DenySyscalls(DenySyscalls::Single("ioctl")), // TODO KDSIGACCEPT only
+                ]),
+            ),
+            // TODO CAP_LEASE
+            // TODO CAP_LINUX_IMMUTABLE
+            // CAP_MAC_ADMIN: too complex?
+            // CAP_MAC_OVERRIDE: too complex?
+            (
+                "CAP_MKNOD",
+                OptionValueEffect::DenyAction(ProgramAction::MknodSpecial),
+            ),
+            // CAP_NET_ADMIN: too complex?
+            // CAP_NET_BIND_SERVICE would be too complex/unreliable to handle:
+            // - for IPv4 sockets, either PROT_SOCK or net.ipv4.ip_unprivileged_port_start sysctl control the provileged port threshold
+            // - for other socket families, rules are different
+            // CAP_NET_BROADCAST: unused
+            (
+                "CAP_NET_RAW",
+                OptionValueEffect::Multiple(
+                    iter::once(OptionValueEffect::DenyAction(
+                        ProgramAction::NetworkActivity(
                             NetworkActivity {
-                                #[expect(clippy::unwrap_used)]
-                                af: SetSpecifier::One(af.parse().unwrap()),
-                                proto: SetSpecifier::One(SocketProtocol::Other("SOCK_RAW".into())),
+                                af: SetSpecifier::One(SocketFamily::Other("AF_PACKET".into())),
+                                proto: SetSpecifier::All,
                                 kind: SetSpecifier::All,
                                 local_port: SetSpecifier::All,
                                 address: SetSpecifier::All,
                             }
                             .into(),
-                        ))
-                    }),
-                )
-                .collect(),
-                // TODO non local bind
+                        ),
+                    ))
+                    .chain(
+                        // AF_NETLINK sockets use SOCK_RAW, but does not require CAP_NET_RAW
+                        afs.iter().filter(|af| **af != "AF_NETLINK").map(|af| {
+                            OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(
+                                NetworkActivity {
+                                    #[expect(clippy::unwrap_used)]
+                                    af: SetSpecifier::One(af.parse().unwrap()),
+                                    proto: SetSpecifier::One(SocketProtocol::Other(
+                                        "SOCK_RAW".into(),
+                                    )),
+                                    kind: SetSpecifier::All,
+                                    local_port: SetSpecifier::All,
+                                    address: SetSpecifier::All,
+                                }
+                                .into(),
+                            ))
+                        }),
+                    )
+                    .collect(),
+                    // TODO non local bind
+                ),
             ),
-        ),
-        (
-            "CAP_PERFMON",
-            OptionValueEffect::Multiple(vec![
-                OptionValueEffect::DenySyscalls(DenySyscalls::Single("perf_event_open")),
-                OptionValueEffect::DenySyscalls(DenySyscalls::Single("bpf")),
-            ]),
-        ),
-        // CAP_SETFCAP: too complex?
-        // TODO CAP_SETGID
-        // TODO CAP_SETPCAP
-        // TODO CAP_SETUID
-        // CAP_SYS_ADMIN: definitely too complex
-        (
-            "CAP_SYS_BOOT",
-            OptionValueEffect::DenySyscalls(DenySyscalls::Class("reboot")),
-        ),
-        (
-            "CAP_SYS_CHROOT",
-            OptionValueEffect::Multiple(vec![
-                OptionValueEffect::DenySyscalls(DenySyscalls::Single("chroot")),
-                OptionValueEffect::DenySyscalls(DenySyscalls::Single("setns")),
-            ]),
-        ),
-        (
-            "CAP_SYS_MODULE",
-            OptionValueEffect::DenySyscalls(DenySyscalls::Class("module")),
-        ),
-        (
-            "CAP_SYS_NICE",
-            OptionValueEffect::DenySyscalls(DenySyscalls::Class("resources")),
-        ),
-        (
-            "CAP_SYS_PACCT",
-            OptionValueEffect::DenySyscalls(DenySyscalls::Single("acct")),
-        ),
-        (
-            "CAP_SYS_PTRACE",
-            OptionValueEffect::Multiple(vec![
-                // TODO distinguish other processes
-                OptionValueEffect::DenySyscalls(DenySyscalls::Single("ptrace)")),
-                OptionValueEffect::DenySyscalls(DenySyscalls::Single("get_robust_list")),
-                OptionValueEffect::DenySyscalls(DenySyscalls::Single("process_vm_readv")),
-                OptionValueEffect::DenySyscalls(DenySyscalls::Single("process_vm_writev")),
-                OptionValueEffect::DenySyscalls(DenySyscalls::Single("kcmp")),
-            ]),
-        ),
-        // CAP_SYS_RAWIO: too complex?
-        // CAP_SYS_RESOURCE: too complex?
-        (
-            "CAP_SYS_TIME",
-            OptionValueEffect::Multiple(vec![
-                OptionValueEffect::DenySyscalls(DenySyscalls::Class("clock")),
-                OptionValueEffect::DenySyscalls(DenySyscalls::Single("stime")),
-            ]),
-        ),
-        (
-            "CAP_SYS_TTY_CONFIG",
-            OptionValueEffect::Multiple(vec![
-                OptionValueEffect::DenySyscalls(DenySyscalls::Single("vhangup")),
-                OptionValueEffect::DenySyscalls(DenySyscalls::Single("ioctl")), // TODO only consider tty related ioctl?
-            ]),
-        ),
-        (
-            "CAP_SYSLOG",
-            OptionValueEffect::Multiple(vec![
-                OptionValueEffect::DenySyscalls(DenySyscalls::Single("syslog")),
-                OptionValueEffect::DenyAction(ProgramAction::Read("/dev/kmsg".into())),
-            ]),
-        ),
-        (
-            "CAP_WAKE_ALARM",
-            OptionValueEffect::DenyAction(ProgramAction::SetAlarm),
-        ),
-    ];
-    options.push(OptionDescription {
-        name: "CapabilityBoundingSet",
-        possible_values: vec![OptionValueDescription {
-            value: OptionValue::List(ListOptionValue {
-                values: cap_effects.iter().map(|(c, _e)| (*c).to_owned()).collect(),
-                value_if_empty: None,
-                option_prefix: "~",
-                elem_prefix: "",
-                repeat_option: false,
-                mode: ListMode::BlackList,
-                mergeable_paths: false,
-            }),
-            desc: OptionEffect::Cumulative(cap_effects.into_iter().map(|(_c, e)| e).collect()),
-        }],
-        updater: None,
-    });
+            (
+                "CAP_PERFMON",
+                OptionValueEffect::Multiple(vec![
+                    OptionValueEffect::DenySyscalls(DenySyscalls::Single("perf_event_open")),
+                    OptionValueEffect::DenySyscalls(DenySyscalls::Single("bpf")),
+                ]),
+            ),
+            // CAP_SETFCAP: too complex?
+            // TODO CAP_SETGID
+            // TODO CAP_SETPCAP
+            // TODO CAP_SETUID
+            // CAP_SYS_ADMIN: definitely too complex
+            (
+                "CAP_SYS_BOOT",
+                OptionValueEffect::DenySyscalls(DenySyscalls::Class("reboot")),
+            ),
+            (
+                "CAP_SYS_CHROOT",
+                OptionValueEffect::Multiple(vec![
+                    OptionValueEffect::DenySyscalls(DenySyscalls::Single("chroot")),
+                    OptionValueEffect::DenySyscalls(DenySyscalls::Single("setns")),
+                ]),
+            ),
+            (
+                "CAP_SYS_MODULE",
+                OptionValueEffect::DenySyscalls(DenySyscalls::Class("module")),
+            ),
+            (
+                "CAP_SYS_NICE",
+                OptionValueEffect::DenySyscalls(DenySyscalls::Class("resources")),
+            ),
+            (
+                "CAP_SYS_PACCT",
+                OptionValueEffect::DenySyscalls(DenySyscalls::Single("acct")),
+            ),
+            (
+                "CAP_SYS_PTRACE",
+                OptionValueEffect::Multiple(vec![
+                    // TODO distinguish other processes
+                    OptionValueEffect::DenySyscalls(DenySyscalls::Single("ptrace)")),
+                    OptionValueEffect::DenySyscalls(DenySyscalls::Single("get_robust_list")),
+                    OptionValueEffect::DenySyscalls(DenySyscalls::Single("process_vm_readv")),
+                    OptionValueEffect::DenySyscalls(DenySyscalls::Single("process_vm_writev")),
+                    OptionValueEffect::DenySyscalls(DenySyscalls::Single("kcmp")),
+                ]),
+            ),
+            // CAP_SYS_RAWIO: too complex?
+            // CAP_SYS_RESOURCE: too complex?
+            (
+                "CAP_SYS_TIME",
+                OptionValueEffect::Multiple(vec![
+                    OptionValueEffect::DenySyscalls(DenySyscalls::Class("clock")),
+                    OptionValueEffect::DenySyscalls(DenySyscalls::Single("stime")),
+                ]),
+            ),
+            (
+                "CAP_SYS_TTY_CONFIG",
+                OptionValueEffect::Multiple(vec![
+                    OptionValueEffect::DenySyscalls(DenySyscalls::Single("vhangup")),
+                    OptionValueEffect::DenySyscalls(DenySyscalls::Single("ioctl")), // TODO only consider tty related ioctl?
+                ]),
+            ),
+            (
+                "CAP_SYSLOG",
+                OptionValueEffect::Multiple(vec![
+                    OptionValueEffect::DenySyscalls(DenySyscalls::Single("syslog")),
+                    OptionValueEffect::DenyAction(ProgramAction::Read("/dev/kmsg".into())),
+                ]),
+            ),
+            (
+                "CAP_WAKE_ALARM",
+                OptionValueEffect::DenyAction(ProgramAction::SetAlarm),
+            ),
+        ];
+        options.push(OptionDescription {
+            name: "CapabilityBoundingSet",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::List(ListOptionValue {
+                    values: cap_effects.iter().map(|(c, _e)| (*c).to_owned()).collect(),
+                    value_if_empty: None,
+                    option_prefix: "~",
+                    elem_prefix: "",
+                    repeat_option: false,
+                    mode: ListMode::BlackList,
+                    mergeable_paths: false,
+                }),
+                desc: OptionEffect::Cumulative(cap_effects.into_iter().map(|(_c, e)| e).collect()),
+            }],
+            updater: None,
+        });
+    }
 
     // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#SystemCallFilter=
     //
