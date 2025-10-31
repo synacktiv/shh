@@ -1017,7 +1017,7 @@ pub(crate) fn build_options(
                                     exceptions: new_exceptions,
                                 }))
                             }
-                            _ => unreachable!(),
+                            _ => None,
                         }
                     },
                     options: |effect, hopts| match effect {
@@ -1240,7 +1240,7 @@ pub(crate) fn build_options(
                                     exceptions_rw: new_exceptions_rw,
                                 }))
                             }
-                            _ => unreachable!(),
+                            _ => None,
                         }
                     },
                     options: |effect, hopts| match effect {
@@ -1602,16 +1602,16 @@ pub(crate) fn build_options(
             effect: |e, a, _| {
                 let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(effect_na)) = e
                 else {
-                    unreachable!();
+                    return None;
                 };
                 let local_port = if let ProgramAction::NetworkActivity(na) = a {
                     if let SetSpecifier::One(local_port) = &na.as_ref().local_port {
                         local_port
                     } else {
-                        unreachable!();
+                        return None;
                     }
                 } else {
-                    unreachable!();
+                    return None;
                 };
                 let mut new_eff_local_port = effect_na.local_port.clone();
                 new_eff_local_port.remove(local_port);
@@ -1689,7 +1689,7 @@ pub(crate) fn build_options(
                     let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(effect_na)) =
                         effect
                     else {
-                        unreachable!()
+                        return None;
                     };
                     let action_addr = if let ProgramAction::NetworkActivity(na) = action {
                         if let NetworkActivity {
