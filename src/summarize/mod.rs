@@ -55,7 +55,8 @@ pub(crate) enum ProgramAction {
     Wakeup,
     /// Path was written to (data, metadata, path removal...)
     Write(PathBuf),
-    /// Memory mapping with write and execute bits
+    /// Memory mapping with write and execute bits, or execute bit added
+    /// after initial mapping
     WriteExecuteMemoryMapping,
 }
 

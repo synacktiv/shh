@@ -397,7 +397,7 @@ fn handle_mmap(
             traverse_symlinks(&mut path, actions);
             actions.push(ProgramAction::Exec(path));
         }
-        if prot_val.is_flag_set("PROT_WRITE") {
+        if name.ends_with("mprotect") || prot_val.is_flag_set("PROT_WRITE") {
             actions.push(ProgramAction::WriteExecuteMemoryMapping);
         }
     }
