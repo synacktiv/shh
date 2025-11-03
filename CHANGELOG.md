@@ -1,5 +1,31 @@
 # Changelog
 
+## v2025.11.3
+
+### <!-- 01 -->💡 Features
+
+- Use 'systemctl cat' to get unit config ([2ed0c51](https://github.com/desbma/shh/commit/2ed0c519b7dd02f762fa275c134cdbeb8469ea1c) by desbma)
+
+### <!-- 02 -->🐛 Bug fixes
+
+- Type=oneshot units triggering strace named pipe collision ([41bdaea](https://github.com/desbma/shh/commit/41bdaea500dc8f7d25599639ee028542689d9c01) by desbma)
+- Fstat on unknown fd ([f3c935e](https://github.com/desbma/shh/commit/f3c935efd977fac6e651c9f7179c10cb4c70faf2) by desbma)
+- CapabilityBoundingSet requires unprivileged_userns_clone for user instance ([56380e8](https://github.com/desbma/shh/commit/56380e8d28aaca4610e398048162a717eb341835) by desbma)
+- Fix possible panic when updating some effects ([182a17a](https://github.com/desbma/shh/commit/182a17acf43e546fbc2cc5582365428bd1c795d2) by desbma)
+- MemoryDenyWriteExecute=true not compatible with mprotect adding exec bit ([48fc222](https://github.com/desbma/shh/commit/48fc22254ed37160f5efb627f78b4f51339e6dd1) by desbma)
+
+### <!-- 06 -->🚜 Refactor
+
+- Make use of anyhow::ensure ([b9ca66e](https://github.com/desbma/shh/commit/b9ca66ec6b7315686e68a7a49ba23dfc6a76072d) by desbma)
+
+### <!-- 10 -->🧰 Miscellaneous tasks
+
+- Add todo lint ([ac17c5c](https://github.com/desbma/shh/commit/ac17c5c5d59d0126149aff06844bf68fe67d195c) by desbma)
+- Remove redundant test prefixes ([0a77b41](https://github.com/desbma/shh/commit/0a77b41031087f451626a748a17af064ffaed1cd) by desbma)
+- Fix lint for Rust 1.91 ([d4543de](https://github.com/desbma/shh/commit/d4543de5ad010c647287c02b435e7d053384596c) by desbma)
+
+---
+
 ## v2025.10.22
 
 ### <!-- 01 -->💡 Features

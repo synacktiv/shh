@@ -7,7 +7,7 @@ repository = "https://github.com/desbma/shh"
 keywords = ["systemd", "hardening", "strace", "system", "security"]
 categories = ["command-line-utilities"]
 license = "GPL-3.0-only"
-version = "2025.10.22"
+version = "2025.11.3"
 rust-version = "1.85"
 edition = "2024"
 
@@ -27,8 +27,8 @@ const-gen = { version = "1.6.8", default-features = false, features = ["std", "p
 anyhow = { version = "1.0.100", default-features = false, features = ["std", "backtrace"] }
 bincode = { version = "2.0.1", default-features = false, features = ["std", "serde"] }
 chrono = { version = "0.4.42", default-features = false, features = ["clock", "std"] }
-clap = { version = "4.5.50", default-features = false, features = ["std", "color", "help", "usage", "error-context", "suggestions", "derive"] }
-clap_complete = { version = "4.5.59", default-features = false, optional = true }
+clap = { version = "4.5.51", default-features = false, features = ["std", "color", "help", "usage", "error-context", "suggestions", "derive"] }
+clap_complete = { version = "4.5.60", default-features = false, optional = true }
 clap_mangen = { version = "0.2.31", default-features = false, optional = true }
 function_name = { version = "0.3.0", default-features = false }
 goblin = { version = "0.10.3", default-features = false, features = ["std", "elf32", "elf64", "endian_fd"] }
@@ -49,7 +49,7 @@ tempfile = { version = "3.23.0", default-features = false }
 thiserror = { version = "2.0.17", default-features = false, features = ["std"] }
 
 [dev-dependencies]
-assert_cmd = { version = "2.0.17", default-features = false, features = ["color", "color-auto"] }
+assert_cmd = { version = "2.1.1", default-features = false, features = ["color", "color-auto"] }
 fastrand = { version = "2.3.0", default-features = false, features = ["std"] }
 insta = { version = "1.43.2", default-features = false, features = ["colors", "ron"] }
 nix = { version = "0.30.1", default-features = false, features = ["user"] }
