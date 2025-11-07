@@ -60,6 +60,7 @@ pretty_assertions = { version = "1.4.1", default-features = false, features = ["
 default = []
 generate-extra = ["dep:clap_mangen", "dep:clap_complete"]
 int-tests-as-root = [] # for integration tests only
+int-tests-gimp = [] # for integration tests only
 int-tests-sd-user = [] # for integration tests only
 nightly = [] # for benchmarks only
 

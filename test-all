@@ -24,6 +24,9 @@ then
   # Debian and Arch environments
   # TODO figure out why
   INT_TEST_FEATURES=int-tests-as-root
+elif command -v gimp > /dev/null && command -v xvfb-run > /dev/null
+then
+  INT_TEST_FEATURES=int-tests-as-root,int-tests-sd-user,int-tests-gimp
 else
   INT_TEST_FEATURES=int-tests-as-root,int-tests-sd-user
 fi
