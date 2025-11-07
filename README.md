@@ -1,3 +1,5 @@
+![SHH (Systemd Hardening Helper)](./logo/github_banner_dark.png)
+
 # SHH (Systemd Hardening Helper)
 
 [![CI status](https://github.com/desbma/shh/actions/workflows/ci.yml/badge.svg)](https://github.com/desbma/shh/actions)
@@ -7,6 +9,8 @@
 [![License](https://img.shields.io/github/license/desbma/shh.svg?style=flat)](https://github.com/desbma/shh/blob/master/LICENSE)
 
 Automatic [systemd](https://systemd.io/) service hardening guided by [strace](https://strace.io/) profiling.
+
+SHH can generate an optimal set of hardening options for each of your services, so you can raise the security level of your system without sweating about random errors in production caused by too restrictive sandboxing.
 
 [Official repository](https://github.com/desbma/shh) - [Mirror repository](https://github.com/synacktiv/shh)
 
