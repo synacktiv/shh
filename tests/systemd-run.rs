@@ -20,6 +20,7 @@ use std::{
 use assert_cmd::{
     Command,
     assert::{Assert, OutputAssertExt as _},
+    cargo::cargo_bin_cmd,
 };
 use predicates::prelude::predicate;
 
@@ -37,8 +38,7 @@ fn generate_options(cmd: &[&str], run_opts: &[&str]) -> Vec<String> {
     const START_OPTION_OUTPUT_SNIPPET: &str =
         "-------- Start of suggested service options --------";
     const END_OPTION_OUTPUT_SNIPPET: &str = "-------- End of suggested service options --------";
-    let output = Command::cargo_bin("shh")
-        .unwrap()
+    let output = cargo_bin_cmd!("shh")
         .arg("run")
         .args(run_opts)
         .arg("--")

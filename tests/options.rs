@@ -4,7 +4,7 @@
 
 use std::env;
 
-use assert_cmd::{Command, assert::OutputAssertExt as _};
+use assert_cmd::{assert::OutputAssertExt as _, cargo::cargo_bin_cmd};
 use nix::unistd::Uid;
 use predicates::{BoxPredicate, prelude::*};
 
@@ -17,8 +17,7 @@ use predicates::{BoxPredicate, prelude::*};
 
 #[test]
 fn run_true() {
-    Command::cargo_bin("shh")
-        .unwrap()
+    cargo_bin_cmd!("shh")
         .args(["run", "--", "true"])
         .unwrap()
         .assert()
@@ -56,8 +55,7 @@ fn run_true() {
 
 #[test]
 fn run_write_dev_null() {
-    Command::cargo_bin("shh")
-        .unwrap()
+    cargo_bin_cmd!("shh")
         .args(["run", "--", "sh", "-c", ": > /dev/null"])
         .unwrap()
         .assert()
@@ -90,8 +88,7 @@ fn run_write_dev_null() {
 
 #[test]
 fn run_ls_dev() {
-    Command::cargo_bin("shh")
-        .unwrap()
+    cargo_bin_cmd!("shh")
         .args(["run", "--", "ls", "/dev"])
         .unwrap()
         .assert()
@@ -128,8 +125,7 @@ fn run_ls_dev() {
 
 #[test]
 fn run_ls_proc() {
-    Command::cargo_bin("shh")
-        .unwrap()
+    cargo_bin_cmd!("shh")
         .args(["run", "--", "busybox", "ls", "/proc/1/"])
         .unwrap()
         .assert()
@@ -159,8 +155,7 @@ fn run_ls_proc() {
         .stdout(predicate::str::contains("ProtectClock=true\n").count(1))
         .stdout(predicate::str::contains("CapabilityBoundingSet=~CAP_BLOCK_SUSPEND CAP_BPF CAP_CHOWN CAP_IPC_LOCK CAP_KILL CAP_MKNOD CAP_NET_RAW CAP_PERFMON CAP_SYS_BOOT CAP_SYS_CHROOT CAP_SYS_MODULE CAP_SYS_NICE CAP_SYS_PACCT CAP_SYS_PTRACE CAP_SYS_TIME CAP_SYS_TTY_CONFIG CAP_SYSLOG CAP_WAKE_ALARM\n").count(1));
 
-    Command::cargo_bin("shh")
-        .unwrap()
+    cargo_bin_cmd!("shh")
         .args(["run", "--", "cat", "/proc/cpuinfo"])
         .unwrap()
         .assert()
@@ -194,8 +189,7 @@ fn run_ls_proc() {
 
 #[test]
 fn run_read_kallsyms() {
-    Command::cargo_bin("shh")
-        .unwrap()
+    cargo_bin_cmd!("shh")
         .args(["run", "--", "head", "/proc/kallsyms"])
         .unwrap()
         .assert()
@@ -233,8 +227,7 @@ fn run_read_kallsyms() {
 
 #[test]
 fn run_ls_modules() {
-    Command::cargo_bin("shh")
-        .unwrap()
+    cargo_bin_cmd!("shh")
         .args(["run", "--", "ls", "/usr/lib/modules/"])
         .unwrap()
         .assert()
@@ -274,8 +267,7 @@ fn run_ls_modules() {
 fn run_dmesg() {
     assert!(Uid::effective().is_root());
 
-    Command::cargo_bin("shh")
-        .unwrap()
+    cargo_bin_cmd!("shh")
         .args(["run", "--", "dmesg"])
         .unwrap()
         .assert()
@@ -308,8 +300,7 @@ fn run_dmesg() {
 fn run_systemctl() {
     assert!(!Uid::effective().is_root());
 
-    Command::cargo_bin("shh")
-        .unwrap()
+    cargo_bin_cmd!("shh")
         .args(["run", "--", "systemctl", "--user"])
         .unwrap()
         .assert()
@@ -346,8 +337,7 @@ fn run_systemctl() {
 
 #[test]
 fn run_ss() {
-    Command::cargo_bin("shh")
-        .unwrap()
+    cargo_bin_cmd!("shh")
         .args(["run", "--", "ss", "-l"])
         .unwrap()
         .assert()
@@ -385,8 +375,7 @@ fn run_ss() {
 
 #[test]
 fn run_mmap_wx() {
-    Command::cargo_bin("shh")
-        .unwrap()
+    cargo_bin_cmd!("shh")
         .args(["run", "--", "python3", "-c", "import mmap; mmap.mmap(-1, 4096, prot=mmap.PROT_WRITE|mmap.PROT_EXEC)"])
         .unwrap()
         .assert()
@@ -416,8 +405,7 @@ fn run_mmap_wx() {
         .stdout(predicate::str::contains("SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @io-event:EPERM @ipc:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @network-io:EPERM @obsolete:EPERM @pkey:EPERM @privileged:EPERM @process:EPERM @raw-io:EPERM @reboot:EPERM @resources:EPERM @sandbox:EPERM @setuid:EPERM @swap:EPERM @sync:EPERM @timer:EPERM\n").count(1))
         .stdout(predicate::str::contains("CapabilityBoundingSet=~CAP_BLOCK_SUSPEND CAP_BPF CAP_CHOWN CAP_IPC_LOCK CAP_KILL CAP_MKNOD CAP_NET_RAW CAP_PERFMON CAP_SYS_BOOT CAP_SYS_CHROOT CAP_SYS_MODULE CAP_SYS_NICE CAP_SYS_PACCT CAP_SYS_PTRACE CAP_SYS_TIME CAP_SYS_TTY_CONFIG CAP_SYSLOG CAP_WAKE_ALARM\n").count(1));
 
-    Command::cargo_bin("shh")
-        .unwrap()
+    cargo_bin_cmd!("shh")
         .args(["run", "--", "python3", "-c", "import mmap; mmap.mmap(-1, 4096, prot=mmap.PROT_WRITE)"])
         .unwrap()
         .assert()
@@ -453,8 +441,7 @@ fn run_mmap_wx() {
 fn run_sched_realtime() {
     assert!(Uid::effective().is_root());
 
-    Command::cargo_bin("shh")
-        .unwrap()
+    cargo_bin_cmd!("shh")
         .args(["run", "--", "python3", "-c", "import os; os.sched_setscheduler(0, os.SCHED_RR, os.sched_param(os.sched_get_priority_min(os.SCHED_RR)))"])
         .unwrap()
         .assert()
@@ -479,8 +466,7 @@ fn run_sched_realtime() {
         .stdout(predicate::str::contains("SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @io-event:EPERM @ipc:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @network-io:EPERM @obsolete:EPERM @pkey:EPERM @privileged:EPERM @process:EPERM @raw-io:EPERM @reboot:EPERM @sandbox:EPERM @setuid:EPERM @swap:EPERM @sync:EPERM @timer:EPERM\n").count(1))
         .stdout(predicate::str::contains("CapabilityBoundingSet=~CAP_BLOCK_SUSPEND CAP_BPF CAP_CHOWN CAP_IPC_LOCK CAP_KILL CAP_MKNOD CAP_NET_RAW CAP_PERFMON CAP_SYS_BOOT CAP_SYS_CHROOT CAP_SYS_MODULE CAP_SYS_PACCT CAP_SYS_PTRACE CAP_SYS_TIME CAP_SYS_TTY_CONFIG CAP_SYSLOG CAP_WAKE_ALARM\n").count(1));
 
-    Command::cargo_bin("shh")
-        .unwrap()
+    cargo_bin_cmd!("shh")
         .args(["run", "--", "python3", "-c", "import os; os.sched_setscheduler(0, os.SCHED_IDLE, os.sched_param(0))"])
         .unwrap()
         .assert()
@@ -508,8 +494,7 @@ fn run_sched_realtime() {
 
 #[test]
 fn run_bind() {
-    Command::cargo_bin("shh")
-        .unwrap()
+    cargo_bin_cmd!("shh")
         .args(["run", "--", "python3", "-c", "import socket; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.bind((\"127.0.0.1\", 1234))"])
         .unwrap()
         .assert()
@@ -539,8 +524,7 @@ fn run_bind() {
         .stdout(predicate::str::contains("SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @ipc:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @obsolete:EPERM @pkey:EPERM @privileged:EPERM @process:EPERM @raw-io:EPERM @reboot:EPERM @resources:EPERM @sandbox:EPERM @setuid:EPERM @swap:EPERM @sync:EPERM @timer:EPERM\n").count(1))
         .stdout(predicate::str::contains("CapabilityBoundingSet=~CAP_BLOCK_SUSPEND CAP_BPF CAP_CHOWN CAP_IPC_LOCK CAP_KILL CAP_MKNOD CAP_NET_RAW CAP_PERFMON CAP_SYS_BOOT CAP_SYS_CHROOT CAP_SYS_MODULE CAP_SYS_NICE CAP_SYS_PACCT CAP_SYS_PTRACE CAP_SYS_TIME CAP_SYS_TTY_CONFIG CAP_SYSLOG CAP_WAKE_ALARM\n").count(1));
 
-    Command::cargo_bin("shh")
-        .unwrap()
+    cargo_bin_cmd!("shh")
         .args(["run", "-f", "--", "python3", "-c", "import socket; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.bind((\"127.0.0.1\", 1234))"])
         .unwrap()
         .assert()
@@ -577,8 +561,7 @@ fn run_bind() {
 fn run_sock_packet() {
     assert!(Uid::effective().is_root());
 
-    Command::cargo_bin("shh")
-        .unwrap()
+    cargo_bin_cmd!("shh")
         .args(["run", "--", "python3", "-c", "import socket; socket.socket(socket.AF_NETLINK, socket.SOCK_RAW)"])
         .unwrap()
         .assert()
@@ -608,8 +591,7 @@ fn run_sock_packet() {
         .stdout(predicate::str::contains("SystemCallFilter=~@aio:EPERM @chown:EPERM @clock:EPERM @cpu-emulation:EPERM @debug:EPERM @ipc:EPERM @keyring:EPERM @memlock:EPERM @module:EPERM @mount:EPERM @obsolete:EPERM @pkey:EPERM @privileged:EPERM @process:EPERM @raw-io:EPERM @reboot:EPERM @resources:EPERM @sandbox:EPERM @setuid:EPERM @swap:EPERM @sync:EPERM @timer:EPERM\n").count(1))
         .stdout(predicate::str::contains("CapabilityBoundingSet=~CAP_BLOCK_SUSPEND CAP_BPF CAP_CHOWN CAP_IPC_LOCK CAP_KILL CAP_MKNOD CAP_NET_RAW CAP_PERFMON CAP_SYS_BOOT CAP_SYS_CHROOT CAP_SYS_MODULE CAP_SYS_NICE CAP_SYS_PACCT CAP_SYS_PTRACE CAP_SYS_TIME CAP_SYS_TTY_CONFIG CAP_SYSLOG CAP_WAKE_ALARM\n").count(1));
 
-    Command::cargo_bin("shh")
-        .unwrap()
+    cargo_bin_cmd!("shh")
         .args(["run", "--", "python3", "-c", "import socket; socket.socket(socket.AF_PACKET, socket.SOCK_RAW)"])
         .unwrap()
         .assert()
@@ -645,8 +627,7 @@ fn run_sock_packet() {
 fn run_syslog() {
     assert!(Uid::effective().is_root());
 
-    Command::cargo_bin("shh")
-        .unwrap()
+    cargo_bin_cmd!("shh")
         .args(["run", "--", "dmesg", "-S"])
         .unwrap()
         .assert()
@@ -682,8 +663,7 @@ fn run_mknod() {
     let tmp_dir = tempfile::tempdir().unwrap();
 
     let pipe_path = tmp_dir.path().join("pipe");
-    Command::cargo_bin("shh")
-        .unwrap()
+    cargo_bin_cmd!("shh")
         .args(["run", "--", "mknod", pipe_path.as_os_str().to_str().unwrap(), "p"])
         .unwrap()
         .assert()
@@ -711,8 +691,7 @@ fn run_mknod() {
         .stdout(predicate::str::contains("CapabilityBoundingSet=~CAP_BLOCK_SUSPEND CAP_BPF CAP_CHOWN CAP_IPC_LOCK CAP_KILL CAP_MKNOD CAP_NET_RAW CAP_PERFMON CAP_SYS_BOOT CAP_SYS_CHROOT CAP_SYS_MODULE CAP_SYS_NICE CAP_SYS_PACCT CAP_SYS_PTRACE CAP_SYS_TIME CAP_SYS_TTY_CONFIG CAP_SYSLOG CAP_WAKE_ALARM\n").count(1));
 
     let dev_path = tmp_dir.path().join("dev");
-    Command::cargo_bin("shh")
-        .unwrap()
+    cargo_bin_cmd!("shh")
         .args(["run", "--", "mknod", dev_path.as_os_str().to_str().unwrap(), "b", "255", "255"])
         .unwrap()
         .assert()
@@ -742,8 +721,7 @@ fn run_mknod() {
 
 #[test]
 fn run_ping_4() {
-    Command::cargo_bin("shh")
-        .unwrap()
+    cargo_bin_cmd!("shh")
         .args(["run", "-f", "--", "ping", "-4", "-c", "1", "127.0.0.1"])
         .unwrap()
         .assert()
@@ -760,8 +738,7 @@ fn run_ping_4() {
 
 #[test]
 fn run_ping_6() {
-    Command::cargo_bin("shh")
-        .unwrap()
+    cargo_bin_cmd!("shh")
         .args(["run", "-f", "--", "ping", "-6", "-c", "1", "::1"])
         .unwrap()
         .assert()
