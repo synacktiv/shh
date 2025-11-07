@@ -638,12 +638,14 @@ fn handle_open(
     // Add actions for traversed symlinks
     traverse_symlinks(&mut path, actions);
 
-    // Returned fd has normalized path, use it if we can
-    let ret_path = ret_val
-        .metadata
-        .as_ref()
-        .map(|b| PathBuf::from(OsStr::from_bytes(b)));
-    path = ret_path.unwrap_or(path);
+    if ret_val.value().is_some_and(|v| v != -1) {
+        // Returned fd has normalized path, use it if we can
+        let ret_path = ret_val
+            .metadata
+            .as_ref()
+            .map(|b| PathBuf::from(OsStr::from_bytes(b)));
+        path = ret_path.unwrap_or(path);
+    }
 
     if !is_pseudo_path(&path) {
         // Set actions from flags
@@ -828,17 +830,19 @@ fn handle_socket(
         type_: type_name::<i128>(),
     })?;
 
-    state.known_sockets_proto.insert(
-        (
-            pid,
-            TryInto::<RawFd>::try_into(ret_fd).map_err(|_| HandlerError::ConversionFailed {
-                src: ret_fd.to_string(),
-                type_src: type_name_of_val(&ret_val),
-                type_dst: type_name::<RawFd>(),
-            })?,
-        ),
-        proto.clone(),
-    );
+    if ret_fd != -1 {
+        state.known_sockets_proto.insert(
+            (
+                pid,
+                TryInto::<RawFd>::try_into(ret_fd).map_err(|_| HandlerError::ConversionFailed {
+                    src: ret_fd.to_string(),
+                    type_src: type_name_of_val(&ret_val),
+                    type_dst: type_name::<RawFd>(),
+                })?,
+            ),
+            proto.clone(),
+        );
+    }
 
     actions.push(ProgramAction::NetworkActivity(
         NetworkActivity {
