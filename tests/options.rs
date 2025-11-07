@@ -1,6 +1,6 @@
 //! Integration tests for generated options
 
-#![expect(clippy::ignore_without_reason, clippy::tests_outside_test_module)]
+#![expect(clippy::tests_outside_test_module)]
 
 use std::env;
 
@@ -263,7 +263,10 @@ fn run_ls_modules() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
+#[cfg_attr(
+    not(feature = "int-tests-as-root"),
+    ignore = "int-tests-as-root feature not enabled"
+)]
 fn run_dmesg() {
     assert!(Uid::effective().is_root());
 
@@ -437,7 +440,10 @@ fn run_mmap_wx() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
+#[cfg_attr(
+    not(feature = "int-tests-as-root"),
+    ignore = "int-tests-as-root feature not enabled"
+)]
 fn run_sched_realtime() {
     assert!(Uid::effective().is_root());
 
@@ -557,7 +563,10 @@ fn run_bind() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
+#[cfg_attr(
+    not(feature = "int-tests-as-root"),
+    ignore = "int-tests-as-root feature not enabled"
+)]
 fn run_sock_packet() {
     assert!(Uid::effective().is_root());
 
@@ -623,7 +632,10 @@ fn run_sock_packet() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
+#[cfg_attr(
+    not(feature = "int-tests-as-root"),
+    ignore = "int-tests-as-root feature not enabled"
+)]
 fn run_syslog() {
     assert!(Uid::effective().is_root());
 
@@ -656,7 +668,10 @@ fn run_syslog() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
+#[cfg_attr(
+    not(feature = "int-tests-as-root"),
+    ignore = "int-tests-as-root feature not enabled"
+)]
 fn run_mknod() {
     assert!(Uid::effective().is_root());
 

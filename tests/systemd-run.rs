@@ -2,7 +2,6 @@
 //! and allow the program to execute normally
 
 #![expect(
-    clippy::ignore_without_reason,
     clippy::shadow_unrelated,
     clippy::tests_outside_test_module,
     clippy::unwrap_used
@@ -139,7 +138,10 @@ fn all_shh_run_opts() -> Vec<Vec<&'static str>> {
 }
 
 #[test]
-#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
+#[cfg_attr(
+    not(feature = "int-tests-as-root"),
+    ignore = "int-tests-as-root feature not enabled"
+)]
 fn systemd_run_true() {
     let cmd = ["true"];
     for user in SYSTEMD_RUN_USER {
@@ -156,7 +158,10 @@ fn systemd_run_true() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
+#[cfg_attr(
+    not(feature = "int-tests-as-root"),
+    ignore = "int-tests-as-root feature not enabled"
+)]
 fn systemd_run_write_dev_null() {
     let cmd = ["sh", "-c", ": > /dev/null"];
     for user in SYSTEMD_RUN_USER {
@@ -173,7 +178,10 @@ fn systemd_run_write_dev_null() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
+#[cfg_attr(
+    not(feature = "int-tests-as-root"),
+    ignore = "int-tests-as-root feature not enabled"
+)]
 fn systemd_run_ls_dev() {
     let cmd = ["ls", "/dev/"];
     for user in SYSTEMD_RUN_USER {
@@ -193,7 +201,10 @@ fn systemd_run_ls_dev() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
+#[cfg_attr(
+    not(feature = "int-tests-as-root"),
+    ignore = "int-tests-as-root feature not enabled"
+)]
 fn systemd_run_ls_proc() {
     let cmd = ["ls", "/proc/1"];
     for user in SYSTEMD_RUN_USER {
@@ -210,7 +221,10 @@ fn systemd_run_ls_proc() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
+#[cfg_attr(
+    not(feature = "int-tests-as-root"),
+    ignore = "int-tests-as-root feature not enabled"
+)]
 fn systemd_run_read_kallsyms() {
     let cmd = ["head", "/proc/kallsyms"];
     for user in SYSTEMD_RUN_USER {
@@ -227,7 +241,10 @@ fn systemd_run_read_kallsyms() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
+#[cfg_attr(
+    not(feature = "int-tests-as-root"),
+    ignore = "int-tests-as-root feature not enabled"
+)]
 fn systemd_run_ls_modules() {
     let cmd = ["ls", "/usr/lib/modules/"];
     for user in SYSTEMD_RUN_USER {
@@ -244,7 +261,10 @@ fn systemd_run_ls_modules() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
+#[cfg_attr(
+    not(feature = "int-tests-as-root"),
+    ignore = "int-tests-as-root feature not enabled"
+)]
 fn systemd_run_dmesg() {
     let cmd = ["dmesg"];
     for shh_opts in &*ALL_SHH_RUN_OPTS {
@@ -256,7 +276,10 @@ fn systemd_run_dmesg() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
+#[cfg_attr(
+    not(feature = "int-tests-as-root"),
+    ignore = "int-tests-as-root feature not enabled"
+)]
 fn systemd_run_systemctl() {
     let cmd = ["systemctl"];
     for user in SYSTEMD_RUN_USER {
@@ -273,7 +296,10 @@ fn systemd_run_systemctl() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
+#[cfg_attr(
+    not(feature = "int-tests-as-root"),
+    ignore = "int-tests-as-root feature not enabled"
+)]
 fn systemd_run_ss() {
     let cmd = ["ss", "-l"];
     for user in SYSTEMD_RUN_USER {
@@ -290,7 +316,10 @@ fn systemd_run_ss() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
+#[cfg_attr(
+    not(feature = "int-tests-as-root"),
+    ignore = "int-tests-as-root feature not enabled"
+)]
 fn systemd_run_mmap_wx() {
     let cmd = [
         "python3",
@@ -311,7 +340,10 @@ fn systemd_run_mmap_wx() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
+#[cfg_attr(
+    not(feature = "int-tests-as-root"),
+    ignore = "int-tests-as-root feature not enabled"
+)]
 fn systemd_run_sched_realtime() {
     let cmd = [
         "python3",
@@ -326,7 +358,10 @@ fn systemd_run_sched_realtime() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
+#[cfg_attr(
+    not(feature = "int-tests-as-root"),
+    ignore = "int-tests-as-root feature not enabled"
+)]
 fn systemd_run_bind() {
     let cmd = [
         "python3",
@@ -347,7 +382,10 @@ fn systemd_run_bind() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
+#[cfg_attr(
+    not(feature = "int-tests-as-root"),
+    ignore = "int-tests-as-root feature not enabled"
+)]
 fn systemd_run_sock_packet() {
     let cmd = [
         "python3",
@@ -362,7 +400,10 @@ fn systemd_run_sock_packet() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
+#[cfg_attr(
+    not(feature = "int-tests-as-root"),
+    ignore = "int-tests-as-root feature not enabled"
+)]
 fn systemd_run_syslog() {
     let cmd = ["dmesg", "-S"];
     for shh_opts in &*ALL_SHH_RUN_OPTS {
@@ -373,7 +414,10 @@ fn systemd_run_syslog() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
+#[cfg_attr(
+    not(feature = "int-tests-as-root"),
+    ignore = "int-tests-as-root feature not enabled"
+)]
 fn systemd_run_mknod() {
     let tmp_dir = tempfile::tempdir().unwrap();
 
@@ -438,7 +482,10 @@ fn systemd_run_mknod() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
+#[cfg_attr(
+    not(feature = "int-tests-as-root"),
+    ignore = "int-tests-as-root feature not enabled"
+)]
 fn systemd_run_script() {
     let mut script = tempfile::Builder::new()
         .permissions(Permissions::from_mode(0o755))
@@ -464,7 +511,10 @@ fn systemd_run_script() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
+#[cfg_attr(
+    not(feature = "int-tests-as-root"),
+    ignore = "int-tests-as-root feature not enabled"
+)]
 fn systemd_run_curl() {
     let cmd = ["curl", "https://example.com"];
     for user in SYSTEMD_RUN_USER {
@@ -482,7 +532,10 @@ fn systemd_run_curl() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
+#[cfg_attr(
+    not(feature = "int-tests-as-root"),
+    ignore = "int-tests-as-root feature not enabled"
+)]
 fn systemd_run_ping_4() {
     let cmd = ["ping", "-c", "1", "-4", "127.0.0.1"];
     for user in SYSTEMD_RUN_USER {
@@ -502,7 +555,10 @@ fn systemd_run_ping_4() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
+#[cfg_attr(
+    not(feature = "int-tests-as-root"),
+    ignore = "int-tests-as-root feature not enabled"
+)]
 fn systemd_run_ping_6() {
     let cmd = ["ping", "-c", "1", "-6", "::1"];
     for user in SYSTEMD_RUN_USER {
@@ -529,7 +585,10 @@ fn del_netns(ns: &str) {
 }
 
 #[test]
-#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
+#[cfg_attr(
+    not(feature = "int-tests-as-root"),
+    ignore = "int-tests-as-root feature not enabled"
+)]
 fn systemd_netns_create() {
     let ns = format!("t{}", rand::random::<u16>());
     let cmd = ["ip", "netns", "add", &ns];
@@ -545,7 +604,10 @@ fn systemd_netns_create() {
 }
 
 #[test]
-#[cfg_attr(not(feature = "int-tests-as-root"), ignore)]
+#[cfg_attr(
+    not(feature = "int-tests-as-root"),
+    ignore = "int-tests-as-root feature not enabled"
+)]
 fn systemd_kill() {
     for sig in ["URG", "KILL"] {
         let code = format!(
