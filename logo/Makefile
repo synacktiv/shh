@@ -1,8 +1,11 @@
 .PHONY: all
-all: github_banner_dark.png
+all: github_banner_dark.png github_preview_dark.png
 
 github_banner_dark.png.tmp: dark_left.png.tmp dark_right.png.tmp
 	gm convert -extent 1536x1000 -draw "image Over 700,-48,836,1024 dark_right.png.tmp" -shave 0x256 -resize 890x dark_left.png.tmp $@
+
+github_preview_dark.png.tmp: dark_left.png.tmp dark_right.png.tmp
+	gm convert -extent 1536x1000 -draw "image Over 700,-48,836,1024 dark_right.png.tmp" -shave 160x196 -resize 1280x dark_left.png.tmp $@
 
 dark_left.png.tmp: dark.png
 	gm convert $< -crop 700x1024+0+0 $@
