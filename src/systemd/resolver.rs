@@ -132,7 +132,7 @@ impl OptionValueEffect {
             for (subeff, subeff_compatible) in self.iter().zip(compatible) {
                 if subeff_compatible {
                     let newopt_desc = ChangedOptionValueDescription {
-                        new_options: (updater.options)(subeff, hardening_opts),
+                        new_options: (updater.options)(subeff),
                         effect: subeff.to_owned(),
                     };
                     changed_opt_desc = Some(changed_opt_desc.map_or_else(
@@ -144,7 +144,7 @@ impl OptionValueEffect {
                     ));
                 } else if let Some(new_subeff) = (updater.effect)(subeff, action, hardening_opts) {
                     let newopt_desc = ChangedOptionValueDescription {
-                        new_options: (updater.options)(&new_subeff, hardening_opts),
+                        new_options: (updater.options)(&new_subeff),
                         effect: new_subeff,
                     };
                     changed_opt_desc = Some(changed_opt_desc.map_or_else(
@@ -396,7 +396,7 @@ pub(crate) fn resolve(
                     .map(PathBuf::from)
                     .collect::<Vec<_>>()
                     .as_slice(),
-                hardening_opts.merge_paths_threshold,
+                Some(hardening_opts.merge_paths_threshold),
             )
             .into_iter()
             .filter_map(|p| p.to_str().map(ToOwned::to_owned))
