@@ -1,3 +1,4 @@
+/.aider.*
 /target
 /*.log
 /*.log.*

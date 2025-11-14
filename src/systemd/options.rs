@@ -587,6 +587,22 @@ pub(crate) fn merge_similar_paths(
     }
 }
 
+fn action_path_exception(action_path: PathBuf) -> PathBuf {
+    if action_path
+        .symlink_metadata()
+        .is_ok_and(|m| m.file_type().is_symlink())
+    {
+        // systemd follows symlinks, so won't bind mount the symlink,
+        // add exception for parent instead
+        action_path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or(action_path)
+    } else {
+        action_path
+    }
+}
+
 #[expect(clippy::too_many_lines, clippy::similar_names)]
 pub(crate) fn build_options(
     systemd_version: &SystemdVersion,
@@ -1162,19 +1178,7 @@ pub(crate) fn build_options(
                                 // This will be reached only when first transforming an initial InaccessiblePaths option (RemovePath) into
                                 // less restrictive EmptyPaths + exceptions
                                 assert!(exceptions.is_empty());
-                                let new_exception_path = if action_path
-                                    .symlink_metadata()
-                                    .is_ok_and(|m| m.file_type().is_symlink())
-                                {
-                                    // systemd follows symlinks, so won't bind mount the symlink,
-                                    // add exception for parent instead
-                                    action_path
-                                        .parent()
-                                        .map(Path::to_path_buf)
-                                        .unwrap_or(action_path)
-                                } else {
-                                    action_path
-                                };
+                                let new_exception_path = action_path_exception(action_path);
                                 if base.starts_with(&new_exception_path) {
                                     return None;
                                 }
@@ -1205,19 +1209,7 @@ pub(crate) fn build_options(
                                 );
                                 new_exceptions_rw.extend(exceptions_rw.iter().cloned());
                                 let mut base_ro = *base_ro;
-                                let new_exception_path = if action_path
-                                    .symlink_metadata()
-                                    .is_ok_and(|m| m.file_type().is_symlink())
-                                {
-                                    // systemd follows symlinks, so won't bind mount the symlink,
-                                    // add exception for parent instead
-                                    action_path
-                                        .parent()
-                                        .map(Path::to_path_buf)
-                                        .unwrap_or(action_path)
-                                } else {
-                                    action_path
-                                };
+                                let new_exception_path = action_path_exception(action_path);
                                 if matches!(action, ProgramAction::Create(_))
                                     && new_exception_path == *base
                                 {
