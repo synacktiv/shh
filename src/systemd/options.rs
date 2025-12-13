@@ -954,10 +954,14 @@ pub(crate) fn build_options(
             name: "ProtectClock",
             possible_values: vec![OptionValueDescription {
                 value: OptionValue::Boolean(true),
-                // This option essentially does the same thing as deny @clock
-                desc: OptionEffect::Simple(OptionValueEffect::DenySyscalls(DenySyscalls::Class(
-                    "clock",
-                ))),
+                desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                    OptionValueEffect::DenyWrite(PathDescription::pattern("/dev/rtc.*")),
+                    // See handling of CAP_SYS_TIME
+                    OptionValueEffect::DenySyscalls(DenySyscalls::Single("stime")),
+                    OptionValueEffect::DenySyscalls(DenySyscalls::Class("clock")),
+                    // See handling of CAP_WAKE_ALARM
+                    OptionValueEffect::DenyAction(ProgramAction::SetAlarm),
+                ])),
             }],
             updater: None,
         });
