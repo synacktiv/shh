@@ -27,6 +27,7 @@ fn sd_options(
     kernel_version: &systemd::KernelVersion,
     sysctl_state: &sysctl::State,
     instance_kind: &systemd::InstanceKind,
+    container: bool,
     hardening_opts: &cl::HardeningOptions,
 ) -> Vec<systemd::OptionDescription> {
     let sd_opts = systemd::build_options(
@@ -34,6 +35,7 @@ fn sd_options(
         kernel_version,
         sysctl_state,
         instance_kind,
+        container,
         hardening_opts,
     );
     log::info!(
@@ -118,6 +120,7 @@ fn main() -> anyhow::Result<()> {
                 &kernel_version,
                 &sysctl_state,
                 &instance.instance,
+                instance.container,
                 &hardening_opts,
             );
 
@@ -201,6 +204,7 @@ fn main() -> anyhow::Result<()> {
                 &kernel_version,
                 &sysctl_state,
                 &instance.instance,
+                instance.container,
                 &hardening_opts,
             );
 
@@ -340,6 +344,7 @@ fn main() -> anyhow::Result<()> {
                 &kernel_version,
                 &sysctl_state,
                 &systemd::InstanceKind::System,
+                false,
                 &cl::HardeningOptions::strict(),
             );
             sd_opts.sort_unstable_by_key(|o| o.name);

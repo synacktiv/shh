@@ -609,6 +609,7 @@ pub(crate) fn build_options(
     kernel_version: &KernelVersion,
     sysctl_state: &sysctl::State,
     instance_kind: &systemd::InstanceKind,
+    container: bool,
     hardening_opts: &HardeningOptions,
 ) -> Vec<OptionDescription> {
     let mut options = Vec::new();
@@ -825,7 +826,12 @@ pub(crate) fn build_options(
             }],
             updater: None,
         });
+    }
 
+    if !container
+        && (matches!(instance_kind, systemd::InstanceKind::System)
+            || sysctl_state.kernel_unprivileged_userns_clone)
+    {
         // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelModules=
         options.push(OptionDescription {
             name: "ProtectKernelModules",
@@ -946,8 +952,9 @@ pub(crate) fn build_options(
         updater: None,
     });
 
-    if matches!(instance_kind, systemd::InstanceKind::System)
-        || sysctl_state.kernel_unprivileged_userns_clone
+    if !container
+        && (matches!(instance_kind, systemd::InstanceKind::System)
+            || sysctl_state.kernel_unprivileged_userns_clone)
     {
         // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectClock=
         options.push(OptionDescription {
@@ -1743,8 +1750,9 @@ pub(crate) fn build_options(
         });
     }
 
-    if matches!(instance_kind, systemd::InstanceKind::System)
-        || sysctl_state.kernel_unprivileged_userns_clone
+    if !container
+        && (matches!(instance_kind, systemd::InstanceKind::System)
+            || sysctl_state.kernel_unprivileged_userns_clone)
     {
         // https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#CapabilityBoundingSet=
         // Note: we don't want to duplicate the kernel permission checking logic here, which would be

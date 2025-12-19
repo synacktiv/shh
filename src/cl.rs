@@ -175,6 +175,10 @@ pub(crate) struct ServiceInstance {
     /// Systemd instance of the service ("system" or "user" for per-user instances of the service manager)
     #[arg(short, long, default_value_t, value_enum)]
     pub instance: systemd::InstanceKind,
+    /// EXPERIMENTAL
+    /// Enable support for systemd .service units generated from .container templates
+    #[arg(short, long, default_value_t)]
+    pub container: bool,
 }
 
 #[derive(Debug, clap::Subcommand)]
