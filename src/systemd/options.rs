@@ -642,6 +642,7 @@ trait OptionSpec: Sync {
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription;
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectSystem=
 struct ProtectSystemSpec;
 impl OptionSpec for ProtectSystemSpec {
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
@@ -688,6 +689,7 @@ impl OptionSpec for ProtectSystemSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectHome=
 struct ProtectHomeSpec;
 impl OptionSpec for ProtectHomeSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
@@ -741,6 +743,7 @@ impl OptionSpec for ProtectHomeSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateTmp=
 struct PrivateTmpSpec;
 impl OptionSpec for PrivateTmpSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
@@ -766,6 +769,7 @@ impl OptionSpec for PrivateTmpSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateDevices=
 struct PrivateDevicesSpec;
 impl OptionSpec for PrivateDevicesSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
@@ -812,6 +816,7 @@ impl OptionSpec for PrivateDevicesSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateMounts=
 struct PrivateMountsSpec;
 impl OptionSpec for PrivateMountsSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
@@ -832,6 +837,7 @@ impl OptionSpec for PrivateMountsSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelTunables=
 struct ProtectKernelTunablesSpec;
 impl OptionSpec for ProtectKernelTunablesSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
@@ -887,6 +893,7 @@ impl OptionSpec for ProtectKernelTunablesSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelModules=
 struct ProtectKernelModulesSpec;
 impl OptionSpec for ProtectKernelModulesSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
@@ -911,6 +918,7 @@ impl OptionSpec for ProtectKernelModulesSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelLogs=
 struct ProtectKernelLogsSpec;
 impl OptionSpec for ProtectKernelLogsSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
@@ -936,6 +944,7 @@ impl OptionSpec for ProtectKernelLogsSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectControlGroups=
 struct ProtectControlGroupsSpec;
 impl OptionSpec for ProtectControlGroupsSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
@@ -958,6 +967,10 @@ impl OptionSpec for ProtectControlGroupsSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectProc=
+// https://github.com/systemd/systemd/blob/v247/NEWS#L342
+// https://github.com/systemd/systemd/commit/4e39995371738b04d98d27b0d34ea8fe09ec9fab
+// https://docs.kernel.org/filesystems/proc.html#mount-options
 struct ProtectProcSpec;
 impl OptionSpec for ProtectProcSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
@@ -983,6 +996,7 @@ impl OptionSpec for ProtectProcSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProcSubset=
 struct ProcSubsetSpec;
 impl OptionSpec for ProcSubsetSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
@@ -1008,6 +1022,7 @@ impl OptionSpec for ProcSubsetSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#LockPersonality=
 struct LockPersonalitySpec;
 impl OptionSpec for LockPersonalitySpec {
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
@@ -1028,6 +1043,7 @@ impl OptionSpec for LockPersonalitySpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#RestrictRealtime=
 struct RestrictRealtimeSpec;
 impl OptionSpec for RestrictRealtimeSpec {
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
@@ -1045,6 +1061,7 @@ impl OptionSpec for RestrictRealtimeSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectClock=
 struct ProtectClockSpec;
 impl OptionSpec for ProtectClockSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
@@ -1070,6 +1087,8 @@ impl OptionSpec for ProtectClockSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#MemoryDenyWriteExecute=
+// https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L1721
 struct MemoryDenyWriteExecuteSpec;
 impl OptionSpec for MemoryDenyWriteExecuteSpec {
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
@@ -1087,6 +1106,10 @@ impl OptionSpec for MemoryDenyWriteExecuteSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#SystemCallArchitectures=
+//
+// This is actually very safe to enable, but since we don't currently support checking for its
+// compatibility during profiling, only enable it in aggressive mode
 struct SystemCallArchitecturesSpec;
 impl OptionSpec for SystemCallArchitecturesSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
@@ -1105,6 +1128,7 @@ impl OptionSpec for SystemCallArchitecturesSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ReadWritePaths=
 struct ReadOnlyPathsSpec;
 impl OptionSpec for ReadOnlyPathsSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
@@ -1198,6 +1222,7 @@ impl OptionSpec for ReadOnlyPathsSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ReadWritePaths=
 struct InaccessiblePathsSpec;
 impl OptionSpec for InaccessiblePathsSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
@@ -1459,6 +1484,7 @@ impl OptionSpec for InaccessiblePathsSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ReadWritePaths=
 struct NoExecPathsSpec;
 impl OptionSpec for NoExecPathsSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
@@ -1550,6 +1576,7 @@ impl OptionSpec for NoExecPathsSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#RestrictAddressFamilies=
 struct RestrictAddressFamiliesSpec;
 impl OptionSpec for RestrictAddressFamiliesSpec {
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
@@ -1590,6 +1617,11 @@ impl OptionSpec for RestrictAddressFamiliesSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateNetwork=
+//
+// For now we enable this option if no sockets are used at all, in theory this could break if
+// a socket file descriptor is passed to it from another process.
+// Although this is probably a very rare/niche case, it is possible, so we consider it only in aggressive mode
 struct PrivateNetworkSpec;
 impl OptionSpec for PrivateNetworkSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
@@ -1619,6 +1651,7 @@ impl OptionSpec for PrivateNetworkSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.resource-control.html#SocketBindAllow=bind-rule
 struct SocketBindDenySpec;
 impl OptionSpec for SocketBindDenySpec {
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
