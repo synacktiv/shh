@@ -1161,9 +1161,10 @@ impl OptionSpec for ReadOnlyPathsSpec {
                         _ => return None,
                     };
                     match effect {
-                        OptionValueEffect::DenyWrite(PathDescription::Base { base, exceptions })
-                            if action_path != Path::new("/") =>
-                        {
+                        OptionValueEffect::DenyWrite(PathDescription::Base {
+                            base,
+                            exceptions,
+                        }) if action_path != Path::new("/") => {
                             let mut new_exceptions = Vec::with_capacity(exceptions.len() + 1);
                             new_exceptions.extend(exceptions.iter().cloned());
                             new_exceptions.push(action_path);
@@ -1216,7 +1217,11 @@ impl OptionSpec for ReadOnlyPathsSpec {
                     }
                     _ => unreachable!(),
                 },
-                dynamic_option_names: Vec::from(["PrivateMounts", "ReadOnlyPaths", "ReadWritePaths"]),
+                dynamic_option_names: Vec::from([
+                    "PrivateMounts",
+                    "ReadOnlyPaths",
+                    "ReadWritePaths",
+                ]),
             }),
         }
     }
@@ -1307,7 +1312,10 @@ impl OptionSpec for InaccessiblePathsSpec {
                         _ => return None,
                     };
                     match effect {
-                        OptionValueEffect::RemovePath(PathDescription::Base { base, exceptions }) => {
+                        OptionValueEffect::RemovePath(PathDescription::Base {
+                            base,
+                            exceptions,
+                        }) => {
                             // This will be reached only when first transforming an initial InaccessiblePaths option (RemovePath) into
                             // less restrictive EmptyPaths + exceptions
                             assert!(exceptions.is_empty());
@@ -1341,7 +1349,8 @@ impl OptionSpec for InaccessiblePathsSpec {
                             new_exceptions_rw.extend(exceptions_rw.iter().cloned());
                             let mut base_ro = *base_ro;
                             let new_exception_path = action_path_exception(action_path);
-                            if matches!(action, ProgramAction::Create(_)) && new_exception_path == *base
+                            if matches!(action, ProgramAction::Create(_))
+                                && new_exception_path == *base
                             {
                                 base_ro = false;
                             } else {
@@ -1697,8 +1706,9 @@ impl OptionSpec for SocketBindDenySpec {
                 .network_firewalling
                 .then_some(OptionUpdater {
                     effect: |e, a, _| {
-                        let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(effect_na)) =
-                            e
+                        let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(
+                            effect_na,
+                        )) = e
                         else {
                             return None;
                         };
