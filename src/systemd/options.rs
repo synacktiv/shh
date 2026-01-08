@@ -640,7 +640,6 @@ fn always_enabled(_: &OptionContext<'_>) -> bool {
     true
 }
 
-// Builder functions for each option
 fn build_protect_system(_ctx: &OptionContext<'_>) -> OptionDescription {
     let mut protect_system_yes_nowrite: Vec<_> = [
         "/usr/", "/boot/", "/efi/", "/lib/", "/lib64/", "/bin/", "/sbin/",
@@ -680,6 +679,7 @@ fn build_protect_system(_ctx: &OptionContext<'_>) -> OptionDescription {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectHome=
 fn build_protect_home(_ctx: &OptionContext<'_>) -> OptionDescription {
     let home_paths = ["/home/", "/root/", "/run/user/"];
     OptionDescription {
@@ -726,6 +726,7 @@ fn build_protect_home(_ctx: &OptionContext<'_>) -> OptionDescription {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateTmp=
 fn build_private_tmp(ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "PrivateTmp",
@@ -745,6 +746,7 @@ fn build_private_tmp(ctx: &OptionContext<'_>) -> OptionDescription {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateDevices=
 fn build_private_devices(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "PrivateDevices",
@@ -783,6 +785,7 @@ fn build_private_devices(_ctx: &OptionContext<'_>) -> OptionDescription {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateMounts=
 fn build_private_mounts(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "PrivateMounts",
@@ -794,6 +797,7 @@ fn build_private_mounts(_ctx: &OptionContext<'_>) -> OptionDescription {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelTunables=
 fn build_protect_kernel_tunables(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "ProtectKernelTunables",
@@ -840,6 +844,7 @@ fn build_protect_kernel_tunables(_ctx: &OptionContext<'_>) -> OptionDescription 
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelModules=
 fn build_protect_kernel_modules(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "ProtectKernelModules",
@@ -856,6 +861,7 @@ fn build_protect_kernel_modules(_ctx: &OptionContext<'_>) -> OptionDescription {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelLogs=
 fn build_protect_kernel_logs(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "ProtectKernelLogs",
@@ -872,7 +878,9 @@ fn build_protect_kernel_logs(_ctx: &OptionContext<'_>) -> OptionDescription {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectControlGroups=
 fn build_protect_control_groups(_ctx: &OptionContext<'_>) -> OptionDescription {
+    // TODO private/strip
     OptionDescription {
         name: "ProtectControlGroups",
         possible_values: vec![OptionValueDescription {
@@ -886,6 +894,10 @@ fn build_protect_control_groups(_ctx: &OptionContext<'_>) -> OptionDescription {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectProc=
+// https://github.com/systemd/systemd/blob/v247/NEWS#L342
+// https://github.com/systemd/systemd/commit/4e39995371738b04d98d27b0d34ea8fe09ec9fab
+// https://docs.kernel.org/filesystems/proc.html#mount-options
 fn build_protect_proc(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "ProtectProc",
@@ -900,6 +912,7 @@ fn build_protect_proc(_ctx: &OptionContext<'_>) -> OptionDescription {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProcSubset=
 fn build_proc_subset(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "ProcSubset",
@@ -916,6 +929,7 @@ fn build_proc_subset(_ctx: &OptionContext<'_>) -> OptionDescription {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#LockPersonality=
 fn build_lock_personality(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "LockPersonality",
@@ -932,6 +946,7 @@ fn build_lock_personality(_ctx: &OptionContext<'_>) -> OptionDescription {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#RestrictRealtime=
 fn build_restrict_realtime(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "RestrictRealtime",
@@ -945,6 +960,7 @@ fn build_restrict_realtime(_ctx: &OptionContext<'_>) -> OptionDescription {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectClock=
 fn build_protect_clock(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "ProtectClock",
@@ -961,6 +977,8 @@ fn build_protect_clock(_ctx: &OptionContext<'_>) -> OptionDescription {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#MemoryDenyWriteExecute=
+// https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L1721
 fn build_memory_deny_write_execute(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "MemoryDenyWriteExecute",
@@ -974,6 +992,7 @@ fn build_memory_deny_write_execute(_ctx: &OptionContext<'_>) -> OptionDescriptio
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#SystemCallArchitectures=
 fn build_system_call_architectures(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "SystemCallArchitectures",
@@ -987,6 +1006,7 @@ fn build_system_call_architectures(_ctx: &OptionContext<'_>) -> OptionDescriptio
 
 /// Address families for `RestrictAddressFamilies` and `CapabilityBoundingSet`
 const ADDRESS_FAMILIES: &[&str] = &[
+    // curl https://man7.org/linux/man-pages/man7/address_families.7.html | grep -o 'AF_[A-Za-z0-9]*' | sort -u | xargs -I'{}' echo \"'{}'\",
     "AF_ALG",
     "AF_APPLETALK",
     "AF_ATMPVC",
@@ -1031,6 +1051,11 @@ const ADDRESS_FAMILIES: &[&str] = &[
     "AF_XDP",
 ];
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateNetwork=
+//
+// For now we enable this option if no sockets are used at all, in theory this could break if
+// a socket file descriptor is passed to it from another process.
+// Although this is probably a very rare/niche case, it is possible, so we consider it only in aggressive mode
 fn build_private_network(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "PrivateNetwork",
@@ -1053,6 +1078,7 @@ fn build_private_network(_ctx: &OptionContext<'_>) -> OptionDescription {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.resource-control.html#SocketBindAllow=bind-rule
 fn build_read_only_paths(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "ReadOnlyPaths",
