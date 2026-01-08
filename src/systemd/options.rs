@@ -640,6 +640,19 @@ fn always_enabled(_: &OptionContext<'_>) -> bool {
     true
 }
 
+//
+// Warning: options values must be ordered from less to most restrictive
+//
+
+// Options model does not aim to accurately define the option's effects, it is often an oversimplification.
+// However the model should always tend to make options *more* (or equally as) restrictive than what they really are,
+// as to avoid suggesting options that might break execution.
+
+// TODO APPROXIMATION
+// Some options implicitly force NoNewPrivileges=true which has some effects in itself,
+// which we need to model
+
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectSystem=
 fn build_protect_system(_ctx: &OptionContext<'_>) -> OptionDescription {
     let mut protect_system_yes_nowrite: Vec<_> = [
         "/usr/", "/boot/", "/efi/", "/lib/", "/lib64/", "/bin/", "/sbin/",
@@ -2076,18 +2089,6 @@ pub(crate) fn build_options(
         instance_kind,
         hardening_opts,
     };
-
-    //
-    // Warning: options values must be ordered from less to most restrictive
-    //
-
-    // Options model does not aim to accurately define the option's effects, it is often an oversimplification.
-    // However the model should always tend to make options *more* (or equally as) restrictive than what they really are,
-    // as to avoid suggesting options that might break execution.
-
-    // TODO APPROXIMATION
-    // Some options implicitly force NoNewPrivileges=true which has some effects in itself,
-    // which we need to model
 
     // Build options from the static registry
     let options: Vec<OptionDescription> = OPTION_SPECS
