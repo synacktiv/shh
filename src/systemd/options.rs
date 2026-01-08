@@ -630,14 +630,252 @@ impl OptionContext<'_> {
     }
 }
 
-/// Specification for a systemd option that can be conditionally enabled
-struct OptionSpec {
-    enabled_if: fn(&OptionContext<'_>) -> bool,
-    build: fn(&OptionContext<'_>) -> OptionDescription,
+/// Trait for systemd option specifications that can be conditionally enabled
+trait OptionSpec: Sync {
+    /// Returns true if this option should be enabled for the given context
+    fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+        let _ = ctx;
+        true
+    }
+
+    /// Builds the option description for this option
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription;
 }
 
-fn always_enabled(_: &OptionContext<'_>) -> bool {
-    true
+struct ProtectSystemSpec;
+impl OptionSpec for ProtectSystemSpec {
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        build_protect_system(ctx)
+    }
+}
+
+struct ProtectHomeSpec;
+impl OptionSpec for ProtectHomeSpec {
+    fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+        ctx.can_use_namespaces()
+    }
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        build_protect_home(ctx)
+    }
+}
+
+struct PrivateTmpSpec;
+impl OptionSpec for PrivateTmpSpec {
+    fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+        ctx.can_use_namespaces()
+    }
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        build_private_tmp(ctx)
+    }
+}
+
+struct PrivateDevicesSpec;
+impl OptionSpec for PrivateDevicesSpec {
+    fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+        ctx.can_use_namespaces()
+    }
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        build_private_devices(ctx)
+    }
+}
+
+struct PrivateMountsSpec;
+impl OptionSpec for PrivateMountsSpec {
+    fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+        ctx.can_use_namespaces()
+    }
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        build_private_mounts(ctx)
+    }
+}
+
+struct ProtectKernelTunablesSpec;
+impl OptionSpec for ProtectKernelTunablesSpec {
+    fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+        ctx.can_use_namespaces()
+    }
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        build_protect_kernel_tunables(ctx)
+    }
+}
+
+struct ProtectKernelModulesSpec;
+impl OptionSpec for ProtectKernelModulesSpec {
+    fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+        ctx.can_use_namespaces()
+    }
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        build_protect_kernel_modules(ctx)
+    }
+}
+
+struct ProtectKernelLogsSpec;
+impl OptionSpec for ProtectKernelLogsSpec {
+    fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+        ctx.can_use_namespaces()
+    }
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        build_protect_kernel_logs(ctx)
+    }
+}
+
+struct ProtectControlGroupsSpec;
+impl OptionSpec for ProtectControlGroupsSpec {
+    fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+        ctx.is_system_instance()
+    }
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        build_protect_control_groups(ctx)
+    }
+}
+
+struct ProtectProcSpec;
+impl OptionSpec for ProtectProcSpec {
+    fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+        ctx.is_system_instance()
+            && ctx.systemd_min_version(247, 0)
+            && ctx.kernel_min_version(5, 8, 0)
+    }
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        build_protect_proc(ctx)
+    }
+}
+
+struct ProcSubsetSpec;
+impl OptionSpec for ProcSubsetSpec {
+    fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+        ctx.is_system_instance()
+            && ctx.systemd_min_version(247, 0)
+            && ctx.kernel_min_version(5, 8, 0)
+    }
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        build_proc_subset(ctx)
+    }
+}
+
+struct LockPersonalitySpec;
+impl OptionSpec for LockPersonalitySpec {
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        build_lock_personality(ctx)
+    }
+}
+
+struct RestrictRealtimeSpec;
+impl OptionSpec for RestrictRealtimeSpec {
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        build_restrict_realtime(ctx)
+    }
+}
+
+struct ProtectClockSpec;
+impl OptionSpec for ProtectClockSpec {
+    fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+        ctx.can_use_namespaces()
+    }
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        build_protect_clock(ctx)
+    }
+}
+
+struct MemoryDenyWriteExecuteSpec;
+impl OptionSpec for MemoryDenyWriteExecuteSpec {
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        build_memory_deny_write_execute(ctx)
+    }
+}
+
+struct SystemCallArchitecturesSpec;
+impl OptionSpec for SystemCallArchitecturesSpec {
+    fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+        matches!(ctx.hardening_opts.mode, HardeningMode::Aggressive)
+    }
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        build_system_call_architectures(ctx)
+    }
+}
+
+struct ReadOnlyPathsSpec;
+impl OptionSpec for ReadOnlyPathsSpec {
+    fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+        ctx.can_use_namespaces() && ctx.hardening_opts.filesystem_whitelisting
+    }
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        build_read_only_paths(ctx)
+    }
+}
+
+struct InaccessiblePathsSpec;
+impl OptionSpec for InaccessiblePathsSpec {
+    fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+        ctx.can_use_namespaces() && ctx.hardening_opts.filesystem_whitelisting
+    }
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        build_inaccessible_paths(ctx)
+    }
+}
+
+struct NoExecPathsSpec;
+impl OptionSpec for NoExecPathsSpec {
+    fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+        ctx.can_use_namespaces() && ctx.hardening_opts.filesystem_whitelisting
+    }
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        build_no_exec_paths(ctx)
+    }
+}
+
+struct RestrictAddressFamiliesSpec;
+impl OptionSpec for RestrictAddressFamiliesSpec {
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        build_restrict_address_families(ctx)
+    }
+}
+
+struct PrivateNetworkSpec;
+impl OptionSpec for PrivateNetworkSpec {
+    fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+        ctx.can_use_namespaces() && matches!(ctx.hardening_opts.mode, HardeningMode::Aggressive)
+    }
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        build_private_network(ctx)
+    }
+}
+
+struct SocketBindDenySpec;
+impl OptionSpec for SocketBindDenySpec {
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        build_socket_bind_deny(ctx)
+    }
+}
+
+struct IpAddressDenySpec;
+impl OptionSpec for IpAddressDenySpec {
+    fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+        ctx.hardening_opts.network_firewalling
+    }
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        build_ip_address_deny(ctx)
+    }
+}
+
+struct CapabilityBoundingSetSpec;
+impl OptionSpec for CapabilityBoundingSetSpec {
+    fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+        ctx.can_use_namespaces()
+    }
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        build_capability_bounding_set(ctx)
+    }
+}
+
+struct SystemCallFilterSpec;
+impl OptionSpec for SystemCallFilterSpec {
+    fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+        !matches!(ctx.hardening_opts.mode, HardeningMode::Generic)
+    }
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        build_system_call_filter(ctx)
+    }
 }
 
 //
@@ -1995,142 +2233,32 @@ fn build_system_call_filter(_ctx: &OptionContext<'_>) -> OptionDescription {
 }
 
 /// Static registry of option specifications with their enable conditions
-static OPTION_SPECS: &[OptionSpec] = &[
-    // ProtectSystem
-    OptionSpec {
-        enabled_if: always_enabled,
-        build: build_protect_system,
-    },
-    // ProtectHome
-    OptionSpec {
-        enabled_if: |ctx| ctx.can_use_namespaces(),
-        build: build_protect_home,
-    },
-    // PrivateTmp
-    OptionSpec {
-        enabled_if: |ctx| ctx.can_use_namespaces(),
-        build: build_private_tmp,
-    },
-    // PrivateDevices
-    OptionSpec {
-        enabled_if: |ctx| ctx.can_use_namespaces(),
-        build: build_private_devices,
-    },
-    // PrivateMounts
-    OptionSpec {
-        enabled_if: |ctx| ctx.can_use_namespaces(),
-        build: build_private_mounts,
-    },
-    // ProtectKernelTunables
-    OptionSpec {
-        enabled_if: |ctx| ctx.can_use_namespaces(),
-        build: build_protect_kernel_tunables,
-    },
-    // ProtectKernelModules
-    OptionSpec {
-        enabled_if: |ctx| ctx.can_use_namespaces(),
-        build: build_protect_kernel_modules,
-    },
-    // ProtectKernelLogs
-    OptionSpec {
-        enabled_if: |ctx| ctx.can_use_namespaces(),
-        build: build_protect_kernel_logs,
-    },
-    // ProtectControlGroups
-    OptionSpec {
-        enabled_if: |ctx| ctx.is_system_instance(),
-        build: build_protect_control_groups,
-    },
-    // ProtectProc
-    OptionSpec {
-        enabled_if: |ctx| {
-            ctx.is_system_instance()
-                && ctx.systemd_min_version(247, 0)
-                && ctx.kernel_min_version(5, 8, 0)
-        },
-        build: build_protect_proc,
-    },
-    // ProcSubset
-    OptionSpec {
-        enabled_if: |ctx| {
-            ctx.is_system_instance()
-                && ctx.systemd_min_version(247, 0)
-                && ctx.kernel_min_version(5, 8, 0)
-        },
-        build: build_proc_subset,
-    },
-    // LockPersonality
-    OptionSpec {
-        enabled_if: always_enabled,
-        build: build_lock_personality,
-    },
-    // RestrictRealtime
-    OptionSpec {
-        enabled_if: always_enabled,
-        build: build_restrict_realtime,
-    },
-    // ProtectClock
-    OptionSpec {
-        enabled_if: |ctx| ctx.can_use_namespaces(),
-        build: build_protect_clock,
-    },
-    // MemoryDenyWriteExecute
-    OptionSpec {
-        enabled_if: always_enabled,
-        build: build_memory_deny_write_execute,
-    },
-    // SystemCallArchitectures
-    OptionSpec {
-        enabled_if: |ctx| matches!(ctx.hardening_opts.mode, HardeningMode::Aggressive),
-        build: build_system_call_architectures,
-    },
-    // ReadOnlyPaths
-    OptionSpec {
-        enabled_if: |ctx| ctx.can_use_namespaces() && ctx.hardening_opts.filesystem_whitelisting,
-        build: build_read_only_paths,
-    },
-    // InaccessiblePaths
-    OptionSpec {
-        enabled_if: |ctx| ctx.can_use_namespaces() && ctx.hardening_opts.filesystem_whitelisting,
-        build: build_inaccessible_paths,
-    },
-    // NoExecPaths
-    OptionSpec {
-        enabled_if: |ctx| ctx.can_use_namespaces() && ctx.hardening_opts.filesystem_whitelisting,
-        build: build_no_exec_paths,
-    },
-    // RestrictAddressFamilies
-    OptionSpec {
-        enabled_if: always_enabled,
-        build: build_restrict_address_families,
-    },
-    // PrivateNetwork
-    OptionSpec {
-        enabled_if: |ctx| {
-            ctx.can_use_namespaces() && matches!(ctx.hardening_opts.mode, HardeningMode::Aggressive)
-        },
-        build: build_private_network,
-    },
-    // SocketBindDeny
-    OptionSpec {
-        enabled_if: always_enabled,
-        build: build_socket_bind_deny,
-    },
-    // IPAddressDeny
-    OptionSpec {
-        enabled_if: |ctx| ctx.hardening_opts.network_firewalling,
-        build: build_ip_address_deny,
-    },
-    // CapabilityBoundingSet
-    OptionSpec {
-        enabled_if: |ctx| ctx.can_use_namespaces(),
-        build: build_capability_bounding_set,
-    },
-    // SystemCallFilter
-    OptionSpec {
-        enabled_if: |ctx| !matches!(ctx.hardening_opts.mode, HardeningMode::Generic),
-        build: build_system_call_filter,
-    },
+static OPTION_SPECS: &[&dyn OptionSpec] = &[
+    &ProtectSystemSpec,
+    &ProtectHomeSpec,
+    &PrivateTmpSpec,
+    &PrivateDevicesSpec,
+    &PrivateMountsSpec,
+    &ProtectKernelTunablesSpec,
+    &ProtectKernelModulesSpec,
+    &ProtectKernelLogsSpec,
+    &ProtectControlGroupsSpec,
+    &ProtectProcSpec,
+    &ProcSubsetSpec,
+    &LockPersonalitySpec,
+    &RestrictRealtimeSpec,
+    &ProtectClockSpec,
+    &MemoryDenyWriteExecuteSpec,
+    &SystemCallArchitecturesSpec,
+    &ReadOnlyPathsSpec,
+    &InaccessiblePathsSpec,
+    &NoExecPathsSpec,
+    &RestrictAddressFamiliesSpec,
+    &PrivateNetworkSpec,
+    &SocketBindDenySpec,
+    &IpAddressDenySpec,
+    &CapabilityBoundingSetSpec,
+    &SystemCallFilterSpec,
 ];
 
 pub(crate) fn build_options(
@@ -2151,8 +2279,8 @@ pub(crate) fn build_options(
     // Build options from the static registry
     let options: Vec<OptionDescription> = OPTION_SPECS
         .iter()
-        .filter(|spec| (spec.enabled_if)(&ctx))
-        .map(|spec| (spec.build)(&ctx))
+        .filter(|spec| spec.enabled_if(&ctx))
+        .map(|spec| spec.build(&ctx))
         .filter(|desc| {
             ctx.hardening_opts
                 .systemd_options
