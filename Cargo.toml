@@ -25,7 +25,7 @@ const-gen = { version = "1.6.8", default-features = false, features = ["std", "p
 
 [dependencies]
 anyhow = { version = "1.0.100", default-features = false, features = ["std", "backtrace"] }
-bincode = { version = "2.0.1", default-features = false, features = ["std", "serde"] }
+postcard = { version = "1.0.10", default-features = false, features = ["use-std"] }
 chrono = { version = "0.4.42", default-features = false, features = ["clock", "std"] }
 clap = { version = "4.5.51", default-features = false, features = ["std", "color", "help", "usage", "error-context", "suggestions", "derive"] }
 clap_complete = { version = "4.5.60", default-features = false, optional = true }
