@@ -1867,6 +1867,11 @@ fn build_capability_bounding_set(_ctx: &OptionContext<'_>) -> OptionDescription 
                 OptionValueEffect::DenySyscalls(DenySyscalls::Single("bpf")),
             ]),
         ),
+        // CAP_SETFCAP: too complex?
+        // TODO CAP_SETGID
+        // TODO CAP_SETPCAP
+        // TODO CAP_SETUID
+        // CAP_SYS_ADMIN: definitely too complex
         (
             "CAP_SYS_BOOT",
             OptionValueEffect::DenySyscalls(DenySyscalls::Class("reboot")),
@@ -1893,6 +1898,7 @@ fn build_capability_bounding_set(_ctx: &OptionContext<'_>) -> OptionDescription 
         (
             "CAP_SYS_PTRACE",
             OptionValueEffect::Multiple(vec![
+                // TODO distinguish other processes
                 OptionValueEffect::DenySyscalls(DenySyscalls::Single("ptrace)")),
                 OptionValueEffect::DenySyscalls(DenySyscalls::Single("get_robust_list")),
                 OptionValueEffect::DenySyscalls(DenySyscalls::Single("process_vm_readv")),
@@ -1900,6 +1906,8 @@ fn build_capability_bounding_set(_ctx: &OptionContext<'_>) -> OptionDescription 
                 OptionValueEffect::DenySyscalls(DenySyscalls::Single("kcmp")),
             ]),
         ),
+        // CAP_SYS_RAWIO: too complex?
+        // CAP_SYS_RESOURCE: too complex?
         (
             "CAP_SYS_TIME",
             OptionValueEffect::Multiple(vec![
@@ -1944,6 +1952,16 @@ fn build_capability_bounding_set(_ctx: &OptionContext<'_>) -> OptionDescription 
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#SystemCallFilter=
+//
+// Also change the default behavior when calling a denied syscall to return EPERM instead of killing
+// the program.
+// Rationale:
+// Some programs call chown as non root even though it always fails, and ignore the error. Since the call
+// fails, we don't monitor it, but if we deny the chown syscall, the program gets killed with SIGSYS
+// signal when it makes the call, so change the default to just return EPERM.
+// Real world example: https://github.com/tjko/jpegoptim/blob/v1.5.5/jpegoptim.c#L1097-L1099
+//
 fn build_system_call_filter(_ctx: &OptionContext<'_>) -> OptionDescription {
     let mut syscall_classes: Vec<_> = SYSCALL_CLASSES.keys().copied().collect();
     syscall_classes.sort_unstable();
@@ -1975,52 +1993,52 @@ fn build_system_call_filter(_ctx: &OptionContext<'_>) -> OptionDescription {
 
 /// Static registry of option specifications with their enable conditions
 static OPTION_SPECS: &[OptionSpec] = &[
-    // ProtectSystem - always enabled
+    // ProtectSystem
     OptionSpec {
         enabled_if: always_enabled,
         build: build_protect_system,
     },
-    // ProtectHome - requires namespaces
+    // ProtectHome
     OptionSpec {
         enabled_if: |ctx| ctx.can_use_namespaces(),
         build: build_protect_home,
     },
-    // PrivateTmp - requires namespaces
+    // PrivateTmp
     OptionSpec {
         enabled_if: |ctx| ctx.can_use_namespaces(),
         build: build_private_tmp,
     },
-    // PrivateDevices - requires namespaces
+    // PrivateDevices
     OptionSpec {
         enabled_if: |ctx| ctx.can_use_namespaces(),
         build: build_private_devices,
     },
-    // PrivateMounts - requires namespaces
+    // PrivateMounts
     OptionSpec {
         enabled_if: |ctx| ctx.can_use_namespaces(),
         build: build_private_mounts,
     },
-    // ProtectKernelTunables - requires namespaces
+    // ProtectKernelTunables
     OptionSpec {
         enabled_if: |ctx| ctx.can_use_namespaces(),
         build: build_protect_kernel_tunables,
     },
-    // ProtectKernelModules - requires namespaces
+    // ProtectKernelModules
     OptionSpec {
         enabled_if: |ctx| ctx.can_use_namespaces(),
         build: build_protect_kernel_modules,
     },
-    // ProtectKernelLogs - requires namespaces
+    // ProtectKernelLogs
     OptionSpec {
         enabled_if: |ctx| ctx.can_use_namespaces(),
         build: build_protect_kernel_logs,
     },
-    // ProtectControlGroups - system instance only
+    // ProtectControlGroups
     OptionSpec {
         enabled_if: |ctx| ctx.is_system_instance(),
         build: build_protect_control_groups,
     },
-    // ProtectProc - system instance, systemd >= 247, kernel >= 5.8
+    // ProtectProc
     OptionSpec {
         enabled_if: |ctx| {
             ctx.is_system_instance()
@@ -2029,7 +2047,7 @@ static OPTION_SPECS: &[OptionSpec] = &[
         },
         build: build_protect_proc,
     },
-    // ProcSubset - system instance, systemd >= 247, kernel >= 5.8
+    // ProcSubset
     OptionSpec {
         enabled_if: |ctx| {
             ctx.is_system_instance()
@@ -2038,74 +2056,74 @@ static OPTION_SPECS: &[OptionSpec] = &[
         },
         build: build_proc_subset,
     },
-    // LockPersonality - always enabled
+    // LockPersonality
     OptionSpec {
         enabled_if: always_enabled,
         build: build_lock_personality,
     },
-    // RestrictRealtime - always enabled
+    // RestrictRealtime
     OptionSpec {
         enabled_if: always_enabled,
         build: build_restrict_realtime,
     },
-    // ProtectClock - requires namespaces
+    // ProtectClock
     OptionSpec {
         enabled_if: |ctx| ctx.can_use_namespaces(),
         build: build_protect_clock,
     },
-    // MemoryDenyWriteExecute - always enabled
+    // MemoryDenyWriteExecute
     OptionSpec {
         enabled_if: always_enabled,
         build: build_memory_deny_write_execute,
     },
-    // SystemCallArchitectures - aggressive mode only
+    // SystemCallArchitectures
     OptionSpec {
         enabled_if: |ctx| matches!(ctx.hardening_opts.mode, HardeningMode::Aggressive),
         build: build_system_call_architectures,
     },
-    // PrivateNetwork - namespaces + aggressive mode
+    // PrivateNetwork
     OptionSpec {
         enabled_if: |ctx| {
             ctx.can_use_namespaces() && matches!(ctx.hardening_opts.mode, HardeningMode::Aggressive)
         },
         build: build_private_network,
     },
-    // ReadOnlyPaths - namespaces + filesystem_whitelisting
+    // ReadOnlyPaths
     OptionSpec {
         enabled_if: |ctx| ctx.can_use_namespaces() && ctx.hardening_opts.filesystem_whitelisting,
         build: build_read_only_paths,
     },
-    // InaccessiblePaths - namespaces + filesystem_whitelisting
+    // InaccessiblePaths
     OptionSpec {
         enabled_if: |ctx| ctx.can_use_namespaces() && ctx.hardening_opts.filesystem_whitelisting,
         build: build_inaccessible_paths,
     },
-    // NoExecPaths - namespaces + filesystem_whitelisting
+    // NoExecPaths
     OptionSpec {
         enabled_if: |ctx| ctx.can_use_namespaces() && ctx.hardening_opts.filesystem_whitelisting,
         build: build_no_exec_paths,
     },
-    // RestrictAddressFamilies - always enabled
+    // RestrictAddressFamilies
     OptionSpec {
         enabled_if: always_enabled,
         build: build_restrict_address_families,
     },
-    // SocketBindDeny - always enabled
+    // SocketBindDeny
     OptionSpec {
         enabled_if: always_enabled,
         build: build_socket_bind_deny,
     },
-    // IPAddressDeny - network_firewalling enabled
+    // IPAddressDeny
     OptionSpec {
         enabled_if: |ctx| ctx.hardening_opts.network_firewalling,
         build: build_ip_address_deny,
     },
-    // CapabilityBoundingSet - namespaces
+    // CapabilityBoundingSet
     OptionSpec {
         enabled_if: |ctx| ctx.can_use_namespaces(),
         build: build_capability_bounding_set,
     },
-    // SystemCallFilter - not generic mode
+    // SystemCallFilter
     OptionSpec {
         enabled_if: |ctx| !matches!(ctx.hardening_opts.mode, HardeningMode::Generic),
         build: build_system_call_filter,
