@@ -770,6 +770,7 @@ fn build_private_devices(_ctx: &OptionContext<'_>) -> OptionDescription {
                     base: "/dev/".into(),
                     base_ro: true,
                     exceptions_ro: vec![],
+                    // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L912
                     exceptions_rw: [
                         "null",
                         "zero",
@@ -866,6 +867,7 @@ fn build_protect_kernel_modules(_ctx: &OptionContext<'_>) -> OptionDescription {
         possible_values: vec![OptionValueDescription {
             value: OptionValue::Boolean(true),
             desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L140
                 OptionValueEffect::RemovePath(PathDescription::base("/lib/modules/")),
                 OptionValueEffect::RemovePath(PathDescription::base("/usr/lib/modules/")),
                 OptionValueEffect::DenySyscalls(DenySyscalls::Class("module")),
@@ -1028,80 +1030,6 @@ fn build_system_call_architectures(_ctx: &OptionContext<'_>) -> OptionDescriptio
     }
 }
 
-/// Address families for `RestrictAddressFamilies` and `CapabilityBoundingSet`
-const ADDRESS_FAMILIES: &[&str] = &[
-    // curl https://man7.org/linux/man-pages/man7/address_families.7.html | grep -o 'AF_[A-Za-z0-9]*' | sort -u | xargs -I'{}' echo \"'{}'\",
-    "AF_ALG",
-    "AF_APPLETALK",
-    "AF_ATMPVC",
-    "AF_ATMSVC",
-    "AF_AX25",
-    "AF_BLUETOOTH",
-    "AF_BRIDGE",
-    "AF_CAIF",
-    "AF_CAN",
-    "AF_DECnet",
-    "AF_ECONET",
-    "AF_IB",
-    "AF_IEEE802154",
-    "AF_INET",
-    "AF_INET6",
-    "AF_IPX",
-    "AF_IRDA",
-    "AF_ISDN",
-    "AF_IUCV",
-    "AF_KCM",
-    "AF_KEY",
-    "AF_LLC",
-    "AF_LOCAL",
-    "AF_MPLS",
-    "AF_NETBEUI",
-    "AF_NETLINK",
-    "AF_NETROM",
-    "AF_PACKET",
-    "AF_PHONET",
-    "AF_PPPOX",
-    "AF_QIPCRTR",
-    "AF_RDS",
-    "AF_ROSE",
-    "AF_RXRPC",
-    "AF_SECURITY",
-    "AF_SMC",
-    "AF_TIPC",
-    "AF_UNIX",
-    "AF_VSOCK",
-    "AF_WANPIPE",
-    "AF_X25",
-    "AF_XDP",
-];
-
-// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateNetwork=
-//
-// For now we enable this option if no sockets are used at all, in theory this could break if
-// a socket file descriptor is passed to it from another process.
-// Although this is probably a very rare/niche case, it is possible, so we consider it only in aggressive mode
-fn build_private_network(_ctx: &OptionContext<'_>) -> OptionDescription {
-    OptionDescription {
-        name: "PrivateNetwork",
-        possible_values: vec![OptionValueDescription {
-            value: OptionValue::Boolean(true),
-            desc: OptionEffect::Simple(OptionValueEffect::DenyAction(
-                ProgramAction::NetworkActivity(
-                    NetworkActivity {
-                        af: SetSpecifier::All,
-                        proto: SetSpecifier::All,
-                        kind: SetSpecifier::All,
-                        local_port: SetSpecifier::All,
-                        address: SetSpecifier::All,
-                    }
-                    .into(),
-                ),
-            )),
-        }],
-        updater: None,
-    }
-}
-
 // https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ReadWritePaths=
 fn build_read_only_paths(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
@@ -1149,7 +1077,7 @@ fn build_read_only_paths(_ctx: &OptionContext<'_>) -> OptionDescription {
                         OptionWithValue {
                             name: "ReadOnlyPaths",
                             value: OptionValue::List(ListOptionValue {
-                                #[expect(clippy::unwrap_used)]
+                                #[expect(clippy::unwrap_used)] // path is from our option, so unicode safe
                                 values: vec![base.to_str().unwrap().to_owned()],
                                 value_if_empty: None,
                                 option_prefix: "",
@@ -1344,7 +1272,7 @@ fn build_inaccessible_paths(_ctx: &OptionContext<'_>) -> OptionDescription {
                     new_opts.push(OptionWithValue {
                         name: "TemporaryFileSystem",
                         value: OptionValue::List(ListOptionValue {
-                            #[expect(clippy::unwrap_used)]
+                            #[expect(clippy::unwrap_used)]  // path is from our option, so unicode safe
                             values: vec![if *base_ro {
                                 format!("{}:ro", base.to_str().unwrap())
                             } else {
@@ -1489,7 +1417,7 @@ fn build_no_exec_paths(_ctx: &OptionContext<'_>) -> OptionDescription {
                         OptionWithValue {
                             name: "NoExecPaths",
                             value: OptionValue::List(ListOptionValue {
-                                #[expect(clippy::unwrap_used)]
+                                #[expect(clippy::unwrap_used)] // path is from our option, so unicode safe
                                 values: vec![base.to_str().unwrap().to_owned()],
                                 value_if_empty: None,
                                 option_prefix: "",
@@ -1561,6 +1489,80 @@ fn build_restrict_address_families(_ctx: &OptionContext<'_>) -> OptionDescriptio
                     })
                     .collect(),
             ),
+        }],
+        updater: None,
+    }
+}
+
+/// Address families for `RestrictAddressFamilies` and `CapabilityBoundingSet`
+const ADDRESS_FAMILIES: &[&str] = &[
+    // curl https://man7.org/linux/man-pages/man7/address_families.7.html | grep -o 'AF_[A-Za-z0-9]*' | sort -u | xargs -I'{}' echo \"'{}'\",
+    "AF_ALG",
+    "AF_APPLETALK",
+    "AF_ATMPVC",
+    "AF_ATMSVC",
+    "AF_AX25",
+    "AF_BLUETOOTH",
+    "AF_BRIDGE",
+    "AF_CAIF",
+    "AF_CAN",
+    "AF_DECnet",
+    "AF_ECONET",
+    "AF_IB",
+    "AF_IEEE802154",
+    "AF_INET",
+    "AF_INET6",
+    "AF_IPX",
+    "AF_IRDA",
+    "AF_ISDN",
+    "AF_IUCV",
+    "AF_KCM",
+    "AF_KEY",
+    "AF_LLC",
+    "AF_LOCAL",
+    "AF_MPLS",
+    "AF_NETBEUI",
+    "AF_NETLINK",
+    "AF_NETROM",
+    "AF_PACKET",
+    "AF_PHONET",
+    "AF_PPPOX",
+    "AF_QIPCRTR",
+    "AF_RDS",
+    "AF_ROSE",
+    "AF_RXRPC",
+    "AF_SECURITY",
+    "AF_SMC",
+    "AF_TIPC",
+    "AF_UNIX",
+    "AF_VSOCK",
+    "AF_WANPIPE",
+    "AF_X25",
+    "AF_XDP",
+];
+
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateNetwork=
+//
+// For now we enable this option if no sockets are used at all, in theory this could break if
+// a socket file descriptor is passed to it from another process.
+// Although this is probably a very rare/niche case, it is possible, so we consider it only in aggressive mode
+fn build_private_network(_ctx: &OptionContext<'_>) -> OptionDescription {
+    OptionDescription {
+        name: "PrivateNetwork",
+        possible_values: vec![OptionValueDescription {
+            value: OptionValue::Boolean(true),
+            desc: OptionEffect::Simple(OptionValueEffect::DenyAction(
+                ProgramAction::NetworkActivity(
+                    NetworkActivity {
+                        af: SetSpecifier::All,
+                        proto: SetSpecifier::All,
+                        kind: SetSpecifier::All,
+                        local_port: SetSpecifier::All,
+                        address: SetSpecifier::All,
+                    }
+                    .into(),
+                ),
+            )),
         }],
         updater: None,
     }
@@ -1858,6 +1860,7 @@ fn build_capability_bounding_set(_ctx: &OptionContext<'_>) -> OptionDescription 
                         }),
                 )
                 .collect(),
+                // TODO non local bind
             ),
         ),
         (
@@ -2081,13 +2084,6 @@ static OPTION_SPECS: &[OptionSpec] = &[
         enabled_if: |ctx| matches!(ctx.hardening_opts.mode, HardeningMode::Aggressive),
         build: build_system_call_architectures,
     },
-    // PrivateNetwork
-    OptionSpec {
-        enabled_if: |ctx| {
-            ctx.can_use_namespaces() && matches!(ctx.hardening_opts.mode, HardeningMode::Aggressive)
-        },
-        build: build_private_network,
-    },
     // ReadOnlyPaths
     OptionSpec {
         enabled_if: |ctx| ctx.can_use_namespaces() && ctx.hardening_opts.filesystem_whitelisting,
@@ -2107,6 +2103,13 @@ static OPTION_SPECS: &[OptionSpec] = &[
     OptionSpec {
         enabled_if: always_enabled,
         build: build_restrict_address_families,
+    },
+    // PrivateNetwork
+    OptionSpec {
+        enabled_if: |ctx| {
+            ctx.can_use_namespaces() && matches!(ctx.hardening_opts.mode, HardeningMode::Aggressive)
+        },
+        build: build_private_network,
     },
     // SocketBindDeny
     OptionSpec {
