@@ -817,6 +817,7 @@ fn build_protect_kernel_tunables(_ctx: &OptionContext<'_>) -> OptionDescription 
         possible_values: vec![OptionValueDescription {
             value: OptionValue::Boolean(true),
             desc: OptionEffect::Simple(OptionValueEffect::Multiple(
+                // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L113
                 [
                     "acpi/",
                     "apm",
@@ -844,9 +845,10 @@ fn build_protect_kernel_tunables(_ctx: &OptionContext<'_>) -> OptionDescription 
                         exceptions: vec![],
                     })
                 }))
-                .chain(iter::once(OptionValueEffect::DenyWrite(
-                    PathDescription::base("/sys"),
-                )))
+                .chain(
+                    // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L130
+                    iter::once(OptionValueEffect::DenyWrite(PathDescription::base("/sys"))),
+                )
                 .chain(iter::once(OptionValueEffect::DenyAction(
                     ProgramAction::MountToHost,
                 )))
@@ -881,9 +883,11 @@ fn build_protect_kernel_logs(_ctx: &OptionContext<'_>) -> OptionDescription {
         possible_values: vec![OptionValueDescription {
             value: OptionValue::Boolean(true),
             desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L148
                 OptionValueEffect::RemovePath(PathDescription::base("/proc/kmsg")),
                 OptionValueEffect::RemovePath(PathDescription::base("/dev/kmsg")),
                 OptionValueEffect::DenySyscalls(DenySyscalls::Single("syslog")),
+                // TODO figure out about this one, systemd doc says it doesn't but tests seem to say otherwise?
                 OptionValueEffect::DenyAction(ProgramAction::MountToHost),
             ])),
         }],
@@ -914,6 +918,8 @@ fn build_protect_control_groups(_ctx: &OptionContext<'_>) -> OptionDescription {
 fn build_protect_proc(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "ProtectProc",
+        // Since we have no easy & reliable (race free) way to know which process belongs to
+        // which user, only support the most restrictive option
         possible_values: vec![OptionValueDescription {
             value: OptionValue::String("ptraceable".to_owned()),
             desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
@@ -981,8 +987,10 @@ fn build_protect_clock(_ctx: &OptionContext<'_>) -> OptionDescription {
             value: OptionValue::Boolean(true),
             desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
                 OptionValueEffect::DenyWrite(PathDescription::pattern("/dev/rtc.*")),
+                // See handling of CAP_SYS_TIME
                 OptionValueEffect::DenySyscalls(DenySyscalls::Single("stime")),
                 OptionValueEffect::DenySyscalls(DenySyscalls::Class("clock")),
+                // See handling of CAP_WAKE_ALARM
                 OptionValueEffect::DenyAction(ProgramAction::SetAlarm),
             ])),
         }],
@@ -1006,6 +1014,9 @@ fn build_memory_deny_write_execute(_ctx: &OptionContext<'_>) -> OptionDescriptio
 }
 
 // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#SystemCallArchitectures=
+//
+// This is actually very safe to enable, but since we don't currently support checking for its
+// compatibility during profiling, only enable it in aggressive mode
 fn build_system_call_architectures(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "SystemCallArchitectures",
@@ -1091,7 +1102,7 @@ fn build_private_network(_ctx: &OptionContext<'_>) -> OptionDescription {
     }
 }
 
-// https://www.freedesktop.org/software/systemd/man/systemd.resource-control.html#SocketBindAllow=bind-rule
+// https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ReadWritePaths=
 fn build_read_only_paths(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "ReadOnlyPaths",
@@ -1178,6 +1189,7 @@ fn build_read_only_paths(_ctx: &OptionContext<'_>) -> OptionDescription {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ReadWritePaths=
 fn build_inaccessible_paths(_ctx: &OptionContext<'_>) -> OptionDescription {
     let mut possible_values = vec![OptionValueDescription {
         value: OptionValue::List(ListOptionValue {
@@ -1432,6 +1444,7 @@ fn build_inaccessible_paths(_ctx: &OptionContext<'_>) -> OptionDescription {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ReadWritePaths=
 fn build_no_exec_paths(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "NoExecPaths",
@@ -1516,6 +1529,7 @@ fn build_no_exec_paths(_ctx: &OptionContext<'_>) -> OptionDescription {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#RestrictAddressFamilies=
 fn build_restrict_address_families(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "RestrictAddressFamilies",
@@ -1552,6 +1566,7 @@ fn build_restrict_address_families(_ctx: &OptionContext<'_>) -> OptionDescriptio
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.resource-control.html#SocketBindAllow=bind-rule
 fn build_socket_bind_deny(ctx: &OptionContext<'_>) -> OptionDescription {
     let deny_binds: Vec<_> = SocketFamily::iter()
         .take(2)
@@ -1666,6 +1681,7 @@ fn build_socket_bind_deny(ctx: &OptionContext<'_>) -> OptionDescription {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html#IPAddressAllow=ADDRESS%5B/PREFIXLENGTH%5D%E2%80%A6
 fn build_ip_address_deny(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "IPAddressDeny",
@@ -1749,8 +1765,13 @@ fn build_ip_address_deny(_ctx: &OptionContext<'_>) -> OptionDescription {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#CapabilityBoundingSet=
+// Note: we don't want to duplicate the kernel permission checking logic here, which would be
+// a maintenance nightmare, so in most case we over (never under!) simplify the capability's effect
+// or we don't implement it at all if too complex because the risk of breakage is too high
 fn build_capability_bounding_set(_ctx: &OptionContext<'_>) -> OptionDescription {
     let cap_effects = [
+        // CAP_AUDIT_CONTROL, CAP_AUDIT_READ, CAP_AUDIT_WRITE: requires netlink socket message handling
         (
             "CAP_BLOCK_SUSPEND",
             OptionValueEffect::Multiple(vec![
@@ -1762,10 +1783,15 @@ fn build_capability_bounding_set(_ctx: &OptionContext<'_>) -> OptionDescription 
             "CAP_BPF",
             OptionValueEffect::DenySyscalls(DenySyscalls::Single("bpf")),
         ),
+        // CAP_CHECKPOINT_RESTORE: too complex?
         (
             "CAP_CHOWN",
             OptionValueEffect::DenySyscalls(DenySyscalls::Class("chown")),
         ),
+        // CAP_DAC_OVERRIDE: too complex?
+        // CAP_DAC_READ_SEARCH: too complex?
+        // CAP_FOWNER: too complex?
+        // CAP_FSETID: too complex?
         (
             "CAP_IPC_LOCK",
             OptionValueEffect::Multiple(vec![
@@ -1774,6 +1800,7 @@ fn build_capability_bounding_set(_ctx: &OptionContext<'_>) -> OptionDescription 
                 OptionValueEffect::DenyAction(ProgramAction::HugePageMemoryMapping),
             ]),
         ),
+        // CAP_IPC_OWNER: too complex?
         (
             "CAP_KILL",
             OptionValueEffect::Multiple(vec![
@@ -1781,10 +1808,19 @@ fn build_capability_bounding_set(_ctx: &OptionContext<'_>) -> OptionDescription 
                 OptionValueEffect::DenySyscalls(DenySyscalls::Single("ioctl")),
             ]),
         ),
+        // TODO CAP_LEASE
+        // TODO CAP_LINUX_IMMUTABLE
+        // CAP_MAC_ADMIN: too complex?
+        // CAP_MAC_OVERRIDE: too complex?
         (
             "CAP_MKNOD",
             OptionValueEffect::DenyAction(ProgramAction::MknodSpecial),
         ),
+        // CAP_NET_ADMIN: too complex?
+        // CAP_NET_BIND_SERVICE would be too complex/unreliable to handle:
+        // - for IPv4 sockets, either PROT_SOCK or net.ipv4.ip_unprivileged_port_start sysctl control the provileged port threshold
+        // - for other socket families, rules are different
+        // CAP_NET_BROADCAST: unused
         (
             "CAP_NET_RAW",
             OptionValueEffect::Multiple(
@@ -1803,6 +1839,7 @@ fn build_capability_bounding_set(_ctx: &OptionContext<'_>) -> OptionDescription 
                 .chain(
                     ADDRESS_FAMILIES
                         .iter()
+                        // AF_NETLINK sockets use SOCK_RAW, but does not require CAP_NET_RAW
                         .filter(|af| **af != "AF_NETLINK")
                         .map(|af| {
                             OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(
