@@ -21,7 +21,7 @@ impl OptionValueEffect {
         &self,
         action: &ProgramAction,
         prev_actions: &[ProgramAction],
-        updater: Option<&OptionUpdater>,
+        updater: Option<&dyn OptionUpdater>,
         hardening_opts: &HardeningOptions,
     ) -> ActionOptionEffectCompatibility {
         let compatible: Vec<bool> = match self {
@@ -132,7 +132,7 @@ impl OptionValueEffect {
             for (subeff, subeff_compatible) in self.iter().zip(compatible) {
                 if subeff_compatible {
                     let newopt_desc = ChangedOptionValueDescription {
-                        new_options: (updater.options)(subeff),
+                        new_options: updater.options(subeff),
                         effect: subeff.to_owned(),
                     };
                     changed_opt_desc = Some(changed_opt_desc.map_or_else(
@@ -142,9 +142,9 @@ impl OptionValueEffect {
                             prev
                         },
                     ));
-                } else if let Some(new_subeff) = (updater.effect)(subeff, action, hardening_opts) {
+                } else if let Some(new_subeff) = updater.effect(subeff, action, hardening_opts) {
                     let newopt_desc = ChangedOptionValueDescription {
-                        new_options: (updater.options)(&new_subeff),
+                        new_options: updater.options(&new_subeff),
                         effect: new_subeff,
                     };
                     changed_opt_desc = Some(changed_opt_desc.map_or_else(
@@ -215,7 +215,7 @@ impl From<bool> for ActionOptionEffectCompatibility {
 fn actions_compatible(
     eff: &OptionValueEffect,
     actions: &[ProgramAction],
-    updater: Option<&OptionUpdater>,
+    updater: Option<&dyn OptionUpdater>,
     hardening_opts: &HardeningOptions,
 ) -> ActionOptionEffectCompatibility {
     let mut changed_desc: Option<Box<ChangedOptionValueDescription>> = None;
@@ -253,7 +253,7 @@ fn actions_compatible_list(
     list: &ListOptionValue,
     effects: &[OptionValueEffect],
     actions: &[ProgramAction],
-    updater: Option<&OptionUpdater>,
+    updater: Option<&dyn OptionUpdater>,
     hardening_opts: &HardeningOptions,
 ) -> ActionOptionEffectCompatibility {
     debug_assert_eq!(list.values.len(), effects.len());
@@ -332,8 +332,7 @@ pub(crate) fn resolve(
                     break;
                 }
                 OptionEffect::Simple(effect) => {
-                    match actions_compatible(effect, actions, opt.updater.as_ref(), hardening_opts)
-                    {
+                    match actions_compatible(effect, actions, opt.updater, hardening_opts) {
                         ActionOptionEffectCompatibility::Compatible => {
                             resolved_opts.push(OptionWithValue {
                                 name: opt.name,
@@ -355,7 +354,7 @@ pub(crate) fn resolve(
                             lv,
                             effects,
                             actions,
-                            opt.updater.as_ref(),
+                            opt.updater,
                             hardening_opts,
                         ) {
                             ActionOptionEffectCompatibility::Compatible => {

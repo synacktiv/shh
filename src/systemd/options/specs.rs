@@ -11,7 +11,7 @@ use itertools::Itertools as _;
 use strum::IntoEnumIterator as _;
 
 use crate::{
-    cl::HardeningMode,
+    cl::{HardeningMode, HardeningOptions},
     summarize::{NetworkActivity, NetworkActivityKind, ProgramAction, SetSpecifier},
     systemd::{
         ListOptionValue, OptionDescription, SocketFamily, SocketProtocol,
@@ -26,7 +26,7 @@ use crate::{
 /// Systemd option specification
 pub(crate) trait OptionSpec: Sync {
     /// Builds the option description for this option
-    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription;
+    fn build(&'static self, ctx: &OptionContext<'_>) -> OptionDescription;
 
     /// Returns true if this option should be enabled for the given context
     fn enabled_if(&self, _ctx: &OptionContext<'_>) -> bool {
@@ -535,6 +535,7 @@ impl OptionSpec for SystemCallArchitectures {
 }
 
 // https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ReadWritePaths=
+#[derive(Debug)]
 struct ReadOnlyPaths;
 
 impl OptionSpec for ReadOnlyPaths {
@@ -542,7 +543,7 @@ impl OptionSpec for ReadOnlyPaths {
         ctx.can_use_namespaces() && ctx.hardening_opts.filesystem_whitelisting
     }
 
-    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
+    fn build(&'static self, _ctx: &OptionContext<'_>) -> OptionDescription {
         OptionDescription {
             name: "ReadOnlyPaths",
             possible_values: vec![OptionValueDescription {
@@ -560,35 +561,46 @@ impl OptionSpec for ReadOnlyPaths {
                     OptionValueEffect::DenyAction(ProgramAction::MountToHost),
                 ])),
             }],
-            updater: Some(OptionUpdater {
-                effect: |effect, action, _| {
-                    let action_path = match action {
-                        ProgramAction::Write(action_path) => action_path.to_owned(),
-                        ProgramAction::Create(action_path) => action_path.parent()?.to_owned(),
-                        _ => return None,
-                    };
-                    match effect {
-                        OptionValueEffect::DenyWrite(PathDescription::Base {
-                            base,
-                            exceptions,
-                        }) if action_path != Path::new("/") => {
-                            let mut new_exceptions = Vec::with_capacity(exceptions.len() + 1);
-                            new_exceptions.extend(exceptions.iter().cloned());
-                            new_exceptions.push(action_path);
-                            Some(OptionValueEffect::DenyWrite(PathDescription::Base {
-                                base: base.to_owned(),
-                                exceptions: new_exceptions,
-                            }))
-                        }
-                        _ => None,
-                    }
-                },
-                options: |effect| match effect {
-                    OptionValueEffect::DenyWrite(PathDescription::Base { base, exceptions }) => {
-                        vec![
-                            OptionWithValue {
-                                name: "ReadOnlyPaths",
-                                value: OptionValue::List(ListOptionValue {
+            updater: Some(self),
+        }
+    }
+}
+
+impl OptionUpdater for ReadOnlyPaths {
+    fn effect(
+        &self,
+        cur_effect: &OptionValueEffect,
+        action: &ProgramAction,
+        _opts: &HardeningOptions,
+    ) -> Option<OptionValueEffect> {
+        let action_path = match action {
+            ProgramAction::Write(action_path) => action_path.to_owned(),
+            ProgramAction::Create(action_path) => action_path.parent()?.to_owned(),
+            _ => return None,
+        };
+        match cur_effect {
+            OptionValueEffect::DenyWrite(PathDescription::Base { base, exceptions })
+                if action_path != Path::new("/") =>
+            {
+                let mut new_exceptions = Vec::with_capacity(exceptions.len() + 1);
+                new_exceptions.extend(exceptions.iter().cloned());
+                new_exceptions.push(action_path);
+                Some(OptionValueEffect::DenyWrite(PathDescription::Base {
+                    base: base.to_owned(),
+                    exceptions: new_exceptions,
+                }))
+            }
+            _ => None,
+        }
+    }
+
+    fn options(&self, new_effect: &OptionValueEffect) -> Vec<OptionWithValue<&'static str>> {
+        match new_effect {
+            OptionValueEffect::DenyWrite(PathDescription::Base { base, exceptions }) => {
+                vec![
+                    OptionWithValue {
+                        name: "ReadOnlyPaths",
+                        value: OptionValue::List(ListOptionValue {
                                     #[expect(clippy::unwrap_used)] // path is from our option, so unicode safe
                                     values: vec![base.to_str().unwrap().to_owned()],
                                     value_if_empty: None,
@@ -598,43 +610,41 @@ impl OptionSpec for ReadOnlyPaths {
                                     mode: ListMode::BlackList,
                                     mergeable_paths: true,
                                 }),
-                            },
-                            OptionWithValue {
-                                name: "ReadWritePaths",
-                                value: OptionValue::List(ListOptionValue {
-                                    values: merge_similar_paths(exceptions, None)
-                                        .iter()
-                                        .filter_map(|p| p.to_str().map(ToOwned::to_owned))
-                                        .collect(),
-                                    value_if_empty: None,
-                                    option_prefix: "",
-                                    elem_prefix: "-",
-                                    repeat_option: false,
-                                    mode: ListMode::WhiteList,
-                                    mergeable_paths: true,
-                                }),
-                            },
-                        ]
-                    }
-                    OptionValueEffect::DenyAction(ProgramAction::MountToHost) => {
-                        vec![OptionWithValue {
-                            name: "PrivateMounts",
-                            value: OptionValue::Boolean(true),
-                        }]
-                    }
-                    _ => unreachable!(),
-                },
-                dynamic_option_names: Vec::from([
-                    "PrivateMounts",
-                    "ReadOnlyPaths",
-                    "ReadWritePaths",
-                ]),
-            }),
+                    },
+                    OptionWithValue {
+                        name: "ReadWritePaths",
+                        value: OptionValue::List(ListOptionValue {
+                            values: merge_similar_paths(exceptions, None)
+                                .iter()
+                                .filter_map(|p| p.to_str().map(ToOwned::to_owned))
+                                .collect(),
+                            value_if_empty: None,
+                            option_prefix: "",
+                            elem_prefix: "-",
+                            repeat_option: false,
+                            mode: ListMode::WhiteList,
+                            mergeable_paths: true,
+                        }),
+                    },
+                ]
+            }
+            OptionValueEffect::DenyAction(ProgramAction::MountToHost) => {
+                vec![OptionWithValue {
+                    name: "PrivateMounts",
+                    value: OptionValue::Boolean(true),
+                }]
+            }
+            _ => unreachable!(),
         }
+    }
+
+    fn dynamic_option_names(&self) -> &[&str] {
+        &["PrivateMounts", "ReadOnlyPaths", "ReadWritePaths"]
     }
 }
 
 // https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ReadWritePaths=
+#[derive(Debug)]
 struct InaccessiblePaths;
 
 impl OptionSpec for InaccessiblePaths {
@@ -642,7 +652,7 @@ impl OptionSpec for InaccessiblePaths {
         ctx.can_use_namespaces() && ctx.hardening_opts.filesystem_whitelisting
     }
 
-    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
+    fn build(&'static self, _ctx: &OptionContext<'_>) -> OptionDescription {
         let mut possible_values = vec![OptionValueDescription {
             value: OptionValue::List(ListOptionValue {
                 values: vec!["/".to_owned()],
@@ -707,99 +717,107 @@ impl OptionSpec for InaccessiblePaths {
         OptionDescription {
             name: "InaccessiblePaths",
             possible_values,
-            updater: Some(OptionUpdater {
-                effect: |effect, action, _| {
-                    let (action_path, action_ro) = match action {
-                        ProgramAction::Read(action_path) | ProgramAction::Exec(action_path) => {
-                            (action_path.to_owned(), true)
-                        }
-                        ProgramAction::Write(action_path) => (action_path.to_owned(), false),
-                        ProgramAction::Create(action_path) => {
-                            (action_path.parent().map(Path::to_path_buf)?, false)
-                        }
-                        _ => return None,
-                    };
-                    match effect {
-                        OptionValueEffect::RemovePath(PathDescription::Base {
-                            base,
-                            exceptions,
-                        }) => {
-                            // This will be reached only when first transforming an initial InaccessiblePaths option (RemovePath) into
-                            // less restrictive EmptyPaths + exceptions
-                            assert!(exceptions.is_empty());
-                            let new_exception_path = action_path_exception(action_path);
-                            if base.starts_with(&new_exception_path) {
-                                return None;
-                            }
-                            let (exceptions_ro, exceptions_rw) = if action_ro {
-                                (vec![new_exception_path], vec![])
-                            } else {
-                                (vec![], vec![new_exception_path])
-                            };
-                            Some(OptionValueEffect::EmptyPath(EmptyPathDescription {
-                                base: base.to_owned(),
-                                base_ro: true,
-                                exceptions_ro,
-                                exceptions_rw,
-                            }))
-                        }
-                        OptionValueEffect::EmptyPath(EmptyPathDescription {
-                            base,
-                            base_ro,
-                            exceptions_ro,
-                            exceptions_rw,
-                        }) => {
-                            let mut new_exceptions_ro =
-                                Vec::with_capacity(exceptions_ro.len() + usize::from(action_ro));
-                            new_exceptions_ro.extend(exceptions_ro.iter().cloned());
-                            let mut new_exceptions_rw =
-                                Vec::with_capacity(exceptions_rw.len() + usize::from(!action_ro));
-                            new_exceptions_rw.extend(exceptions_rw.iter().cloned());
-                            let mut base_ro = *base_ro;
-                            let new_exception_path = action_path_exception(action_path);
-                            if matches!(action, ProgramAction::Create(_))
-                                && new_exception_path == *base
-                            {
-                                base_ro = false;
-                            } else {
-                                if base.starts_with(&new_exception_path) {
-                                    return None;
-                                }
-                                if action_ro {
-                                    new_exceptions_ro.push(new_exception_path);
-                                } else {
-                                    new_exceptions_rw.push(new_exception_path);
-                                }
-                            }
-                            // Remove exceptions in ro list if in rw
-                            new_exceptions_ro.retain(|ero| {
-                                !new_exceptions_rw.iter().any(|erw| ero.starts_with(erw))
-                            });
-                            Some(OptionValueEffect::EmptyPath(EmptyPathDescription {
-                                base: base.to_owned(),
-                                base_ro,
-                                exceptions_ro: new_exceptions_ro,
-                                exceptions_rw: new_exceptions_rw,
-                            }))
-                        }
-                        _ => None,
+            updater: Some(self),
+        }
+    }
+}
+
+impl OptionUpdater for InaccessiblePaths {
+    fn effect(
+        &self,
+        cur_effect: &OptionValueEffect,
+        action: &ProgramAction,
+        _opts: &HardeningOptions,
+    ) -> Option<OptionValueEffect> {
+        {
+            let (action_path, action_ro) = match action {
+                ProgramAction::Read(action_path) | ProgramAction::Exec(action_path) => {
+                    (action_path.to_owned(), true)
+                }
+                ProgramAction::Write(action_path) => (action_path.to_owned(), false),
+                ProgramAction::Create(action_path) => {
+                    (action_path.parent().map(Path::to_path_buf)?, false)
+                }
+                _ => return None,
+            };
+            match cur_effect {
+                OptionValueEffect::RemovePath(PathDescription::Base { base, exceptions }) => {
+                    // This will be reached only when first transforming an initial InaccessiblePaths option (RemovePath) into
+                    // less restrictive EmptyPaths + exceptions
+                    assert!(exceptions.is_empty());
+                    let new_exception_path = action_path_exception(action_path);
+                    if base.starts_with(&new_exception_path) {
+                        return None;
                     }
-                },
-                options: |effect| match effect {
-                    OptionValueEffect::EmptyPath(EmptyPathDescription {
-                        base,
-                        base_ro,
+                    let (exceptions_ro, exceptions_rw) = if action_ro {
+                        (vec![new_exception_path], vec![])
+                    } else {
+                        (vec![], vec![new_exception_path])
+                    };
+                    Some(OptionValueEffect::EmptyPath(EmptyPathDescription {
+                        base: base.to_owned(),
+                        base_ro: true,
                         exceptions_ro,
                         exceptions_rw,
-                    }) => {
-                        // TemporayFileSystem nullifies ReadOnlyPaths, so we must apply read only restrictions here too
-                        let mut new_opts = Vec::with_capacity(
-                            1 + usize::from(!exceptions_ro.is_empty())
-                                + usize::from(!exceptions_rw.is_empty()),
-                        );
-                        new_opts.push(OptionWithValue {
-                            name: "TemporaryFileSystem",
-                            value: OptionValue::List(ListOptionValue {
+                    }))
+                }
+                OptionValueEffect::EmptyPath(EmptyPathDescription {
+                    base,
+                    base_ro,
+                    exceptions_ro,
+                    exceptions_rw,
+                }) => {
+                    let mut new_exceptions_ro =
+                        Vec::with_capacity(exceptions_ro.len() + usize::from(action_ro));
+                    new_exceptions_ro.extend(exceptions_ro.iter().cloned());
+                    let mut new_exceptions_rw =
+                        Vec::with_capacity(exceptions_rw.len() + usize::from(!action_ro));
+                    new_exceptions_rw.extend(exceptions_rw.iter().cloned());
+                    let mut base_ro = *base_ro;
+                    let new_exception_path = action_path_exception(action_path);
+                    if matches!(action, ProgramAction::Create(_)) && new_exception_path == *base {
+                        base_ro = false;
+                    } else {
+                        if base.starts_with(&new_exception_path) {
+                            return None;
+                        }
+                        if action_ro {
+                            new_exceptions_ro.push(new_exception_path);
+                        } else {
+                            new_exceptions_rw.push(new_exception_path);
+                        }
+                    }
+                    // Remove exceptions in ro list if in rw
+                    new_exceptions_ro
+                        .retain(|ero| !new_exceptions_rw.iter().any(|erw| ero.starts_with(erw)));
+                    Some(OptionValueEffect::EmptyPath(EmptyPathDescription {
+                        base: base.to_owned(),
+                        base_ro,
+                        exceptions_ro: new_exceptions_ro,
+                        exceptions_rw: new_exceptions_rw,
+                    }))
+                }
+                _ => None,
+            }
+        }
+    }
+
+    fn options(&self, new_effect: &OptionValueEffect) -> Vec<OptionWithValue<&'static str>> {
+        match new_effect {
+            OptionValueEffect::EmptyPath(EmptyPathDescription {
+                base,
+                base_ro,
+                exceptions_ro,
+                exceptions_rw,
+            }) => {
+                // TemporayFileSystem nullifies ReadOnlyPaths, so we must apply read only restrictions here too
+                let mut new_opts = Vec::with_capacity(
+                    1 + usize::from(!exceptions_ro.is_empty())
+                        + usize::from(!exceptions_rw.is_empty()),
+                );
+                new_opts.push(OptionWithValue {
+                    name: "TemporaryFileSystem",
+                    value: OptionValue::List(ListOptionValue {
                                 #[expect(clippy::unwrap_used)]  // path is from our option, so unicode safe
                                 values: vec![if *base_ro {
                                     format!("{}:ro", base.to_str().unwrap())
@@ -813,95 +831,97 @@ impl OptionSpec for InaccessiblePaths {
                                 mode: ListMode::BlackList,
                                 mergeable_paths: true,
                             }),
-                        });
-                        let merged_exceptions_ro: Vec<_> = {
-                            let merged_paths = merge_similar_paths(exceptions_ro, None);
-                            if merged_paths.iter().any(|p| *base_ro && (p == base)) {
-                                // The exception nullifies the option, bail out
-                                return vec![];
-                            }
-                            merged_paths
-                                .into_iter()
-                                .filter_map(|p| p.to_str().map(ToOwned::to_owned))
-                                .collect()
-                        };
-                        if !merged_exceptions_ro.is_empty() {
-                            new_opts.push(OptionWithValue {
-                                name: "BindReadOnlyPaths",
-                                value: OptionValue::List(ListOptionValue {
-                                    values: merged_exceptions_ro,
-                                    value_if_empty: None,
-                                    option_prefix: "",
-                                    elem_prefix: "-",
-                                    repeat_option: false,
-                                    mode: ListMode::WhiteList,
-                                    mergeable_paths: true,
-                                }),
-                            });
-                        }
-                        let merged_exceptions_rw: Vec<_> = {
-                            let merged_paths = merge_similar_paths(exceptions_rw, None);
-                            if merged_paths.iter().any(|p| p == base) {
-                                // The exception nullifies the option, bail out
-                                return vec![];
-                            }
-                            merged_paths
-                                .into_iter()
-                                .filter_map(|p| p.to_str().map(ToOwned::to_owned))
-                                .collect()
-                        };
-                        if !merged_exceptions_rw.is_empty() {
-                            new_opts.push(OptionWithValue {
-                                name: "BindPaths",
-                                value: OptionValue::List(ListOptionValue {
-                                    values: merged_exceptions_rw,
-                                    value_if_empty: None,
-                                    option_prefix: "",
-                                    elem_prefix: "-",
-                                    repeat_option: false,
-                                    mode: ListMode::WhiteList,
-                                    mergeable_paths: true,
-                                }),
-                            });
-                        }
-                        new_opts
+                });
+                let merged_exceptions_ro: Vec<_> = {
+                    let merged_paths = merge_similar_paths(exceptions_ro, None);
+                    if merged_paths.iter().any(|p| *base_ro && (p == base)) {
+                        // The exception nullifies the option, bail out
+                        return vec![];
                     }
-                    OptionValueEffect::DenyAction(ProgramAction::MountToHost) => {
-                        vec![OptionWithValue {
-                            name: "PrivateMounts",
-                            value: OptionValue::Boolean(true),
-                        }]
+                    merged_paths
+                        .into_iter()
+                        .filter_map(|p| p.to_str().map(ToOwned::to_owned))
+                        .collect()
+                };
+                if !merged_exceptions_ro.is_empty() {
+                    new_opts.push(OptionWithValue {
+                        name: "BindReadOnlyPaths",
+                        value: OptionValue::List(ListOptionValue {
+                            values: merged_exceptions_ro,
+                            value_if_empty: None,
+                            option_prefix: "",
+                            elem_prefix: "-",
+                            repeat_option: false,
+                            mode: ListMode::WhiteList,
+                            mergeable_paths: true,
+                        }),
+                    });
+                }
+                let merged_exceptions_rw: Vec<_> = {
+                    let merged_paths = merge_similar_paths(exceptions_rw, None);
+                    if merged_paths.iter().any(|p| p == base) {
+                        // The exception nullifies the option, bail out
+                        return vec![];
                     }
-                    #[expect(clippy::unwrap_used)]
-                    OptionValueEffect::RemovePath(PathDescription::Base { base, exceptions }) => {
-                        assert!(exceptions.is_empty());
-                        vec![OptionWithValue {
-                            name: "InaccessiblePaths",
-                            value: OptionValue::List(ListOptionValue {
-                                values: vec![base.to_str().unwrap().to_owned()],
-                                value_if_empty: None,
-                                option_prefix: "",
-                                elem_prefix: "-",
-                                repeat_option: false,
-                                mode: ListMode::BlackList,
-                                mergeable_paths: true,
-                            }),
-                        }]
-                    }
-                    _ => unreachable!(),
-                },
-                dynamic_option_names: Vec::from([
-                    "PrivateMounts",
-                    "TemporaryFileSystem",
-                    "BindReadOnlyPaths",
-                    "BindPaths",
-                ]),
-            }),
+                    merged_paths
+                        .into_iter()
+                        .filter_map(|p| p.to_str().map(ToOwned::to_owned))
+                        .collect()
+                };
+                if !merged_exceptions_rw.is_empty() {
+                    new_opts.push(OptionWithValue {
+                        name: "BindPaths",
+                        value: OptionValue::List(ListOptionValue {
+                            values: merged_exceptions_rw,
+                            value_if_empty: None,
+                            option_prefix: "",
+                            elem_prefix: "-",
+                            repeat_option: false,
+                            mode: ListMode::WhiteList,
+                            mergeable_paths: true,
+                        }),
+                    });
+                }
+                new_opts
+            }
+            OptionValueEffect::DenyAction(ProgramAction::MountToHost) => {
+                vec![OptionWithValue {
+                    name: "PrivateMounts",
+                    value: OptionValue::Boolean(true),
+                }]
+            }
+            #[expect(clippy::unwrap_used)]
+            OptionValueEffect::RemovePath(PathDescription::Base { base, exceptions }) => {
+                assert!(exceptions.is_empty());
+                vec![OptionWithValue {
+                    name: "InaccessiblePaths",
+                    value: OptionValue::List(ListOptionValue {
+                        values: vec![base.to_str().unwrap().to_owned()],
+                        value_if_empty: None,
+                        option_prefix: "",
+                        elem_prefix: "-",
+                        repeat_option: false,
+                        mode: ListMode::BlackList,
+                        mergeable_paths: true,
+                    }),
+                }]
+            }
+            _ => unreachable!(),
         }
+    }
+
+    fn dynamic_option_names(&self) -> &[&str] {
+        &[
+            "PrivateMounts",
+            "TemporaryFileSystem",
+            "BindReadOnlyPaths",
+            "BindPaths",
+        ]
     }
 }
 
 // https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ReadWritePaths=
+#[derive(Debug)]
 struct NoExecPaths;
 
 impl OptionSpec for NoExecPaths {
@@ -909,7 +929,7 @@ impl OptionSpec for NoExecPaths {
         ctx.can_use_namespaces() && ctx.hardening_opts.filesystem_whitelisting
     }
 
-    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
+    fn build(&'static self, _ctx: &OptionContext<'_>) -> OptionDescription {
         OptionDescription {
             name: "NoExecPaths",
             possible_values: vec![OptionValueDescription {
@@ -927,32 +947,44 @@ impl OptionSpec for NoExecPaths {
                     OptionValueEffect::DenyAction(ProgramAction::MountToHost),
                 ])),
             }],
-            updater: Some(OptionUpdater {
-                effect: |effect, action, _| {
-                    let ProgramAction::Exec(action_path) = action else {
-                        return None;
-                    };
-                    match effect {
-                        OptionValueEffect::DenyExec(PathDescription::Base { base, exceptions })
-                            if action_path != Path::new("/") =>
-                        {
-                            let mut new_exceptions = Vec::with_capacity(exceptions.len() + 1);
-                            new_exceptions.extend(exceptions.iter().cloned());
-                            new_exceptions.push(action_path.to_owned());
-                            Some(OptionValueEffect::DenyExec(PathDescription::Base {
-                                base: base.to_owned(),
-                                exceptions: new_exceptions,
-                            }))
-                        }
-                        _ => None,
-                    }
-                },
-                options: |effect| match effect {
-                    OptionValueEffect::DenyExec(PathDescription::Base { base, exceptions }) => {
-                        vec![
-                            OptionWithValue {
-                                name: "NoExecPaths",
-                                value: OptionValue::List(ListOptionValue {
+            updater: Some(self),
+        }
+    }
+}
+
+impl OptionUpdater for NoExecPaths {
+    fn effect(
+        &self,
+        cur_effect: &OptionValueEffect,
+        action: &ProgramAction,
+        _opts: &HardeningOptions,
+    ) -> Option<OptionValueEffect> {
+        let ProgramAction::Exec(action_path) = action else {
+            return None;
+        };
+        match cur_effect {
+            OptionValueEffect::DenyExec(PathDescription::Base { base, exceptions })
+                if action_path != Path::new("/") =>
+            {
+                let mut new_exceptions = Vec::with_capacity(exceptions.len() + 1);
+                new_exceptions.extend(exceptions.iter().cloned());
+                new_exceptions.push(action_path.to_owned());
+                Some(OptionValueEffect::DenyExec(PathDescription::Base {
+                    base: base.to_owned(),
+                    exceptions: new_exceptions,
+                }))
+            }
+            _ => None,
+        }
+    }
+
+    fn options(&self, new_effect: &OptionValueEffect) -> Vec<OptionWithValue<&'static str>> {
+        match new_effect {
+            OptionValueEffect::DenyExec(PathDescription::Base { base, exceptions }) => {
+                vec![
+                    OptionWithValue {
+                        name: "NoExecPaths",
+                        value: OptionValue::List(ListOptionValue {
                                     #[expect(clippy::unwrap_used)] // path is from our option, so unicode safe
                                     values: vec![base.to_str().unwrap().to_owned()],
                                     value_if_empty: None,
@@ -962,35 +994,36 @@ impl OptionSpec for NoExecPaths {
                                     mode: ListMode::BlackList,
                                     mergeable_paths: true,
                                 }),
-                            },
-                            OptionWithValue {
-                                name: "ExecPaths",
-                                value: OptionValue::List(ListOptionValue {
-                                    values: merge_similar_paths(exceptions, None)
-                                        .iter()
-                                        .filter_map(|p| p.to_str().map(ToOwned::to_owned))
-                                        .collect(),
-                                    value_if_empty: None,
-                                    option_prefix: "",
-                                    elem_prefix: "-",
-                                    repeat_option: false,
-                                    mode: ListMode::WhiteList,
-                                    mergeable_paths: true,
-                                }),
-                            },
-                        ]
-                    }
-                    OptionValueEffect::DenyAction(ProgramAction::MountToHost) => {
-                        vec![OptionWithValue {
-                            name: "PrivateMounts",
-                            value: OptionValue::Boolean(true),
-                        }]
-                    }
-                    _ => unreachable!(),
-                },
-                dynamic_option_names: Vec::from(["NoExecPaths", "PrivateMounts", "ExecPaths"]),
-            }),
+                    },
+                    OptionWithValue {
+                        name: "ExecPaths",
+                        value: OptionValue::List(ListOptionValue {
+                            values: merge_similar_paths(exceptions, None)
+                                .iter()
+                                .filter_map(|p| p.to_str().map(ToOwned::to_owned))
+                                .collect(),
+                            value_if_empty: None,
+                            option_prefix: "",
+                            elem_prefix: "-",
+                            repeat_option: false,
+                            mode: ListMode::WhiteList,
+                            mergeable_paths: true,
+                        }),
+                    },
+                ]
+            }
+            OptionValueEffect::DenyAction(ProgramAction::MountToHost) => {
+                vec![OptionWithValue {
+                    name: "PrivateMounts",
+                    value: OptionValue::Boolean(true),
+                }]
+            }
+            _ => unreachable!(),
         }
+    }
+
+    fn dynamic_option_names(&self) -> &[&str] {
+        &["NoExecPaths", "PrivateMounts", "ExecPaths"]
     }
 }
 
@@ -1070,10 +1103,11 @@ impl OptionSpec for PrivateNetwork {
 }
 
 // https://www.freedesktop.org/software/systemd/man/systemd.resource-control.html#SocketBindAllow=bind-rule
+#[derive(Debug)]
 struct SocketBindDeny;
 
 impl OptionSpec for SocketBindDeny {
-    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+    fn build(&'static self, ctx: &OptionContext<'_>) -> OptionDescription {
         let deny_binds: Vec<_> = SocketFamily::iter()
             .take(2)
             .cartesian_product(SocketProtocol::iter().take(2))
@@ -1111,85 +1145,88 @@ impl OptionSpec for SocketBindDeny {
                         .collect(),
                 ),
             }],
-            updater: ctx
-                .hardening_opts
-                .network_firewalling
-                .then_some(OptionUpdater {
-                    effect: |e, a, _| {
-                        let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(
-                            effect_na,
-                        )) = e
-                        else {
-                            return None;
-                        };
-                        let local_port = if let ProgramAction::NetworkActivity(na) = a {
-                            if let SetSpecifier::One(local_port) = &na.as_ref().local_port {
-                                local_port
-                            } else {
-                                return None;
-                            }
-                        } else {
-                            return None;
-                        };
-                        let mut new_eff_local_port = effect_na.local_port.clone();
-                        new_eff_local_port.remove(local_port);
-                        Some(OptionValueEffect::DenyAction(
-                            ProgramAction::NetworkActivity(
-                                NetworkActivity {
-                                    af: effect_na.af.clone(),
-                                    proto: effect_na.proto.clone(),
-                                    kind: effect_na.kind.clone(),
-                                    local_port: new_eff_local_port,
-                                    address: effect_na.address.clone(),
-                                }
-                                .into(),
-                            ),
-                        ))
-                    },
-                    options: |e| {
-                        let (af, proto, local_port) = if let OptionValueEffect::DenyAction(
-                            ProgramAction::NetworkActivity(na),
-                        ) = e
-                        {
-                            if let NetworkActivity {
-                                af: SetSpecifier::One(af),
-                                proto: SetSpecifier::One(proto),
-                                local_port,
-                                ..
-                            } = na.as_ref()
-                            {
-                                (af, proto, local_port)
-                            } else {
-                                unreachable!()
-                            }
-                        } else {
-                            unreachable!();
-                        };
-                        let port_exceptions = local_port.excluded_elements();
-                        let mut opts = Vec::with_capacity(1 + port_exceptions.len());
-                        opts.push(OptionWithValue {
-                            name: "SocketBindDeny",
-                            value: OptionValue::String(format!("{af}:{proto}")),
-                        });
-                        opts.extend(
-                            port_exceptions
-                                .iter()
-                                .map(|port_exception| OptionWithValue {
-                                    name: "SocketBindAllow",
-                                    value: OptionValue::String(format!(
-                                        "{af}:{proto}:{port_exception}"
-                                    )),
-                                }),
-                        );
-                        opts
-                    },
-                    dynamic_option_names: Vec::from(["SocketBindDeny"]),
-                }),
+            updater: ctx.hardening_opts.network_firewalling.then_some(self),
         }
     }
 }
 
+impl OptionUpdater for SocketBindDeny {
+    fn effect(
+        &self,
+        cur_effect: &OptionValueEffect,
+        action: &ProgramAction,
+        _opts: &HardeningOptions,
+    ) -> Option<OptionValueEffect> {
+        let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(effect_na)) = cur_effect
+        else {
+            return None;
+        };
+        let local_port = if let ProgramAction::NetworkActivity(na) = action {
+            if let SetSpecifier::One(local_port) = &na.as_ref().local_port {
+                local_port
+            } else {
+                return None;
+            }
+        } else {
+            return None;
+        };
+        let mut new_eff_local_port = effect_na.local_port.clone();
+        new_eff_local_port.remove(local_port);
+        Some(OptionValueEffect::DenyAction(
+            ProgramAction::NetworkActivity(
+                NetworkActivity {
+                    af: effect_na.af.clone(),
+                    proto: effect_na.proto.clone(),
+                    kind: effect_na.kind.clone(),
+                    local_port: new_eff_local_port,
+                    address: effect_na.address.clone(),
+                }
+                .into(),
+            ),
+        ))
+    }
+
+    fn options(&self, new_effect: &OptionValueEffect) -> Vec<OptionWithValue<&'static str>> {
+        let (af, proto, local_port) =
+            if let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(na)) = new_effect {
+                if let NetworkActivity {
+                    af: SetSpecifier::One(af),
+                    proto: SetSpecifier::One(proto),
+                    local_port,
+                    ..
+                } = na.as_ref()
+                {
+                    (af, proto, local_port)
+                } else {
+                    unreachable!()
+                }
+            } else {
+                unreachable!();
+            };
+        let port_exceptions = local_port.excluded_elements();
+        let mut opts = Vec::with_capacity(1 + port_exceptions.len());
+        opts.push(OptionWithValue {
+            name: "SocketBindDeny",
+            value: OptionValue::String(format!("{af}:{proto}")),
+        });
+        opts.extend(
+            port_exceptions
+                .iter()
+                .map(|port_exception| OptionWithValue {
+                    name: "SocketBindAllow",
+                    value: OptionValue::String(format!("{af}:{proto}:{port_exception}")),
+                }),
+        );
+        opts
+    }
+
+    fn dynamic_option_names(&self) -> &[&str] {
+        &["SocketBindDeny"]
+    }
+}
+
 // https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html#IPAddressAllow=ADDRESS%5B/PREFIXLENGTH%5D%E2%80%A6
+#[derive(Debug)]
 struct IpAddressDeny;
 
 impl OptionSpec for IpAddressDeny {
@@ -1197,7 +1234,7 @@ impl OptionSpec for IpAddressDeny {
         ctx.hardening_opts.network_firewalling
     }
 
-    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
+    fn build(&'static self, _ctx: &OptionContext<'_>) -> OptionDescription {
         OptionDescription {
             name: "IPAddressDeny",
             possible_values: vec![OptionValueDescription {
@@ -1215,69 +1252,81 @@ impl OptionSpec for IpAddressDeny {
                     ),
                 )),
             }],
-            updater: Some(OptionUpdater {
-                effect: |effect, action, _| {
-                    let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(effect_na)) =
-                        effect
-                    else {
-                        return None;
-                    };
-                    let action_addr = if let ProgramAction::NetworkActivity(na) = action {
-                        if let NetworkActivity {
-                            address: SetSpecifier::One(action_addr),
-                            ..
-                        } = na.as_ref()
-                        {
-                            action_addr
-                        } else {
-                            return None;
-                        }
-                    } else {
-                        return None;
-                    };
-                    let mut new_effect_address = effect_na.address.clone();
-                    new_effect_address.remove(action_addr);
-                    Some(OptionValueEffect::DenyAction(
-                        ProgramAction::NetworkActivity(
-                            NetworkActivity {
-                                address: new_effect_address,
-                                ..*effect_na.to_owned()
-                            }
-                            .into(),
-                        ),
-                    ))
-                },
-                options: |effect| match effect {
-                    OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(na)) => {
-                        let NetworkActivity { address, .. } = na.as_ref();
-                        vec![
-                            OptionWithValue {
-                                name: "IPAddressDeny",
-                                value: OptionValue::String("any".into()),
-                            },
-                            OptionWithValue {
-                                name: "IPAddressAllow",
-                                value: OptionValue::List(ListOptionValue {
-                                    values: address
-                                        .excluded_elements()
-                                        .into_iter()
-                                        .map(|e| e.to_string())
-                                        .collect(),
-                                    value_if_empty: None,
-                                    option_prefix: "",
-                                    elem_prefix: "",
-                                    repeat_option: false,
-                                    mode: ListMode::WhiteList,
-                                    mergeable_paths: false,
-                                }),
-                            },
-                        ]
-                    }
-                    _ => unreachable!(),
-                },
-                dynamic_option_names: vec!["IPAddressDeny", "IPAddressAllow"],
-            }),
+            updater: Some(self),
         }
+    }
+}
+
+impl OptionUpdater for IpAddressDeny {
+    fn effect(
+        &self,
+        cur_effect: &OptionValueEffect,
+        action: &ProgramAction,
+        _opts: &HardeningOptions,
+    ) -> Option<OptionValueEffect> {
+        let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(effect_na)) = cur_effect
+        else {
+            return None;
+        };
+        let action_addr = if let ProgramAction::NetworkActivity(na) = action {
+            if let NetworkActivity {
+                address: SetSpecifier::One(action_addr),
+                ..
+            } = na.as_ref()
+            {
+                action_addr
+            } else {
+                return None;
+            }
+        } else {
+            return None;
+        };
+        let mut new_effect_address = effect_na.address.clone();
+        new_effect_address.remove(action_addr);
+        Some(OptionValueEffect::DenyAction(
+            ProgramAction::NetworkActivity(
+                NetworkActivity {
+                    address: new_effect_address,
+                    ..*effect_na.to_owned()
+                }
+                .into(),
+            ),
+        ))
+    }
+
+    fn options(&self, new_effect: &OptionValueEffect) -> Vec<OptionWithValue<&'static str>> {
+        match new_effect {
+            OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(na)) => {
+                let NetworkActivity { address, .. } = na.as_ref();
+                vec![
+                    OptionWithValue {
+                        name: "IPAddressDeny",
+                        value: OptionValue::String("any".into()),
+                    },
+                    OptionWithValue {
+                        name: "IPAddressAllow",
+                        value: OptionValue::List(ListOptionValue {
+                            values: address
+                                .excluded_elements()
+                                .into_iter()
+                                .map(|e| e.to_string())
+                                .collect(),
+                            value_if_empty: None,
+                            option_prefix: "",
+                            elem_prefix: "",
+                            repeat_option: false,
+                            mode: ListMode::WhiteList,
+                            mergeable_paths: false,
+                        }),
+                    },
+                ]
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    fn dynamic_option_names(&self) -> &[&str] {
+        &["IPAddressDeny", "IPAddressAllow"]
     }
 }
 
