@@ -645,7 +645,46 @@ trait OptionSpec: Sync {
 struct ProtectSystemSpec;
 impl OptionSpec for ProtectSystemSpec {
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        build_protect_system(ctx)
+        let _ = ctx;
+        let mut protect_system_yes_nowrite: Vec<_> = [
+            "/usr/", "/boot/", "/efi/", "/lib/", "/lib64/", "/bin/", "/sbin/",
+        ]
+        .iter()
+        .map(|p| OptionValueEffect::DenyWrite(PathDescription::base(p)))
+        .collect();
+        let mut protect_system_full_nowrite = protect_system_yes_nowrite.clone();
+        protect_system_full_nowrite
+            .push(OptionValueEffect::DenyWrite(PathDescription::base("/etc/")));
+        protect_system_yes_nowrite.push(OptionValueEffect::DenyAction(ProgramAction::MountToHost));
+        protect_system_full_nowrite.push(OptionValueEffect::DenyAction(ProgramAction::MountToHost));
+        OptionDescription {
+            name: "ProtectSystem",
+            possible_values: vec![
+                OptionValueDescription {
+                    value: OptionValue::Boolean(true),
+                    desc: OptionEffect::Simple(OptionValueEffect::Multiple(
+                        protect_system_yes_nowrite,
+                    )),
+                },
+                OptionValueDescription {
+                    value: OptionValue::String("full".to_owned()),
+                    desc: OptionEffect::Simple(OptionValueEffect::Multiple(
+                        protect_system_full_nowrite,
+                    )),
+                },
+                OptionValueDescription {
+                    value: OptionValue::String("strict".to_owned()),
+                    desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                        OptionValueEffect::DenyWrite(PathDescription::Base {
+                            base: "/".into(),
+                            exceptions: vec!["/dev/".into(), "/proc/".into(), "/sys/".into()],
+                        }),
+                        OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                    ])),
+                },
+            ],
+            updater: None,
+        }
     }
 }
 
@@ -655,7 +694,50 @@ impl OptionSpec for ProtectHomeSpec {
         ctx.can_use_namespaces()
     }
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        build_protect_home(ctx)
+        let _ = ctx;
+        let home_paths = ["/home/", "/root/", "/run/user/"];
+        OptionDescription {
+            name: "ProtectHome",
+            possible_values: vec![
+                OptionValueDescription {
+                    value: OptionValue::String("tmpfs".to_owned()),
+                    desc: OptionEffect::Simple(OptionValueEffect::Multiple(
+                        home_paths
+                            .iter()
+                            .map(|p| OptionValueEffect::EmptyPath(EmptyPathDescription::base(p)))
+                            .chain(iter::once(OptionValueEffect::DenyAction(
+                                ProgramAction::MountToHost,
+                            )))
+                            .collect(),
+                    )),
+                },
+                OptionValueDescription {
+                    value: OptionValue::String("read-only".to_owned()),
+                    desc: OptionEffect::Simple(OptionValueEffect::Multiple(
+                        home_paths
+                            .iter()
+                            .map(|p| OptionValueEffect::EmptyPath(EmptyPathDescription::base_ro(p)))
+                            .chain(iter::once(OptionValueEffect::DenyAction(
+                                ProgramAction::MountToHost,
+                            )))
+                            .collect(),
+                    )),
+                },
+                OptionValueDescription {
+                    value: OptionValue::Boolean(true),
+                    desc: OptionEffect::Simple(OptionValueEffect::Multiple(
+                        home_paths
+                            .iter()
+                            .map(|p| OptionValueEffect::RemovePath(PathDescription::base(p)))
+                            .chain(iter::once(OptionValueEffect::DenyAction(
+                                ProgramAction::MountToHost,
+                            )))
+                            .collect(),
+                    )),
+                },
+            ],
+            updater: None,
+        }
     }
 }
 
@@ -665,7 +747,22 @@ impl OptionSpec for PrivateTmpSpec {
         ctx.can_use_namespaces()
     }
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        build_private_tmp(ctx)
+        OptionDescription {
+            name: "PrivateTmp",
+            possible_values: vec![OptionValueDescription {
+                value: if ctx.systemd_min_version(257, 0) {
+                    OptionValue::String("disconnected".into())
+                } else {
+                    OptionValue::Boolean(true)
+                },
+                desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                    OptionValueEffect::EmptyPath(EmptyPathDescription::base("/tmp")),
+                    OptionValueEffect::EmptyPath(EmptyPathDescription::base("/var/tmp")),
+                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                ])),
+            }],
+            updater: None,
+        }
     }
 }
 
@@ -675,7 +772,43 @@ impl OptionSpec for PrivateDevicesSpec {
         ctx.can_use_namespaces()
     }
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        build_private_devices(ctx)
+        let _ = ctx;
+        OptionDescription {
+            name: "PrivateDevices",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::Boolean(true),
+                desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                    OptionValueEffect::EmptyPath(EmptyPathDescription {
+                        base: "/dev/".into(),
+                        base_ro: true,
+                        exceptions_ro: vec![],
+                        // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L912
+                        exceptions_rw: [
+                            "null",
+                            "zero",
+                            "full",
+                            "random",
+                            "urandom",
+                            "tty",
+                            "pts/",
+                            "ptmx",
+                            "shm/",
+                            "mqueue/",
+                            "hugepages/",
+                            "log",
+                        ]
+                        .iter()
+                        .map(|p| PathBuf::from("/dev/").join(p))
+                        .collect(),
+                    }),
+                    OptionValueEffect::DenySyscalls(DenySyscalls::Class("raw-io")),
+                    OptionValueEffect::DenyAction(ProgramAction::MknodSpecial),
+                    OptionValueEffect::DenyExec(PathDescription::base("/dev")),
+                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                ])),
+            }],
+            updater: None,
+        }
     }
 }
 
@@ -685,7 +818,17 @@ impl OptionSpec for PrivateMountsSpec {
         ctx.can_use_namespaces()
     }
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        build_private_mounts(ctx)
+        let _ = ctx;
+        OptionDescription {
+            name: "PrivateMounts",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::Boolean(true),
+                desc: OptionEffect::Simple(OptionValueEffect::DenyAction(
+                    ProgramAction::MountToHost,
+                )),
+            }],
+            updater: None,
+        }
     }
 }
 
@@ -695,7 +838,52 @@ impl OptionSpec for ProtectKernelTunablesSpec {
         ctx.can_use_namespaces()
     }
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        build_protect_kernel_tunables(ctx)
+        let _ = ctx;
+        OptionDescription {
+            name: "ProtectKernelTunables",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::Boolean(true),
+                desc: OptionEffect::Simple(OptionValueEffect::Multiple(
+                    // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L113
+                    [
+                        "acpi/",
+                        "apm",
+                        "asound/",
+                        "bus/",
+                        "fs/",
+                        "irq/",
+                        "latency_stats",
+                        "mttr",
+                        "scsi/",
+                        "sys/",
+                        "sysrq-trigger",
+                        "timer_stats",
+                    ]
+                    .iter()
+                    .map(|p| {
+                        OptionValueEffect::DenyWrite(PathDescription::Base {
+                            base: PathBuf::from("/proc/").join(p),
+                            exceptions: vec![],
+                        })
+                    })
+                    .chain(["kallsyms", "kcore"].iter().map(|p| {
+                        OptionValueEffect::RemovePath(PathDescription::Base {
+                            base: PathBuf::from("/proc/").join(p),
+                            exceptions: vec![],
+                        })
+                    }))
+                    .chain(
+                        // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L130
+                        iter::once(OptionValueEffect::DenyWrite(PathDescription::base("/sys"))),
+                    )
+                    .chain(iter::once(OptionValueEffect::DenyAction(
+                        ProgramAction::MountToHost,
+                    )))
+                    .collect(),
+                )),
+            }],
+            updater: None,
+        }
     }
 }
 
@@ -705,7 +893,21 @@ impl OptionSpec for ProtectKernelModulesSpec {
         ctx.can_use_namespaces()
     }
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        build_protect_kernel_modules(ctx)
+        let _ = ctx;
+        OptionDescription {
+            name: "ProtectKernelModules",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::Boolean(true),
+                desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                    // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L140
+                    OptionValueEffect::RemovePath(PathDescription::base("/lib/modules/")),
+                    OptionValueEffect::RemovePath(PathDescription::base("/usr/lib/modules/")),
+                    OptionValueEffect::DenySyscalls(DenySyscalls::Class("module")),
+                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                ])),
+            }],
+            updater: None,
+        }
     }
 }
 
@@ -715,7 +917,22 @@ impl OptionSpec for ProtectKernelLogsSpec {
         ctx.can_use_namespaces()
     }
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        build_protect_kernel_logs(ctx)
+        let _ = ctx;
+        OptionDescription {
+            name: "ProtectKernelLogs",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::Boolean(true),
+                desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                    // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L148
+                    OptionValueEffect::RemovePath(PathDescription::base("/proc/kmsg")),
+                    OptionValueEffect::RemovePath(PathDescription::base("/dev/kmsg")),
+                    OptionValueEffect::DenySyscalls(DenySyscalls::Single("syslog")),
+                    // TODO figure out about this one, systemd doc says it doesn't but tests seem to say otherwise?
+                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                ])),
+            }],
+            updater: None,
+        }
     }
 }
 
@@ -725,7 +942,19 @@ impl OptionSpec for ProtectControlGroupsSpec {
         ctx.is_system_instance()
     }
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        build_protect_control_groups(ctx)
+        let _ = ctx;
+        // TODO private/strip
+        OptionDescription {
+            name: "ProtectControlGroups",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::Boolean(true),
+                desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                    OptionValueEffect::DenyWrite(PathDescription::base("/sys/fs/cgroup/")),
+                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                ])),
+            }],
+            updater: None,
+        }
     }
 }
 
@@ -737,7 +966,20 @@ impl OptionSpec for ProtectProcSpec {
             && ctx.kernel_min_version(5, 8, 0)
     }
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        build_protect_proc(ctx)
+        let _ = ctx;
+        OptionDescription {
+            name: "ProtectProc",
+            // Since we have no easy & reliable (race free) way to know which process belongs to
+            // which user, only support the most restrictive option
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::String("ptraceable".to_owned()),
+                desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                    OptionValueEffect::RemovePath(PathDescription::pattern("^/proc/[0-9]+(/|$)")),
+                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                ])),
+            }],
+            updater: None,
+        }
     }
 }
 
@@ -749,21 +991,57 @@ impl OptionSpec for ProcSubsetSpec {
             && ctx.kernel_min_version(5, 8, 0)
     }
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        build_proc_subset(ctx)
+        let _ = ctx;
+        OptionDescription {
+            name: "ProcSubset",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::String("pid".to_owned()),
+                desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                    OptionValueEffect::RemovePath(PathDescription::pattern(
+                        "^/proc/[^/]*[^0-9/]+[^/]*",
+                    )),
+                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                ])),
+            }],
+            updater: None,
+        }
     }
 }
 
 struct LockPersonalitySpec;
 impl OptionSpec for LockPersonalitySpec {
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        build_lock_personality(ctx)
+        let _ = ctx;
+        OptionDescription {
+            name: "LockPersonality",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::Boolean(true),
+                // In practice, the option allows the call if the default personality is set, but we don't
+                // need to model that level of precision.
+                // The "deny" model prevents false positives
+                desc: OptionEffect::Simple(OptionValueEffect::DenySyscalls(DenySyscalls::Single(
+                    "personality",
+                ))),
+            }],
+            updater: None,
+        }
     }
 }
 
 struct RestrictRealtimeSpec;
 impl OptionSpec for RestrictRealtimeSpec {
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        build_restrict_realtime(ctx)
+        let _ = ctx;
+        OptionDescription {
+            name: "RestrictRealtime",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::Boolean(true),
+                desc: OptionEffect::Simple(OptionValueEffect::DenyAction(
+                    ProgramAction::SetRealtimeScheduler,
+                )),
+            }],
+            updater: None,
+        }
     }
 }
 
@@ -773,14 +1051,39 @@ impl OptionSpec for ProtectClockSpec {
         ctx.can_use_namespaces()
     }
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        build_protect_clock(ctx)
+        let _ = ctx;
+        OptionDescription {
+            name: "ProtectClock",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::Boolean(true),
+                desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                    OptionValueEffect::DenyWrite(PathDescription::pattern("/dev/rtc.*")),
+                    // See handling of CAP_SYS_TIME
+                    OptionValueEffect::DenySyscalls(DenySyscalls::Single("stime")),
+                    OptionValueEffect::DenySyscalls(DenySyscalls::Class("clock")),
+                    // See handling of CAP_WAKE_ALARM
+                    OptionValueEffect::DenyAction(ProgramAction::SetAlarm),
+                ])),
+            }],
+            updater: None,
+        }
     }
 }
 
 struct MemoryDenyWriteExecuteSpec;
 impl OptionSpec for MemoryDenyWriteExecuteSpec {
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        build_memory_deny_write_execute(ctx)
+        let _ = ctx;
+        OptionDescription {
+            name: "MemoryDenyWriteExecute",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::Boolean(true),
+                desc: OptionEffect::Simple(OptionValueEffect::DenyAction(
+                    ProgramAction::WriteExecuteMemoryMapping,
+                )),
+            }],
+            updater: None,
+        }
     }
 }
 
@@ -790,7 +1093,15 @@ impl OptionSpec for SystemCallArchitecturesSpec {
         matches!(ctx.hardening_opts.mode, HardeningMode::Aggressive)
     }
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        build_system_call_architectures(ctx)
+        let _ = ctx;
+        OptionDescription {
+            name: "SystemCallArchitectures",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::String("native".to_owned()),
+                desc: OptionEffect::None,
+            }],
+            updater: None,
+        }
     }
 }
 
@@ -800,7 +1111,90 @@ impl OptionSpec for ReadOnlyPathsSpec {
         ctx.can_use_namespaces() && ctx.hardening_opts.filesystem_whitelisting
     }
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        build_read_only_paths(ctx)
+        let _ = ctx;
+        OptionDescription {
+            name: "ReadOnlyPaths",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::List(ListOptionValue {
+                    values: vec!["/".to_owned()],
+                    value_if_empty: None,
+                    option_prefix: "",
+                    elem_prefix: "-",
+                    repeat_option: false,
+                    mode: ListMode::BlackList,
+                    mergeable_paths: true,
+                }),
+                desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                    OptionValueEffect::DenyWrite(PathDescription::base("/")),
+                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                ])),
+            }],
+            updater: Some(OptionUpdater {
+                effect: |effect, action, _| {
+                    let action_path = match action {
+                        ProgramAction::Write(action_path) => action_path.to_owned(),
+                        ProgramAction::Create(action_path) => action_path.parent()?.to_owned(),
+                        _ => return None,
+                    };
+                    match effect {
+                        OptionValueEffect::DenyWrite(PathDescription::Base { base, exceptions })
+                            if action_path != Path::new("/") =>
+                        {
+                            let mut new_exceptions = Vec::with_capacity(exceptions.len() + 1);
+                            new_exceptions.extend(exceptions.iter().cloned());
+                            new_exceptions.push(action_path);
+                            Some(OptionValueEffect::DenyWrite(PathDescription::Base {
+                                base: base.to_owned(),
+                                exceptions: new_exceptions,
+                            }))
+                        }
+                        _ => None,
+                    }
+                },
+                options: |effect| match effect {
+                    OptionValueEffect::DenyWrite(PathDescription::Base { base, exceptions }) => {
+                        vec![
+                            OptionWithValue {
+                                name: "ReadOnlyPaths",
+                                value: OptionValue::List(ListOptionValue {
+                                    #[expect(clippy::unwrap_used)] // path is from our option, so unicode safe
+                                    values: vec![base.to_str().unwrap().to_owned()],
+                                    value_if_empty: None,
+                                    option_prefix: "",
+                                    elem_prefix: "-",
+                                    repeat_option: false,
+                                    mode: ListMode::BlackList,
+                                    mergeable_paths: true,
+                                }),
+                            },
+                            OptionWithValue {
+                                name: "ReadWritePaths",
+                                value: OptionValue::List(ListOptionValue {
+                                    values: merge_similar_paths(exceptions, None)
+                                        .iter()
+                                        .filter_map(|p| p.to_str().map(ToOwned::to_owned))
+                                        .collect(),
+                                    value_if_empty: None,
+                                    option_prefix: "",
+                                    elem_prefix: "-",
+                                    repeat_option: false,
+                                    mode: ListMode::WhiteList,
+                                    mergeable_paths: true,
+                                }),
+                            },
+                        ]
+                    }
+                    OptionValueEffect::DenyAction(ProgramAction::MountToHost) => {
+                        vec![OptionWithValue {
+                            name: "PrivateMounts",
+                            value: OptionValue::Boolean(true),
+                        }]
+                    }
+                    _ => unreachable!(),
+                },
+                dynamic_option_names: Vec::from(["PrivateMounts", "ReadOnlyPaths", "ReadWritePaths"]),
+            }),
+        }
     }
 }
 
@@ -810,7 +1204,258 @@ impl OptionSpec for InaccessiblePathsSpec {
         ctx.can_use_namespaces() && ctx.hardening_opts.filesystem_whitelisting
     }
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        build_inaccessible_paths(ctx)
+        let _ = ctx;
+        let mut possible_values = vec![OptionValueDescription {
+            value: OptionValue::List(ListOptionValue {
+                values: vec!["/".to_owned()],
+                value_if_empty: None,
+                option_prefix: "",
+                elem_prefix: "-",
+                repeat_option: false,
+                mode: ListMode::BlackList,
+                mergeable_paths: true,
+            }),
+            desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                OptionValueEffect::RemovePath(PathDescription::base("/")),
+                OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+            ])),
+        }];
+        // To avoid InaccessiblePaths being completely disabled simply because of the equivalent of 'ls /',
+        // we set another option value for each dir directly under /
+        let base_paths: Option<Vec<String>> = fs::read_dir("/")
+            .ok()
+            .and_then(|i| i.collect::<Result<Vec<_>, _>>().ok())
+            .and_then(|v| {
+                // Don't make those inaccessible, systemd won't be able to start anything
+                let excluded_run_dirs = [Path::new("/run"), Path::new("/proc")];
+                v.into_iter()
+                    .filter(|e| !excluded_run_dirs.contains(&e.path().as_ref()))
+                    // systemd follows symlinks when applying option, so exclude them
+                    .filter(|e| e.file_type().is_ok_and(|t| !t.is_symlink()))
+                    .map(|e| e.path().to_str().map(ToOwned::to_owned))
+                    .collect()
+            })
+            .map(|mut v: Vec<_>| {
+                v.sort_unstable();
+                v
+            });
+        if let Some(base_paths) = base_paths {
+            possible_values.insert(
+                0,
+                OptionValueDescription {
+                    value: OptionValue::List(ListOptionValue {
+                        values: base_paths.clone(),
+                        value_if_empty: None,
+                        option_prefix: "",
+                        elem_prefix: "-",
+                        repeat_option: false,
+                        mode: ListMode::BlackList,
+                        mergeable_paths: true,
+                    }),
+                    desc: OptionEffect::Cumulative(
+                        base_paths
+                            .iter()
+                            .map(|p| {
+                                OptionValueEffect::Multiple(vec![
+                                    OptionValueEffect::RemovePath(PathDescription::base(p)),
+                                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                                ])
+                            })
+                            .collect(),
+                    ),
+                },
+            );
+        }
+        OptionDescription {
+            name: "InaccessiblePaths",
+            possible_values,
+            updater: Some(OptionUpdater {
+                effect: |effect, action, _| {
+                    let (action_path, action_ro) = match action {
+                        ProgramAction::Read(action_path) | ProgramAction::Exec(action_path) => {
+                            (action_path.to_owned(), true)
+                        }
+                        ProgramAction::Write(action_path) => (action_path.to_owned(), false),
+                        ProgramAction::Create(action_path) => {
+                            (action_path.parent().map(Path::to_path_buf)?, false)
+                        }
+                        _ => return None,
+                    };
+                    match effect {
+                        OptionValueEffect::RemovePath(PathDescription::Base { base, exceptions }) => {
+                            // This will be reached only when first transforming an initial InaccessiblePaths option (RemovePath) into
+                            // less restrictive EmptyPaths + exceptions
+                            assert!(exceptions.is_empty());
+                            let new_exception_path = action_path_exception(action_path);
+                            if base.starts_with(&new_exception_path) {
+                                return None;
+                            }
+                            let (exceptions_ro, exceptions_rw) = if action_ro {
+                                (vec![new_exception_path], vec![])
+                            } else {
+                                (vec![], vec![new_exception_path])
+                            };
+                            Some(OptionValueEffect::EmptyPath(EmptyPathDescription {
+                                base: base.to_owned(),
+                                base_ro: true,
+                                exceptions_ro,
+                                exceptions_rw,
+                            }))
+                        }
+                        OptionValueEffect::EmptyPath(EmptyPathDescription {
+                            base,
+                            base_ro,
+                            exceptions_ro,
+                            exceptions_rw,
+                        }) => {
+                            let mut new_exceptions_ro =
+                                Vec::with_capacity(exceptions_ro.len() + usize::from(action_ro));
+                            new_exceptions_ro.extend(exceptions_ro.iter().cloned());
+                            let mut new_exceptions_rw =
+                                Vec::with_capacity(exceptions_rw.len() + usize::from(!action_ro));
+                            new_exceptions_rw.extend(exceptions_rw.iter().cloned());
+                            let mut base_ro = *base_ro;
+                            let new_exception_path = action_path_exception(action_path);
+                            if matches!(action, ProgramAction::Create(_)) && new_exception_path == *base
+                            {
+                                base_ro = false;
+                            } else {
+                                if base.starts_with(&new_exception_path) {
+                                    return None;
+                                }
+                                if action_ro {
+                                    new_exceptions_ro.push(new_exception_path);
+                                } else {
+                                    new_exceptions_rw.push(new_exception_path);
+                                }
+                            }
+                            // Remove exceptions in ro list if in rw
+                            new_exceptions_ro.retain(|ero| {
+                                !new_exceptions_rw.iter().any(|erw| ero.starts_with(erw))
+                            });
+                            Some(OptionValueEffect::EmptyPath(EmptyPathDescription {
+                                base: base.to_owned(),
+                                base_ro,
+                                exceptions_ro: new_exceptions_ro,
+                                exceptions_rw: new_exceptions_rw,
+                            }))
+                        }
+                        _ => None,
+                    }
+                },
+                options: |effect| match effect {
+                    OptionValueEffect::EmptyPath(EmptyPathDescription {
+                        base,
+                        base_ro,
+                        exceptions_ro,
+                        exceptions_rw,
+                    }) => {
+                        // TemporayFileSystem nullifies ReadOnlyPaths, so we must apply read only restrictions here too
+                        let mut new_opts = Vec::with_capacity(
+                            1 + usize::from(!exceptions_ro.is_empty())
+                                + usize::from(!exceptions_rw.is_empty()),
+                        );
+                        new_opts.push(OptionWithValue {
+                            name: "TemporaryFileSystem",
+                            value: OptionValue::List(ListOptionValue {
+                                #[expect(clippy::unwrap_used)]  // path is from our option, so unicode safe
+                                values: vec![if *base_ro {
+                                    format!("{}:ro", base.to_str().unwrap())
+                                } else {
+                                    base.to_str().unwrap().to_owned()
+                                }],
+                                value_if_empty: None,
+                                option_prefix: "",
+                                elem_prefix: "",
+                                repeat_option: false,
+                                mode: ListMode::BlackList,
+                                mergeable_paths: true,
+                            }),
+                        });
+                        let merged_exceptions_ro: Vec<_> = {
+                            let merged_paths = merge_similar_paths(exceptions_ro, None);
+                            if merged_paths.iter().any(|p| *base_ro && (p == base)) {
+                                // The exception nullifies the option, bail out
+                                return vec![];
+                            }
+                            merged_paths
+                                .into_iter()
+                                .filter_map(|p| p.to_str().map(ToOwned::to_owned))
+                                .collect()
+                        };
+                        if !merged_exceptions_ro.is_empty() {
+                            new_opts.push(OptionWithValue {
+                                name: "BindReadOnlyPaths",
+                                value: OptionValue::List(ListOptionValue {
+                                    values: merged_exceptions_ro,
+                                    value_if_empty: None,
+                                    option_prefix: "",
+                                    elem_prefix: "-",
+                                    repeat_option: false,
+                                    mode: ListMode::WhiteList,
+                                    mergeable_paths: true,
+                                }),
+                            });
+                        }
+                        let merged_exceptions_rw: Vec<_> = {
+                            let merged_paths = merge_similar_paths(exceptions_rw, None);
+                            if merged_paths.iter().any(|p| p == base) {
+                                // The exception nullifies the option, bail out
+                                return vec![];
+                            }
+                            merged_paths
+                                .into_iter()
+                                .filter_map(|p| p.to_str().map(ToOwned::to_owned))
+                                .collect()
+                        };
+                        if !merged_exceptions_rw.is_empty() {
+                            new_opts.push(OptionWithValue {
+                                name: "BindPaths",
+                                value: OptionValue::List(ListOptionValue {
+                                    values: merged_exceptions_rw,
+                                    value_if_empty: None,
+                                    option_prefix: "",
+                                    elem_prefix: "-",
+                                    repeat_option: false,
+                                    mode: ListMode::WhiteList,
+                                    mergeable_paths: true,
+                                }),
+                            });
+                        }
+                        new_opts
+                    }
+                    OptionValueEffect::DenyAction(ProgramAction::MountToHost) => {
+                        vec![OptionWithValue {
+                            name: "PrivateMounts",
+                            value: OptionValue::Boolean(true),
+                        }]
+                    }
+                    #[expect(clippy::unwrap_used)]
+                    OptionValueEffect::RemovePath(PathDescription::Base { base, exceptions }) => {
+                        assert!(exceptions.is_empty());
+                        vec![OptionWithValue {
+                            name: "InaccessiblePaths",
+                            value: OptionValue::List(ListOptionValue {
+                                values: vec![base.to_str().unwrap().to_owned()],
+                                value_if_empty: None,
+                                option_prefix: "",
+                                elem_prefix: "-",
+                                repeat_option: false,
+                                mode: ListMode::BlackList,
+                                mergeable_paths: true,
+                            }),
+                        }]
+                    }
+                    _ => unreachable!(),
+                },
+                dynamic_option_names: Vec::from([
+                    "PrivateMounts",
+                    "TemporaryFileSystem",
+                    "BindReadOnlyPaths",
+                    "BindPaths",
+                ]),
+            }),
+        }
     }
 }
 
@@ -820,14 +1465,128 @@ impl OptionSpec for NoExecPathsSpec {
         ctx.can_use_namespaces() && ctx.hardening_opts.filesystem_whitelisting
     }
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        build_no_exec_paths(ctx)
+        let _ = ctx;
+        OptionDescription {
+            name: "NoExecPaths",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::List(ListOptionValue {
+                    values: vec!["/".to_owned()],
+                    value_if_empty: None,
+                    option_prefix: "",
+                    elem_prefix: "-",
+                    repeat_option: false,
+                    mode: ListMode::BlackList,
+                    mergeable_paths: true,
+                }),
+                desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                    OptionValueEffect::DenyExec(PathDescription::base("/")),
+                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                ])),
+            }],
+            updater: Some(OptionUpdater {
+                effect: |effect, action, _| {
+                    let ProgramAction::Exec(action_path) = action else {
+                        return None;
+                    };
+                    match effect {
+                        OptionValueEffect::DenyExec(PathDescription::Base { base, exceptions })
+                            if action_path != Path::new("/") =>
+                        {
+                            let mut new_exceptions = Vec::with_capacity(exceptions.len() + 1);
+                            new_exceptions.extend(exceptions.iter().cloned());
+                            new_exceptions.push(action_path.to_owned());
+                            Some(OptionValueEffect::DenyExec(PathDescription::Base {
+                                base: base.to_owned(),
+                                exceptions: new_exceptions,
+                            }))
+                        }
+                        _ => None,
+                    }
+                },
+                options: |effect| match effect {
+                    OptionValueEffect::DenyExec(PathDescription::Base { base, exceptions }) => {
+                        vec![
+                            OptionWithValue {
+                                name: "NoExecPaths",
+                                value: OptionValue::List(ListOptionValue {
+                                    #[expect(clippy::unwrap_used)] // path is from our option, so unicode safe
+                                    values: vec![base.to_str().unwrap().to_owned()],
+                                    value_if_empty: None,
+                                    option_prefix: "",
+                                    elem_prefix: "-",
+                                    repeat_option: false,
+                                    mode: ListMode::BlackList,
+                                    mergeable_paths: true,
+                                }),
+                            },
+                            OptionWithValue {
+                                name: "ExecPaths",
+                                value: OptionValue::List(ListOptionValue {
+                                    values: merge_similar_paths(exceptions, None)
+                                        .iter()
+                                        .filter_map(|p| p.to_str().map(ToOwned::to_owned))
+                                        .collect(),
+                                    value_if_empty: None,
+                                    option_prefix: "",
+                                    elem_prefix: "-",
+                                    repeat_option: false,
+                                    mode: ListMode::WhiteList,
+                                    mergeable_paths: true,
+                                }),
+                            },
+                        ]
+                    }
+                    OptionValueEffect::DenyAction(ProgramAction::MountToHost) => {
+                        vec![OptionWithValue {
+                            name: "PrivateMounts",
+                            value: OptionValue::Boolean(true),
+                        }]
+                    }
+                    _ => unreachable!(),
+                },
+                dynamic_option_names: Vec::from(["NoExecPaths", "PrivateMounts", "ExecPaths"]),
+            }),
+        }
     }
 }
 
 struct RestrictAddressFamiliesSpec;
 impl OptionSpec for RestrictAddressFamiliesSpec {
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        build_restrict_address_families(ctx)
+        let _ = ctx;
+        OptionDescription {
+            name: "RestrictAddressFamilies",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::List(ListOptionValue {
+                    values: ADDRESS_FAMILIES.iter().map(|s| (*s).to_owned()).collect(),
+                    value_if_empty: Some("none"),
+                    option_prefix: "",
+                    elem_prefix: "",
+                    repeat_option: false,
+                    mode: ListMode::WhiteList,
+                    mergeable_paths: false,
+                }),
+                desc: OptionEffect::Cumulative(
+                    ADDRESS_FAMILIES
+                        .iter()
+                        .map(|af| {
+                            OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(
+                                NetworkActivity {
+                                    #[expect(clippy::unwrap_used)]
+                                    af: SetSpecifier::One(af.parse().unwrap()),
+                                    proto: SetSpecifier::All,
+                                    kind: SetSpecifier::All,
+                                    local_port: SetSpecifier::All,
+                                    address: SetSpecifier::All,
+                                }
+                                .into(),
+                            ))
+                        })
+                        .collect(),
+                ),
+            }],
+            updater: None,
+        }
     }
 }
 
@@ -837,14 +1596,143 @@ impl OptionSpec for PrivateNetworkSpec {
         ctx.can_use_namespaces() && matches!(ctx.hardening_opts.mode, HardeningMode::Aggressive)
     }
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        build_private_network(ctx)
+        let _ = ctx;
+        OptionDescription {
+            name: "PrivateNetwork",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::Boolean(true),
+                desc: OptionEffect::Simple(OptionValueEffect::DenyAction(
+                    ProgramAction::NetworkActivity(
+                        NetworkActivity {
+                            af: SetSpecifier::All,
+                            proto: SetSpecifier::All,
+                            kind: SetSpecifier::All,
+                            local_port: SetSpecifier::All,
+                            address: SetSpecifier::All,
+                        }
+                        .into(),
+                    ),
+                )),
+            }],
+            updater: None,
+        }
     }
 }
 
 struct SocketBindDenySpec;
 impl OptionSpec for SocketBindDenySpec {
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        build_socket_bind_deny(ctx)
+        let deny_binds: Vec<_> = SocketFamily::iter()
+            .take(2)
+            .cartesian_product(SocketProtocol::iter().take(2))
+            .collect();
+        OptionDescription {
+            name: "SocketBindDeny",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::List(ListOptionValue {
+                    values: deny_binds
+                        .iter()
+                        .map(|(af, proto)| format!("{af}:{proto}"))
+                        .collect(),
+                    value_if_empty: None,
+                    option_prefix: "",
+                    elem_prefix: "",
+                    repeat_option: true,
+                    mode: ListMode::BlackList,
+                    mergeable_paths: false,
+                }),
+                desc: OptionEffect::Cumulative(
+                    deny_binds
+                        .into_iter()
+                        .map(|(af, proto)| {
+                            OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(
+                                NetworkActivity {
+                                    af: SetSpecifier::One(af),
+                                    proto: SetSpecifier::One(proto),
+                                    kind: SetSpecifier::One(NetworkActivityKind::Bind),
+                                    local_port: SetSpecifier::All,
+                                    address: SetSpecifier::All,
+                                }
+                                .into(),
+                            ))
+                        })
+                        .collect(),
+                ),
+            }],
+            updater: ctx
+                .hardening_opts
+                .network_firewalling
+                .then_some(OptionUpdater {
+                    effect: |e, a, _| {
+                        let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(effect_na)) =
+                            e
+                        else {
+                            return None;
+                        };
+                        let local_port = if let ProgramAction::NetworkActivity(na) = a {
+                            if let SetSpecifier::One(local_port) = &na.as_ref().local_port {
+                                local_port
+                            } else {
+                                return None;
+                            }
+                        } else {
+                            return None;
+                        };
+                        let mut new_eff_local_port = effect_na.local_port.clone();
+                        new_eff_local_port.remove(local_port);
+                        Some(OptionValueEffect::DenyAction(
+                            ProgramAction::NetworkActivity(
+                                NetworkActivity {
+                                    af: effect_na.af.clone(),
+                                    proto: effect_na.proto.clone(),
+                                    kind: effect_na.kind.clone(),
+                                    local_port: new_eff_local_port,
+                                    address: effect_na.address.clone(),
+                                }
+                                .into(),
+                            ),
+                        ))
+                    },
+                    options: |e| {
+                        let (af, proto, local_port) = if let OptionValueEffect::DenyAction(
+                            ProgramAction::NetworkActivity(na),
+                        ) = e
+                        {
+                            if let NetworkActivity {
+                                af: SetSpecifier::One(af),
+                                proto: SetSpecifier::One(proto),
+                                local_port,
+                                ..
+                            } = na.as_ref()
+                            {
+                                (af, proto, local_port)
+                            } else {
+                                unreachable!()
+                            }
+                        } else {
+                            unreachable!();
+                        };
+                        let port_exceptions = local_port.excluded_elements();
+                        let mut opts = Vec::with_capacity(1 + port_exceptions.len());
+                        opts.push(OptionWithValue {
+                            name: "SocketBindDeny",
+                            value: OptionValue::String(format!("{af}:{proto}")),
+                        });
+                        opts.extend(
+                            port_exceptions
+                                .iter()
+                                .map(|port_exception| OptionWithValue {
+                                    name: "SocketBindAllow",
+                                    value: OptionValue::String(format!(
+                                        "{af}:{proto}:{port_exception}"
+                                    )),
+                                }),
+                        );
+                        opts
+                    },
+                    dynamic_option_names: Vec::from(["SocketBindDeny"]),
+                }),
+        }
     }
 }
 
@@ -854,7 +1742,87 @@ impl OptionSpec for IpAddressDenySpec {
         ctx.hardening_opts.network_firewalling
     }
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        build_ip_address_deny(ctx)
+        let _ = ctx;
+        OptionDescription {
+            name: "IPAddressDeny",
+            possible_values: vec![OptionValueDescription {
+                value: OptionValue::String("any".into()),
+                desc: OptionEffect::Simple(OptionValueEffect::DenyAction(
+                    ProgramAction::NetworkActivity(
+                        NetworkActivity {
+                            af: SetSpecifier::Some(vec![SocketFamily::Ipv4, SocketFamily::Ipv6]),
+                            proto: SetSpecifier::All,
+                            kind: SetSpecifier::Some(NetworkActivityKind::ADDRESSED.to_vec()),
+                            local_port: SetSpecifier::All,
+                            address: SetSpecifier::All,
+                        }
+                        .into(),
+                    ),
+                )),
+            }],
+            updater: Some(OptionUpdater {
+                effect: |effect, action, _| {
+                    let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(effect_na)) =
+                        effect
+                    else {
+                        return None;
+                    };
+                    let action_addr = if let ProgramAction::NetworkActivity(na) = action {
+                        if let NetworkActivity {
+                            address: SetSpecifier::One(action_addr),
+                            ..
+                        } = na.as_ref()
+                        {
+                            action_addr
+                        } else {
+                            return None;
+                        }
+                    } else {
+                        return None;
+                    };
+                    let mut new_effect_address = effect_na.address.clone();
+                    new_effect_address.remove(action_addr);
+                    Some(OptionValueEffect::DenyAction(
+                        ProgramAction::NetworkActivity(
+                            NetworkActivity {
+                                address: new_effect_address,
+                                ..*effect_na.to_owned()
+                            }
+                            .into(),
+                        ),
+                    ))
+                },
+                options: |effect| match effect {
+                    OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(na)) => {
+                        let NetworkActivity { address, .. } = na.as_ref();
+                        vec![
+                            OptionWithValue {
+                                name: "IPAddressDeny",
+                                value: OptionValue::String("any".into()),
+                            },
+                            OptionWithValue {
+                                name: "IPAddressAllow",
+                                value: OptionValue::List(ListOptionValue {
+                                    values: address
+                                        .excluded_elements()
+                                        .into_iter()
+                                        .map(|e| e.to_string())
+                                        .collect(),
+                                    value_if_empty: None,
+                                    option_prefix: "",
+                                    elem_prefix: "",
+                                    repeat_option: false,
+                                    mode: ListMode::WhiteList,
+                                    mergeable_paths: false,
+                                }),
+                            },
+                        ]
+                    }
+                    _ => unreachable!(),
+                },
+                dynamic_option_names: vec!["IPAddressDeny", "IPAddressAllow"],
+            }),
+        }
     }
 }
 
@@ -889,287 +1857,6 @@ impl OptionSpec for SystemCallFilterSpec {
 // TODO APPROXIMATION
 // Some options implicitly force NoNewPrivileges=true which has some effects in itself,
 // which we need to model
-
-// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectSystem=
-fn build_protect_system(_ctx: &OptionContext<'_>) -> OptionDescription {
-    let mut protect_system_yes_nowrite: Vec<_> = [
-        "/usr/", "/boot/", "/efi/", "/lib/", "/lib64/", "/bin/", "/sbin/",
-    ]
-    .iter()
-    .map(|p| OptionValueEffect::DenyWrite(PathDescription::base(p)))
-    .collect();
-    let mut protect_system_full_nowrite = protect_system_yes_nowrite.clone();
-    protect_system_full_nowrite.push(OptionValueEffect::DenyWrite(PathDescription::base("/etc/")));
-    protect_system_yes_nowrite.push(OptionValueEffect::DenyAction(ProgramAction::MountToHost));
-    protect_system_full_nowrite.push(OptionValueEffect::DenyAction(ProgramAction::MountToHost));
-    OptionDescription {
-        name: "ProtectSystem",
-        possible_values: vec![
-            OptionValueDescription {
-                value: OptionValue::Boolean(true),
-                desc: OptionEffect::Simple(OptionValueEffect::Multiple(protect_system_yes_nowrite)),
-            },
-            OptionValueDescription {
-                value: OptionValue::String("full".to_owned()),
-                desc: OptionEffect::Simple(OptionValueEffect::Multiple(
-                    protect_system_full_nowrite,
-                )),
-            },
-            OptionValueDescription {
-                value: OptionValue::String("strict".to_owned()),
-                desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                    OptionValueEffect::DenyWrite(PathDescription::Base {
-                        base: "/".into(),
-                        exceptions: vec!["/dev/".into(), "/proc/".into(), "/sys/".into()],
-                    }),
-                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
-                ])),
-            },
-        ],
-        updater: None,
-    }
-}
-
-// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectHome=
-fn build_protect_home(_ctx: &OptionContext<'_>) -> OptionDescription {
-    let home_paths = ["/home/", "/root/", "/run/user/"];
-    OptionDescription {
-        name: "ProtectHome",
-        possible_values: vec![
-            OptionValueDescription {
-                value: OptionValue::String("tmpfs".to_owned()),
-                desc: OptionEffect::Simple(OptionValueEffect::Multiple(
-                    home_paths
-                        .iter()
-                        .map(|p| OptionValueEffect::EmptyPath(EmptyPathDescription::base(p)))
-                        .chain(iter::once(OptionValueEffect::DenyAction(
-                            ProgramAction::MountToHost,
-                        )))
-                        .collect(),
-                )),
-            },
-            OptionValueDescription {
-                value: OptionValue::String("read-only".to_owned()),
-                desc: OptionEffect::Simple(OptionValueEffect::Multiple(
-                    home_paths
-                        .iter()
-                        .map(|p| OptionValueEffect::EmptyPath(EmptyPathDescription::base_ro(p)))
-                        .chain(iter::once(OptionValueEffect::DenyAction(
-                            ProgramAction::MountToHost,
-                        )))
-                        .collect(),
-                )),
-            },
-            OptionValueDescription {
-                value: OptionValue::Boolean(true),
-                desc: OptionEffect::Simple(OptionValueEffect::Multiple(
-                    home_paths
-                        .iter()
-                        .map(|p| OptionValueEffect::RemovePath(PathDescription::base(p)))
-                        .chain(iter::once(OptionValueEffect::DenyAction(
-                            ProgramAction::MountToHost,
-                        )))
-                        .collect(),
-                )),
-            },
-        ],
-        updater: None,
-    }
-}
-
-// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateTmp=
-fn build_private_tmp(ctx: &OptionContext<'_>) -> OptionDescription {
-    OptionDescription {
-        name: "PrivateTmp",
-        possible_values: vec![OptionValueDescription {
-            value: if ctx.systemd_min_version(257, 0) {
-                OptionValue::String("disconnected".into())
-            } else {
-                OptionValue::Boolean(true)
-            },
-            desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                OptionValueEffect::EmptyPath(EmptyPathDescription::base("/tmp")),
-                OptionValueEffect::EmptyPath(EmptyPathDescription::base("/var/tmp")),
-                OptionValueEffect::DenyAction(ProgramAction::MountToHost),
-            ])),
-        }],
-        updater: None,
-    }
-}
-
-// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateDevices=
-fn build_private_devices(_ctx: &OptionContext<'_>) -> OptionDescription {
-    OptionDescription {
-        name: "PrivateDevices",
-        possible_values: vec![OptionValueDescription {
-            value: OptionValue::Boolean(true),
-            desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                OptionValueEffect::EmptyPath(EmptyPathDescription {
-                    base: "/dev/".into(),
-                    base_ro: true,
-                    exceptions_ro: vec![],
-                    // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L912
-                    exceptions_rw: [
-                        "null",
-                        "zero",
-                        "full",
-                        "random",
-                        "urandom",
-                        "tty",
-                        "pts/",
-                        "ptmx",
-                        "shm/",
-                        "mqueue/",
-                        "hugepages/",
-                        "log",
-                    ]
-                    .iter()
-                    .map(|p| PathBuf::from("/dev/").join(p))
-                    .collect(),
-                }),
-                OptionValueEffect::DenySyscalls(DenySyscalls::Class("raw-io")),
-                OptionValueEffect::DenyAction(ProgramAction::MknodSpecial),
-                OptionValueEffect::DenyExec(PathDescription::base("/dev")),
-                OptionValueEffect::DenyAction(ProgramAction::MountToHost),
-            ])),
-        }],
-        updater: None,
-    }
-}
-
-// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateMounts=
-fn build_private_mounts(_ctx: &OptionContext<'_>) -> OptionDescription {
-    OptionDescription {
-        name: "PrivateMounts",
-        possible_values: vec![OptionValueDescription {
-            value: OptionValue::Boolean(true),
-            desc: OptionEffect::Simple(OptionValueEffect::DenyAction(ProgramAction::MountToHost)),
-        }],
-        updater: None,
-    }
-}
-
-// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelTunables=
-fn build_protect_kernel_tunables(_ctx: &OptionContext<'_>) -> OptionDescription {
-    OptionDescription {
-        name: "ProtectKernelTunables",
-        possible_values: vec![OptionValueDescription {
-            value: OptionValue::Boolean(true),
-            desc: OptionEffect::Simple(OptionValueEffect::Multiple(
-                // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L113
-                [
-                    "acpi/",
-                    "apm",
-                    "asound/",
-                    "bus/",
-                    "fs/",
-                    "irq/",
-                    "latency_stats",
-                    "mttr",
-                    "scsi/",
-                    "sys/",
-                    "sysrq-trigger",
-                    "timer_stats",
-                ]
-                .iter()
-                .map(|p| {
-                    OptionValueEffect::DenyWrite(PathDescription::Base {
-                        base: PathBuf::from("/proc/").join(p),
-                        exceptions: vec![],
-                    })
-                })
-                .chain(["kallsyms", "kcore"].iter().map(|p| {
-                    OptionValueEffect::RemovePath(PathDescription::Base {
-                        base: PathBuf::from("/proc/").join(p),
-                        exceptions: vec![],
-                    })
-                }))
-                .chain(
-                    // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L130
-                    iter::once(OptionValueEffect::DenyWrite(PathDescription::base("/sys"))),
-                )
-                .chain(iter::once(OptionValueEffect::DenyAction(
-                    ProgramAction::MountToHost,
-                )))
-                .collect(),
-            )),
-        }],
-        updater: None,
-    }
-}
-
-// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelModules=
-fn build_protect_kernel_modules(_ctx: &OptionContext<'_>) -> OptionDescription {
-    OptionDescription {
-        name: "ProtectKernelModules",
-        possible_values: vec![OptionValueDescription {
-            value: OptionValue::Boolean(true),
-            desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L140
-                OptionValueEffect::RemovePath(PathDescription::base("/lib/modules/")),
-                OptionValueEffect::RemovePath(PathDescription::base("/usr/lib/modules/")),
-                OptionValueEffect::DenySyscalls(DenySyscalls::Class("module")),
-                OptionValueEffect::DenyAction(ProgramAction::MountToHost),
-            ])),
-        }],
-        updater: None,
-    }
-}
-
-// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelLogs=
-fn build_protect_kernel_logs(_ctx: &OptionContext<'_>) -> OptionDescription {
-    OptionDescription {
-        name: "ProtectKernelLogs",
-        possible_values: vec![OptionValueDescription {
-            value: OptionValue::Boolean(true),
-            desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L148
-                OptionValueEffect::RemovePath(PathDescription::base("/proc/kmsg")),
-                OptionValueEffect::RemovePath(PathDescription::base("/dev/kmsg")),
-                OptionValueEffect::DenySyscalls(DenySyscalls::Single("syslog")),
-                // TODO figure out about this one, systemd doc says it doesn't but tests seem to say otherwise?
-                OptionValueEffect::DenyAction(ProgramAction::MountToHost),
-            ])),
-        }],
-        updater: None,
-    }
-}
-
-// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectControlGroups=
-fn build_protect_control_groups(_ctx: &OptionContext<'_>) -> OptionDescription {
-    // TODO private/strip
-    OptionDescription {
-        name: "ProtectControlGroups",
-        possible_values: vec![OptionValueDescription {
-            value: OptionValue::Boolean(true),
-            desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                OptionValueEffect::DenyWrite(PathDescription::base("/sys/fs/cgroup/")),
-                OptionValueEffect::DenyAction(ProgramAction::MountToHost),
-            ])),
-        }],
-        updater: None,
-    }
-}
-
-// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectProc=
-// https://github.com/systemd/systemd/blob/v247/NEWS#L342
-// https://github.com/systemd/systemd/commit/4e39995371738b04d98d27b0d34ea8fe09ec9fab
-// https://docs.kernel.org/filesystems/proc.html#mount-options
-fn build_protect_proc(_ctx: &OptionContext<'_>) -> OptionDescription {
-    OptionDescription {
-        name: "ProtectProc",
-        // Since we have no easy & reliable (race free) way to know which process belongs to
-        // which user, only support the most restrictive option
-        possible_values: vec![OptionValueDescription {
-            value: OptionValue::String("ptraceable".to_owned()),
-            desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                OptionValueEffect::RemovePath(PathDescription::pattern("^/proc/[0-9]+(/|$)")),
-                OptionValueEffect::DenyAction(ProgramAction::MountToHost),
-            ])),
-        }],
-        updater: None,
-    }
-}
 
 // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProcSubset=
 fn build_proc_subset(_ctx: &OptionContext<'_>) -> OptionDescription {
