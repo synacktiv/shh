@@ -632,20 +632,21 @@ impl OptionContext<'_> {
 
 /// Trait for systemd option specifications that can be conditionally enabled
 trait OptionSpec: Sync {
-    /// Returns true if this option should be enabled for the given context
-    fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
-        let _ = ctx;
-        true
-    }
-
     /// Builds the option description for this option
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription;
+
+    /// Returns true if this option should be enabled for the given context
+    fn enabled_if(&self, _ctx: &OptionContext<'_>) -> bool {
+        // Default to always enabled
+        true
+    }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectSystem=
 struct ProtectSystemSpec;
+
 impl OptionSpec for ProtectSystemSpec {
-    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        let _ = ctx;
+    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
         let mut protect_system_yes_nowrite: Vec<_> = [
             "/usr/", "/boot/", "/efi/", "/lib/", "/lib64/", "/bin/", "/sbin/",
         ]
@@ -688,13 +689,15 @@ impl OptionSpec for ProtectSystemSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectHome=
 struct ProtectHomeSpec;
+
 impl OptionSpec for ProtectHomeSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
         ctx.can_use_namespaces()
     }
-    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        let _ = ctx;
+
+    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
         let home_paths = ["/home/", "/root/", "/run/user/"];
         OptionDescription {
             name: "ProtectHome",
@@ -741,11 +744,14 @@ impl OptionSpec for ProtectHomeSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateTmp=
 struct PrivateTmpSpec;
+
 impl OptionSpec for PrivateTmpSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
         ctx.can_use_namespaces()
     }
+
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
         OptionDescription {
             name: "PrivateTmp",
@@ -766,13 +772,15 @@ impl OptionSpec for PrivateTmpSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateDevices=
 struct PrivateDevicesSpec;
+
 impl OptionSpec for PrivateDevicesSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
         ctx.can_use_namespaces()
     }
-    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        let _ = ctx;
+
+    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
         OptionDescription {
             name: "PrivateDevices",
             possible_values: vec![OptionValueDescription {
@@ -812,13 +820,15 @@ impl OptionSpec for PrivateDevicesSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateMounts=
 struct PrivateMountsSpec;
+
 impl OptionSpec for PrivateMountsSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
         ctx.can_use_namespaces()
     }
-    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        let _ = ctx;
+
+    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
         OptionDescription {
             name: "PrivateMounts",
             possible_values: vec![OptionValueDescription {
@@ -832,13 +842,15 @@ impl OptionSpec for PrivateMountsSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelTunables=
 struct ProtectKernelTunablesSpec;
+
 impl OptionSpec for ProtectKernelTunablesSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
         ctx.can_use_namespaces()
     }
-    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        let _ = ctx;
+
+    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
         OptionDescription {
             name: "ProtectKernelTunables",
             possible_values: vec![OptionValueDescription {
@@ -887,13 +899,15 @@ impl OptionSpec for ProtectKernelTunablesSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelModules=
 struct ProtectKernelModulesSpec;
+
 impl OptionSpec for ProtectKernelModulesSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
         ctx.can_use_namespaces()
     }
-    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        let _ = ctx;
+
+    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
         OptionDescription {
             name: "ProtectKernelModules",
             possible_values: vec![OptionValueDescription {
@@ -911,13 +925,15 @@ impl OptionSpec for ProtectKernelModulesSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelLogs=
 struct ProtectKernelLogsSpec;
+
 impl OptionSpec for ProtectKernelLogsSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
         ctx.can_use_namespaces()
     }
-    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        let _ = ctx;
+
+    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
         OptionDescription {
             name: "ProtectKernelLogs",
             possible_values: vec![OptionValueDescription {
@@ -936,13 +952,15 @@ impl OptionSpec for ProtectKernelLogsSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectControlGroups=
 struct ProtectControlGroupsSpec;
+
 impl OptionSpec for ProtectControlGroupsSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
         ctx.is_system_instance()
     }
-    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        let _ = ctx;
+
+    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
         // TODO private/strip
         OptionDescription {
             name: "ProtectControlGroups",
@@ -958,15 +976,20 @@ impl OptionSpec for ProtectControlGroupsSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectProc=
+// https://github.com/systemd/systemd/blob/v247/NEWS#L342
+// https://github.com/systemd/systemd/commit/4e39995371738b04d98d27b0d34ea8fe09ec9fab
+// https://docs.kernel.org/filesystems/proc.html#mount-options
 struct ProtectProcSpec;
+
 impl OptionSpec for ProtectProcSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
         ctx.is_system_instance()
             && ctx.systemd_min_version(247, 0)
             && ctx.kernel_min_version(5, 8, 0)
     }
-    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        let _ = ctx;
+
+    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
         OptionDescription {
             name: "ProtectProc",
             // Since we have no easy & reliable (race free) way to know which process belongs to
@@ -983,15 +1006,17 @@ impl OptionSpec for ProtectProcSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProcSubset=
 struct ProcSubsetSpec;
+
 impl OptionSpec for ProcSubsetSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
         ctx.is_system_instance()
             && ctx.systemd_min_version(247, 0)
             && ctx.kernel_min_version(5, 8, 0)
     }
-    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        let _ = ctx;
+
+    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
         OptionDescription {
             name: "ProcSubset",
             possible_values: vec![OptionValueDescription {
@@ -1008,10 +1033,11 @@ impl OptionSpec for ProcSubsetSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#LockPersonality=
 struct LockPersonalitySpec;
+
 impl OptionSpec for LockPersonalitySpec {
-    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        let _ = ctx;
+    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
         OptionDescription {
             name: "LockPersonality",
             possible_values: vec![OptionValueDescription {
@@ -1028,10 +1054,11 @@ impl OptionSpec for LockPersonalitySpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#RestrictRealtime=
 struct RestrictRealtimeSpec;
+
 impl OptionSpec for RestrictRealtimeSpec {
-    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        let _ = ctx;
+    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
         OptionDescription {
             name: "RestrictRealtime",
             possible_values: vec![OptionValueDescription {
@@ -1045,13 +1072,15 @@ impl OptionSpec for RestrictRealtimeSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectClock=
 struct ProtectClockSpec;
+
 impl OptionSpec for ProtectClockSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
         ctx.can_use_namespaces()
     }
-    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        let _ = ctx;
+
+    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
         OptionDescription {
             name: "ProtectClock",
             possible_values: vec![OptionValueDescription {
@@ -1070,10 +1099,12 @@ impl OptionSpec for ProtectClockSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#MemoryDenyWriteExecute=
+// https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L1721
 struct MemoryDenyWriteExecuteSpec;
+
 impl OptionSpec for MemoryDenyWriteExecuteSpec {
-    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        let _ = ctx;
+    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
         OptionDescription {
             name: "MemoryDenyWriteExecute",
             possible_values: vec![OptionValueDescription {
@@ -1087,13 +1118,18 @@ impl OptionSpec for MemoryDenyWriteExecuteSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#SystemCallArchitectures=
+//
+// This is actually very safe to enable, but since we don't currently support checking for its
+// compatibility during profiling, only enable it in aggressive mode
 struct SystemCallArchitecturesSpec;
+
 impl OptionSpec for SystemCallArchitecturesSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
         matches!(ctx.hardening_opts.mode, HardeningMode::Aggressive)
     }
-    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        let _ = ctx;
+
+    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
         OptionDescription {
             name: "SystemCallArchitectures",
             possible_values: vec![OptionValueDescription {
@@ -1105,13 +1141,15 @@ impl OptionSpec for SystemCallArchitecturesSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ReadWritePaths=
 struct ReadOnlyPathsSpec;
+
 impl OptionSpec for ReadOnlyPathsSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
         ctx.can_use_namespaces() && ctx.hardening_opts.filesystem_whitelisting
     }
-    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        let _ = ctx;
+
+    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
         OptionDescription {
             name: "ReadOnlyPaths",
             possible_values: vec![OptionValueDescription {
@@ -1137,9 +1175,10 @@ impl OptionSpec for ReadOnlyPathsSpec {
                         _ => return None,
                     };
                     match effect {
-                        OptionValueEffect::DenyWrite(PathDescription::Base { base, exceptions })
-                            if action_path != Path::new("/") =>
-                        {
+                        OptionValueEffect::DenyWrite(PathDescription::Base {
+                            base,
+                            exceptions,
+                        }) if action_path != Path::new("/") => {
                             let mut new_exceptions = Vec::with_capacity(exceptions.len() + 1);
                             new_exceptions.extend(exceptions.iter().cloned());
                             new_exceptions.push(action_path);
@@ -1192,19 +1231,25 @@ impl OptionSpec for ReadOnlyPathsSpec {
                     }
                     _ => unreachable!(),
                 },
-                dynamic_option_names: Vec::from(["PrivateMounts", "ReadOnlyPaths", "ReadWritePaths"]),
+                dynamic_option_names: Vec::from([
+                    "PrivateMounts",
+                    "ReadOnlyPaths",
+                    "ReadWritePaths",
+                ]),
             }),
         }
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ReadWritePaths=
 struct InaccessiblePathsSpec;
+
 impl OptionSpec for InaccessiblePathsSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
         ctx.can_use_namespaces() && ctx.hardening_opts.filesystem_whitelisting
     }
-    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        let _ = ctx;
+
+    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
         let mut possible_values = vec![OptionValueDescription {
             value: OptionValue::List(ListOptionValue {
                 values: vec!["/".to_owned()],
@@ -1282,7 +1327,10 @@ impl OptionSpec for InaccessiblePathsSpec {
                         _ => return None,
                     };
                     match effect {
-                        OptionValueEffect::RemovePath(PathDescription::Base { base, exceptions }) => {
+                        OptionValueEffect::RemovePath(PathDescription::Base {
+                            base,
+                            exceptions,
+                        }) => {
                             // This will be reached only when first transforming an initial InaccessiblePaths option (RemovePath) into
                             // less restrictive EmptyPaths + exceptions
                             assert!(exceptions.is_empty());
@@ -1316,7 +1364,8 @@ impl OptionSpec for InaccessiblePathsSpec {
                             new_exceptions_rw.extend(exceptions_rw.iter().cloned());
                             let mut base_ro = *base_ro;
                             let new_exception_path = action_path_exception(action_path);
-                            if matches!(action, ProgramAction::Create(_)) && new_exception_path == *base
+                            if matches!(action, ProgramAction::Create(_))
+                                && new_exception_path == *base
                             {
                                 base_ro = false;
                             } else {
@@ -1459,13 +1508,15 @@ impl OptionSpec for InaccessiblePathsSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ReadWritePaths=
 struct NoExecPathsSpec;
+
 impl OptionSpec for NoExecPathsSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
         ctx.can_use_namespaces() && ctx.hardening_opts.filesystem_whitelisting
     }
+
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        let _ = ctx;
         OptionDescription {
             name: "NoExecPaths",
             possible_values: vec![OptionValueDescription {
@@ -1550,10 +1601,11 @@ impl OptionSpec for NoExecPathsSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#RestrictAddressFamilies=
 struct RestrictAddressFamiliesSpec;
+
 impl OptionSpec for RestrictAddressFamiliesSpec {
-    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        let _ = ctx;
+    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
         OptionDescription {
             name: "RestrictAddressFamilies",
             possible_values: vec![OptionValueDescription {
@@ -1590,13 +1642,18 @@ impl OptionSpec for RestrictAddressFamiliesSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateNetwork=
 struct PrivateNetworkSpec;
+
 impl OptionSpec for PrivateNetworkSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
         ctx.can_use_namespaces() && matches!(ctx.hardening_opts.mode, HardeningMode::Aggressive)
     }
-    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        let _ = ctx;
+
+    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
+        // For now we enable this option if no sockets are used at all, in theory this could break if
+        // a socket file descriptor is passed to it from another process.
+        // Although this is probably a very rare/niche case, it is possible, so we consider it only in aggressive mode
         OptionDescription {
             name: "PrivateNetwork",
             possible_values: vec![OptionValueDescription {
@@ -1619,7 +1676,9 @@ impl OptionSpec for PrivateNetworkSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.resource-control.html#SocketBindAllow=bind-rule
 struct SocketBindDenySpec;
+
 impl OptionSpec for SocketBindDenySpec {
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
         let deny_binds: Vec<_> = SocketFamily::iter()
@@ -1664,8 +1723,9 @@ impl OptionSpec for SocketBindDenySpec {
                 .network_firewalling
                 .then_some(OptionUpdater {
                     effect: |e, a, _| {
-                        let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(effect_na)) =
-                            e
+                        let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(
+                            effect_na,
+                        )) = e
                         else {
                             return None;
                         };
@@ -1736,13 +1796,15 @@ impl OptionSpec for SocketBindDenySpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html#IPAddressAllow=ADDRESS%5B/PREFIXLENGTH%5D%E2%80%A6
 struct IpAddressDenySpec;
+
 impl OptionSpec for IpAddressDenySpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
         ctx.hardening_opts.network_firewalling
     }
-    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        let _ = ctx;
+
+    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
         OptionDescription {
             name: "IPAddressDeny",
             possible_values: vec![OptionValueDescription {
@@ -1826,13 +1888,18 @@ impl OptionSpec for IpAddressDenySpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#CapabilityBoundingSet=
 struct CapabilityBoundingSetSpec;
+
 impl OptionSpec for CapabilityBoundingSetSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
         ctx.can_use_namespaces()
     }
-    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        let _ = ctx;
+
+    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
+        // Note: we don't want to duplicate the kernel permission checking logic here, which would be
+        // a maintenance nightmare, so in most case we over (never under!) simplify the capability's effect
+        // or we don't implement it at all if too complex because the risk of breakage is too highstruct CapabilityBoundingSetSpec;
         let cap_effects = [
             // CAP_AUDIT_CONTROL, CAP_AUDIT_READ, CAP_AUDIT_WRITE: requires netlink socket message handling
             (
@@ -2017,13 +2084,15 @@ impl OptionSpec for CapabilityBoundingSetSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#SystemCallFilter=
 struct SystemCallFilterSpec;
+
 impl OptionSpec for SystemCallFilterSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
         !matches!(ctx.hardening_opts.mode, HardeningMode::Generic)
     }
-    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        let _ = ctx;
+
+    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
         let mut syscall_classes: Vec<_> = SYSCALL_CLASSES.keys().copied().collect();
         syscall_classes.sort_unstable();
         OptionDescription {
