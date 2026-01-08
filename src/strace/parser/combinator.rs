@@ -24,17 +24,20 @@ use crate::strace::{
 
 macro_rules! dbg_parser_entry {
     ($input:expr) => {
+
         log::trace!("{}:{}\ninput: {:?}", function_name!(), line!(), $input)
     };
 }
 
 macro_rules! dbg_parser_success {
     ($output:expr) => {
+
         log::trace!("{}:{}\nparsed: {:?}", function_name!(), line!(), $output)
     };
 }
 
 pub(crate) fn parse_line(line: &str) -> anyhow::Result<ParseResult> {
+
     match parse_syscall_line(line).map(|s| s.1) {
         Err(nom::Err::Incomplete(_) | nom::Err::Error(_)) => Ok(ParseResult::IgnoredLine),
         Err(nom::Err::Failure(e)) => Err(anyhow::anyhow!("{e}")),
@@ -45,8 +48,11 @@ pub(crate) fn parse_line(line: &str) -> anyhow::Result<ParseResult> {
 // Main line token parsers
 
 #[function_name::named]
+
 fn parse_syscall_line(i: &str) -> IResult<&str, ParseResult> {
+
     dbg_parser_entry!(i);
+
     alt((
         // Complete syscall
         map(
@@ -58,6 +64,7 @@ fn parse_syscall_line(i: &str) -> IResult<&str, ParseResult> {
                 parse_ret_val,
             ),
             |(pid, rel_ts, name, args, ret_val)| {
+
                 ParseResult::Syscall(Syscall {
                     pid,
                     rel_ts,
@@ -71,6 +78,7 @@ fn parse_syscall_line(i: &str) -> IResult<&str, ParseResult> {
         map(
             (parse_pid, parse_rel_ts, parse_name, parse_args_incomplete),
             |(pid, rel_ts, name, args)| {
+
                 ParseResult::SyscallStart(SyscallStart {
                     pid,
                     rel_ts,
@@ -88,6 +96,7 @@ fn parse_syscall_line(i: &str) -> IResult<&str, ParseResult> {
                 parse_ret_val,
             ),
             |(pid, rel_ts, name, ret_val)| {
+
                 ParseResult::SyscallEnd(SyscallEnd {
                     pid,
                     rel_ts,
@@ -102,48 +111,67 @@ fn parse_syscall_line(i: &str) -> IResult<&str, ParseResult> {
 }
 
 #[function_name::named]
+
 fn parse_pid(i: &str) -> IResult<&str, pid_t> {
+
     dbg_parser_entry!(i);
+
     terminated(map_res(digit1, str::parse), space1)
         .parse(i)
         .inspect(|r| dbg_parser_success!(r))
 }
 
 #[function_name::named]
+
 fn parse_rel_ts(i: &str) -> IResult<&str, f64> {
+
     dbg_parser_entry!(i);
+
     terminated(double, space1)
         .parse(i)
         .inspect(|r| dbg_parser_success!(r))
 }
 
 #[function_name::named]
+
 fn parse_name(i: &str) -> IResult<&str, &str> {
+
     dbg_parser_entry!(i);
+
     parse_symbol(i)
 }
 
 #[function_name::named]
+
 fn parse_args_complete(i: &str) -> IResult<&str, Vec<Expression>> {
+
     dbg_parser_entry!(i);
+
     delimited(char('('), parse_args_inner, terminated(char(')'), space1))
         .parse(i)
         .inspect(|r| dbg_parser_success!(r))
 }
 
 #[function_name::named]
+
 fn parse_args_incomplete(i: &str) -> IResult<&str, Vec<Expression>> {
+
     dbg_parser_entry!(i);
+
     delimited(char('('), parse_args_inner, tag(" <unfinished ...>"))
         .parse(i)
         .inspect(|r| dbg_parser_success!(r))
 }
 
 #[function_name::named]
+
 fn parse_args_inner(i: &str) -> IResult<&str, Vec<Expression>> {
+
     dbg_parser_entry!(i);
+
     alt((
         map(separated_list1(tag(", "), parse_struct_member), |ne| {
+
             // Named arguments are stuffed in a single struct
             vec![Expression::Struct(
                 ne.into_iter().map(|(n, e)| (n.to_owned(), e)).collect(),
@@ -162,8 +190,11 @@ fn parse_args_inner(i: &str) -> IResult<&str, Vec<Expression>> {
 }
 
 #[function_name::named]
+
 fn parse_in_out_argument(i: &str) -> IResult<&str, (Option<Expression>, Expression)> {
+
     dbg_parser_entry!(i);
+
     alt((
         map(
             alt((
@@ -177,6 +208,7 @@ fn parse_in_out_argument(i: &str) -> IResult<&str, (Option<Expression>, Expressi
             |(ia, oa)| (Some(ia), oa),
         ),
         map(delimited(tag("[{"), parse_expression, tag("}]")), |oa| {
+
             (None, oa)
         }),
     ))
@@ -185,19 +217,26 @@ fn parse_in_out_argument(i: &str) -> IResult<&str, (Option<Expression>, Expressi
 }
 
 #[function_name::named]
+
 fn parse_ret_val(i: &str) -> IResult<&str, IntegerExpression> {
+
     dbg_parser_entry!(i);
+
     preceded(
         terminated(char('='), space1),
         map_opt(
             (parse_int_literal, opt(preceded(space1, rest))),
             |(mut ie, m)| {
+
                 if let Some(m) = m {
+
                     if ie.metadata.replace(m.as_bytes().to_vec()).is_some() {
+
                         // We already had some metadata, something is wrong
                         return None;
                     }
                 }
+
                 Some(ie)
             },
         ),
@@ -209,8 +248,11 @@ fn parse_ret_val(i: &str) -> IResult<&str, IntegerExpression> {
 // Shared parsers
 
 #[function_name::named]
+
 fn parse_symbol(i: &str) -> IResult<&str, &str> {
+
     dbg_parser_entry!(i);
+
     recognize(pair(
         alt((alpha1, tag("_"))),
         many0_count(alt((alphanumeric1, tag("_")))),
@@ -220,8 +262,11 @@ fn parse_symbol(i: &str) -> IResult<&str, &str> {
 }
 
 #[function_name::named]
+
 fn parse_comment(i: &str) -> IResult<&str, Option<&str>> {
+
     dbg_parser_entry!(i);
+
     opt(delimited(tag(" /* "), take_until(" */"), tag(" */")))
         .parse(i)
         .inspect(|r| dbg_parser_success!(r))
@@ -230,8 +275,11 @@ fn parse_comment(i: &str) -> IResult<&str, Option<&str>> {
 // Expression
 
 #[function_name::named]
+
 fn parse_expression(i: &str) -> IResult<&str, Expression> {
+
     dbg_parser_entry!(i);
+
     map(
         pair(
             alt((
@@ -251,22 +299,30 @@ fn parse_expression(i: &str) -> IResult<&str, Expression> {
 }
 
 #[function_name::named]
+
 fn parse_expression_mac_addr(i: &str) -> IResult<&str, Expression> {
+
     dbg_parser_entry!(i);
+
     map(
         (
             map_res(take(2_usize), |s| u8::from_str_radix(s, 16)),
             count(
                 map_res(preceded(char(':'), take(2_usize)), |s| {
+
                     u8::from_str_radix(s, 16)
                 }),
                 5,
             ),
         ),
         |(f, o)| {
+
             let mut mac = [0; 6];
+
             mac[0] = f;
+
             mac[1..].copy_from_slice(&o);
+
             Expression::MacAddress(mac)
         },
     )
@@ -275,9 +331,13 @@ fn parse_expression_mac_addr(i: &str) -> IResult<&str, Expression> {
 }
 
 #[function_name::named]
+
 fn parse_expression_macro_pseudo_address(i: &str) -> IResult<&str, Expression> {
+
     dbg_parser_entry!(i);
+
     map(preceded(char('&'), parse_symbol), |s| {
+
         Expression::DestinationAddress(s.to_owned())
     })
     .parse(i)
@@ -285,16 +345,22 @@ fn parse_expression_macro_pseudo_address(i: &str) -> IResult<&str, Expression> {
 }
 
 #[function_name::named]
+
 fn parse_expression_int(i: &str) -> IResult<&str, Expression> {
+
     dbg_parser_entry!(i);
+
     map(parse_int, Expression::Integer)
         .parse(i)
         .inspect(|r| dbg_parser_success!(r))
 }
 
 #[function_name::named]
+
 fn parse_expression_struct(i: &str) -> IResult<&str, Expression> {
+
     dbg_parser_entry!(i);
+
     map(
         delimited(
             char('{'),
@@ -308,14 +374,18 @@ fn parse_expression_struct(i: &str) -> IResult<&str, Expression> {
                             ..
                         } = &e
                         {
+
                             args.iter().find_map(|a| {
                                 if let Expression::DestinationAddress(n) = a {
+
                                     Some((n.to_owned(), Expression::Integer(e.clone())))
                                 } else {
+
                                     None
                                 }
                             })
                         } else {
+
                             None
                         }
                     }),
@@ -330,16 +400,22 @@ fn parse_expression_struct(i: &str) -> IResult<&str, Expression> {
 }
 
 #[function_name::named]
+
 fn parse_expression_buf(i: &str) -> IResult<&str, Expression> {
+
     dbg_parser_entry!(i);
+
     map(parse_buffer, Expression::Buffer)
         .parse(i)
         .inspect(|r| dbg_parser_success!(r))
 }
 
 #[function_name::named]
+
 fn parse_expression_set(i: &str) -> IResult<&str, Expression> {
+
     dbg_parser_entry!(i);
+
     map(
         pair(
             opt(char('~')),
@@ -362,8 +438,11 @@ fn parse_expression_set(i: &str) -> IResult<&str, Expression> {
 }
 
 #[function_name::named]
+
 fn parse_expression_array(i: &str) -> IResult<&str, Expression> {
+
     dbg_parser_entry!(i);
+
     map(
         delimited(
             char('['),
@@ -391,8 +470,11 @@ fn parse_expression_array(i: &str) -> IResult<&str, Expression> {
 // Int expression
 
 #[function_name::named]
+
 fn parse_int(i: &str) -> IResult<&str, IntegerExpression> {
+
     dbg_parser_entry!(i);
+
     alt((
         parse_int_bit_or,
         parse_int_bool_and,
@@ -409,8 +491,11 @@ fn parse_int(i: &str) -> IResult<&str, IntegerExpression> {
 }
 
 #[function_name::named]
+
 fn parse_int_bit_or(i: &str) -> IResult<&str, IntegerExpression> {
+
     dbg_parser_entry!(i);
+
     map(
         separated_pair(
             parse_int_named,
@@ -421,10 +506,13 @@ fn parse_int_bit_or(i: &str) -> IResult<&str, IntegerExpression> {
             value: IntegerExpressionValue::BinaryOr(
                 iter::once(f.value)
                     .chain(rs.into_iter().map(|r| r.value).flat_map(|e| {
+
                         // Flatten child expressions
                         if let IntegerExpressionValue::BinaryOr(es) = e {
+
                             es.into_iter()
                         } else {
+
                             vec![e].into_iter()
                         }
                     }))
@@ -438,8 +526,11 @@ fn parse_int_bit_or(i: &str) -> IResult<&str, IntegerExpression> {
 }
 
 #[function_name::named]
+
 fn parse_int_bool_and(i: &str) -> IResult<&str, IntegerExpression> {
+
     dbg_parser_entry!(i);
+
     map(
         separated_pair(
             parse_int_macro,
@@ -450,10 +541,13 @@ fn parse_int_bool_and(i: &str) -> IResult<&str, IntegerExpression> {
             value: IntegerExpressionValue::BooleanAnd(
                 iter::once(f.value)
                     .chain(rs.into_iter().map(|r| r.value).flat_map(|e| {
+
                         // Flatten child expressions
                         if let IntegerExpressionValue::BooleanAnd(es) = e {
+
                             es.into_iter()
                         } else {
+
                             vec![e].into_iter()
                         }
                     }))
@@ -467,8 +561,11 @@ fn parse_int_bool_and(i: &str) -> IResult<&str, IntegerExpression> {
 }
 
 #[function_name::named]
+
 fn parse_int_equals(i: &str) -> IResult<&str, IntegerExpression> {
+
     dbg_parser_entry!(i);
+
     map(
         separated_pair(
             parse_int_macro,
@@ -479,10 +576,13 @@ fn parse_int_equals(i: &str) -> IResult<&str, IntegerExpression> {
             value: IntegerExpressionValue::Equality(
                 iter::once(f.value)
                     .chain(rs.into_iter().map(|r| r.value).flat_map(|e| {
+
                         // Flatten child expressions
                         if let IntegerExpressionValue::Equality(es) = e {
+
                             es.into_iter()
                         } else {
+
                             vec![e].into_iter()
                         }
                     }))
@@ -496,8 +596,11 @@ fn parse_int_equals(i: &str) -> IResult<&str, IntegerExpression> {
 }
 
 #[function_name::named]
+
 fn parse_int_macro(i: &str) -> IResult<&str, IntegerExpression> {
+
     dbg_parser_entry!(i);
+
     map(
         pair(
             parse_symbol,
@@ -523,8 +626,11 @@ fn parse_int_macro(i: &str) -> IResult<&str, IntegerExpression> {
 }
 
 #[function_name::named]
+
 fn parse_int_multiplication(i: &str) -> IResult<&str, IntegerExpression> {
+
     dbg_parser_entry!(i);
+
     map(
         separated_pair(
             parse_int_literal,
@@ -535,10 +641,13 @@ fn parse_int_multiplication(i: &str) -> IResult<&str, IntegerExpression> {
             value: IntegerExpressionValue::Multiplication(
                 iter::once(f.value)
                     .chain(rs.into_iter().map(|r| r.value).flat_map(|e| {
+
                         // Flatten child expressions
                         if let IntegerExpressionValue::Multiplication(es) = e {
+
                             es.into_iter()
                         } else {
+
                             vec![e].into_iter()
                         }
                     }))
@@ -552,8 +661,11 @@ fn parse_int_multiplication(i: &str) -> IResult<&str, IntegerExpression> {
 }
 
 #[function_name::named]
+
 fn parse_int_substraction(i: &str) -> IResult<&str, IntegerExpression> {
+
     dbg_parser_entry!(i);
+
     map(
         separated_pair(
             parse_int_named,
@@ -564,10 +676,13 @@ fn parse_int_substraction(i: &str) -> IResult<&str, IntegerExpression> {
             value: IntegerExpressionValue::Substraction(
                 iter::once(f.value)
                     .chain(rs.into_iter().map(|r| r.value).flat_map(|e| {
+
                         // Flatten child expressions
                         if let IntegerExpressionValue::Substraction(es) = e {
+
                             es.into_iter()
                         } else {
+
                             vec![e].into_iter()
                         }
                     }))
@@ -581,8 +696,11 @@ fn parse_int_substraction(i: &str) -> IResult<&str, IntegerExpression> {
 }
 
 #[function_name::named]
+
 fn parse_int_literal(i: &str) -> IResult<&str, IntegerExpression> {
+
     dbg_parser_entry!(i);
+
     map(
         (
             alt((
@@ -602,8 +720,11 @@ fn parse_int_literal(i: &str) -> IResult<&str, IntegerExpression> {
 }
 
 #[function_name::named]
+
 fn parse_int_left_shift(i: &str) -> IResult<&str, IntegerExpression> {
+
     dbg_parser_entry!(i);
+
     map(
         separated_pair(
             alt((parse_int_literal, parse_int_named)),
@@ -623,9 +744,13 @@ fn parse_int_left_shift(i: &str) -> IResult<&str, IntegerExpression> {
 }
 
 #[function_name::named]
+
 fn parse_int_named(i: &str) -> IResult<&str, IntegerExpression> {
+
     dbg_parser_entry!(i);
+
     map((parse_symbol, parse_int_metadata), |(e, metadata)| {
+
         IntegerExpression {
             value: IntegerExpressionValue::NamedSymbol(e.to_owned()),
             metadata,
@@ -636,8 +761,11 @@ fn parse_int_named(i: &str) -> IResult<&str, IntegerExpression> {
 }
 
 #[function_name::named]
+
 fn parse_int_metadata(i: &str) -> IResult<&str, Option<Vec<u8>>> {
+
     dbg_parser_entry!(i);
+
     opt(delimited(
         char('<'),
         map(many_till(parse_buffer_byte, char('>')), |r| r.0),
@@ -650,8 +778,11 @@ fn parse_int_metadata(i: &str) -> IResult<&str, Option<Vec<u8>>> {
 // Int literal
 
 #[function_name::named]
+
 fn parse_int_literal_hexa(i: &str) -> IResult<&str, i128> {
+
     dbg_parser_entry!(i);
+
     preceded(
         tag("0x"),
         map_res(hex_digit1, |s| i128::from_str_radix(s, 16)),
@@ -661,8 +792,11 @@ fn parse_int_literal_hexa(i: &str) -> IResult<&str, i128> {
 }
 
 #[function_name::named]
+
 fn parse_int_literal_oct(i: &str) -> IResult<&str, i128> {
+
     dbg_parser_entry!(i);
+
     preceded(
         char('0'),
         map_res(oct_digit1, |s| i128::from_str_radix(s, 8)),
@@ -672,16 +806,22 @@ fn parse_int_literal_oct(i: &str) -> IResult<&str, i128> {
 }
 
 #[function_name::named]
+
 fn parse_int_literal_dec(i: &str) -> IResult<&str, i128> {
+
     dbg_parser_entry!(i);
+
     complete::i128(i)
 }
 
 // Buffer
 
 #[function_name::named]
+
 fn parse_buffer(i: &str) -> IResult<&str, BufferExpression> {
+
     dbg_parser_entry!(i);
+
     map(
         terminated(
             pair(
@@ -696,8 +836,10 @@ fn parse_buffer(i: &str) -> IResult<&str, BufferExpression> {
         |(a, r)| BufferExpression {
             value: r,
             type_: if a.is_some() {
+
                 BufferType::AbstractPath
             } else {
+
                 BufferType::Unknown
             },
         },
@@ -707,9 +849,13 @@ fn parse_buffer(i: &str) -> IResult<&str, BufferExpression> {
 }
 
 #[function_name::named]
+
 fn parse_buffer_byte(i: &str) -> IResult<&str, u8> {
+
     dbg_parser_entry!(i);
+
     map_res(preceded(tag("\\x"), take(2_usize)), |s| {
+
         u8::from_str_radix(s, 16)
     })
     .parse(i)
@@ -719,8 +865,11 @@ fn parse_buffer_byte(i: &str) -> IResult<&str, u8> {
 // Struct
 
 #[function_name::named]
+
 fn parse_struct_member(i: &str) -> IResult<&str, (&str, Expression)> {
+
     dbg_parser_entry!(i);
+
     separated_pair(
         parse_symbol,
         char('='),
@@ -734,11 +883,15 @@ fn parse_struct_member(i: &str) -> IResult<&str, (&str, Expression)> {
 }
 
 #[cfg(test)]
+
 mod tests {
+
     use super::*;
 
     #[test]
+
     fn parse_expression_array_works() {
+
         assert_eq!(
             parse_expression_array(
                 "[[IPV4_DEVCONF_BC_FORWARDING-1]=0, [IPV4_DEVCONF_ARP_EVICT_NOCARRIER-1]=1, [37 /* IPSTATS_MIB_??? */]=22]"

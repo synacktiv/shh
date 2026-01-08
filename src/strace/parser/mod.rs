@@ -9,6 +9,7 @@ use std::{
 use crate::strace::Syscall;
 
 mod combinator;
+
 use combinator::parse_line;
 use nix::libc::pid_t;
 
@@ -23,9 +24,11 @@ pub(crate) struct LogParser {
 
 impl LogParser {
     pub(crate) fn new(reader: Box<dyn BufRead>, log_path: Option<&Path>) -> anyhow::Result<Self> {
+
         let log = log_path
             .map(|p| File::options().create(true).append(true).open(p))
             .transpose()?;
+
         Ok(Self {
             reader,
             log,
@@ -37,6 +40,7 @@ impl LogParser {
 
 #[derive(Debug, PartialEq)]
 #[cfg_attr(test, derive(serde::Serialize))]
+
 enum ParseResult {
     /// This line was ignored
     /// (strace sometimes outputs complete garbage like '1008333      0.000045 ???( <unfinished ...>')
@@ -52,6 +56,7 @@ enum ParseResult {
 /// A syscall started that did not yet return
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(test, derive(serde::Serialize))]
+
 pub(crate) struct SyscallStart {
     pub pid: pid_t,
     pub rel_ts: f64,
@@ -61,9 +66,13 @@ pub(crate) struct SyscallStart {
 
 impl SyscallStart {
     /// Merge syscall start and end to build a complete syscall invocation description
+
     pub(crate) fn end(self, end: &SyscallEnd) -> Syscall {
+
         debug_assert_eq!(self.pid, end.pid);
+
         debug_assert_eq!(self.name, end.name);
+
         Syscall {
             pid: self.pid,
             rel_ts: end.rel_ts,
@@ -77,6 +86,7 @@ impl SyscallStart {
 /// A syscall that ended
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(test, derive(serde::Serialize))]
+
 pub(crate) struct SyscallEnd {
     pub pid: pid_t,
     pub rel_ts: f64,
@@ -89,9 +99,13 @@ impl Iterator for LogParser {
 
     /// Parse strace output lines and yield syscalls
     /// Ignore invalid lines, but bubble up errors if the parsing matches and we fail subsequent parsing
+
     fn next(&mut self) -> Option<Self::Item> {
+
         let sc = loop {
+
             self.buf.clear();
+
             let line = match self.reader.read_line(&mut self.buf) {
                 Ok(0) => return None, // EOF
                 Ok(_) => self.buf.trim_end(),
@@ -99,41 +113,53 @@ impl Iterator for LogParser {
             };
 
             if line.ends_with(" +++") || line.ends_with(" ---") {
+
                 // Process exited, or signal received, not a syscall
                 continue;
             }
 
             if let Some(log) = self.log.as_mut() {
+
                 if let Err(e) = writeln!(log, "{line}") {
+
                     return Some(Err(e.into()));
                 }
             }
 
             match parse_line(line) {
                 Ok(ParseResult::Syscall(sc)) => {
+
                     log::trace!("Parsed line: {line:?}");
+
                     if sc.is_successful_or_pending() {
+
                         break sc;
                     }
                 }
                 Ok(ParseResult::SyscallStart(sc)) => {
+
                     self.unfinished_syscalls.push(sc);
                 }
                 Ok(ParseResult::SyscallEnd(sc_end)) => {
+
                     if let Some(unfinished_index) = self
                         .unfinished_syscalls
                         .iter()
                         .position(|sc| (sc.name == sc_end.name) && (sc.pid == sc_end.pid))
                     {
+
                         let sc_start = self.unfinished_syscalls.swap_remove(unfinished_index); // I fucking love Rust <3
                         break sc_start.end(&sc_end);
                     }
+
                     log::warn!("Unable to find first part of syscall");
                 }
                 Ok(ParseResult::IgnoredLine) => {
+
                     log::warn!("Ignored line: {line:?}");
                 }
                 Err(e) => {
+
                     // Unfortunately, some versions of strace output inconsistent line format,
                     // so we have to ignore some parsing errors
                     // log::error!("Failed to parse line: {line:?}");
@@ -142,12 +168,15 @@ impl Iterator for LogParser {
                 }
             }
         };
+
         Some(Ok(sc))
     }
 }
 
 #[cfg(test)]
+
 mod tests {
+
     use std::io::Cursor;
 
     use pretty_assertions::assert_eq;
@@ -163,7 +192,9 @@ mod tests {
     }
 
     #[test]
+
     fn mmap() {
+
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -180,7 +211,9 @@ mod tests {
     }
 
     #[test]
+
     fn access() {
+
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -191,7 +224,9 @@ mod tests {
     }
 
     #[test]
+
     fn rt_sigaction() {
+
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -202,7 +237,9 @@ mod tests {
     }
 
     #[test]
+
     fn rt_sigprocmask() {
+
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -211,14 +248,18 @@ mod tests {
     }
 
     #[test]
+
     fn kill_no_sig() {
+
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(parse_line("51667      0.000002 kill(51668, 0)      = 0").unwrap());
     }
 
     #[test]
+
     fn newfstatat() {
+
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -229,7 +270,9 @@ mod tests {
     }
 
     #[test]
+
     fn getrandom() {
+
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -240,7 +283,9 @@ mod tests {
     }
 
     #[test]
+
     fn fstatfs() {
+
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -257,7 +302,9 @@ mod tests {
     }
 
     #[test]
+
     fn open_relative() {
+
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -268,7 +315,9 @@ mod tests {
     }
 
     #[test]
+
     fn truncated() {
+
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -283,18 +332,23 @@ mod tests {
     }
 
     #[test]
+
     fn invalid() {
+
         let _ = simple_logger::SimpleLogger::new().init();
 
         // Bogus output ('{{', note the missing field name) that strace 5.10 can generate
         let res = parse_line(
             "57652      0.000071 sendto(19<\\x73\\x6f\\x63\\x6b\\x65\\x74\\x3a\\x5b\\x38\\x34\\x38\\x36\\x39\\x32\\x5d>, {{len=20, type=0x16 /* NLMSG_??? */, flags=NLM_F_REQUEST|0x300, seq=1697715709, pid=0}, \"\\x00\\x00\\x00\\x00\"}, 20, 0, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) = 20",
         );
+
         assert_eq!(res.unwrap(), ParseResult::IgnoredLine);
     }
 
     #[test]
+
     fn bind() {
+
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -311,7 +365,9 @@ mod tests {
     }
 
     #[test]
+
     fn multiplication() {
+
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -322,7 +378,9 @@ mod tests {
     }
 
     #[test]
+
     fn epoll() {
+
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -339,7 +397,9 @@ mod tests {
     }
 
     #[test]
+
     fn interleave() {
+
         let _ = simple_logger::SimpleLogger::new().init();
 
         let lines = Cursor::new(
@@ -349,21 +409,27 @@ mod tests {
                 .as_bytes()
                 .to_vec(),
         );
+
         let parser = LogParser::new(Box::new(lines), None).unwrap();
+
         let syscalls: Vec<Syscall> = parser.into_iter().collect::<Result<_, _>>().unwrap();
 
         assert_snapshot!(syscalls);
     }
 
     #[test]
+
     fn getpid() {
+
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(parse_line("641342      0.000022 getpid()           = 641314").unwrap());
     }
 
     #[test]
+
     fn close() {
+
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -372,7 +438,9 @@ mod tests {
     }
 
     #[test]
+
     fn sched_getaffinity() {
+
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -382,7 +450,9 @@ mod tests {
     }
 
     #[test]
+
     fn execve() {
+
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -392,7 +462,9 @@ mod tests {
     }
 
     #[test]
+
     fn ioctl() {
+
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -402,7 +474,9 @@ mod tests {
     }
 
     #[test]
+
     fn in_out_args() {
+
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -429,7 +503,9 @@ mod tests {
     }
 
     #[test]
+
     fn named_args() {
+
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -441,7 +517,9 @@ mod tests {
     }
 
     #[test]
+
     fn bitshift() {
+
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -453,7 +531,9 @@ mod tests {
     }
 
     #[test]
+
     fn macro_addr_arg() {
+
         let _ = simple_logger::SimpleLogger::new().init();
 
         assert_snapshot!(
@@ -465,8 +545,11 @@ mod tests {
     }
 
     #[test]
+
     fn wait() {
+
         let _ = simple_logger::SimpleLogger::new().init();
+
         assert_snapshot!(
             parse_line(
                 "30192      0.000010 wait4(30247, [{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 30247",
@@ -476,8 +559,11 @@ mod tests {
     }
 
     #[test]
+
     fn ret_code() {
+
         let _ = simple_logger::SimpleLogger::new().init();
+
         assert_snapshot!(
             parse_line(
                 r#"39270      0.000020 connect(11<\x73\x6f\x63\x6b\x65\x74\x3a\x5b\x32\x31\x34\x31\x30\x37\x5d>, {sa_family=AF_INET, sin_port=htons(4321), sin_addr=inet_addr("\x31\x2e\x32\x2e\x33\x2e\x34")}, 16) = -1 EINPROGRESS (Operation now in progress)"#,
@@ -488,7 +574,9 @@ mod tests {
 }
 
 #[cfg(all(feature = "nightly", test))]
+
 mod benchs {
+
     extern crate test;
 
     use std::io::BufReader;
@@ -498,11 +586,16 @@ mod benchs {
     use super::*;
 
     #[bench]
+
     fn bench_parse_line(b: &mut Bencher) {
+
         let log_path = Path::new("strace.log");
+
         if !log_path.is_file() {
+
             return;
         }
+
         let log_lines: Vec<_> = BufReader::new(File::open(log_path).unwrap())
             .lines()
             .take(5000)
@@ -510,6 +603,7 @@ mod benchs {
             .unwrap();
 
         b.iter(|| {
+
             log_lines.iter().map(|l| parse_line(&l)).for_each(drop);
         });
     }

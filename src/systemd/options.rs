@@ -26,6 +26,7 @@ use crate::{
 
 /// Callbacks to dynamically update an option to make it compatible with an action
 #[derive(Debug)]
+
 pub(crate) struct OptionUpdater {
     /// Generate a new option effect compatible with the previously incompatible action
     /// If effect contains multiple ones, updater is called once per sub effect
@@ -39,6 +40,7 @@ pub(crate) struct OptionUpdater {
 
 /// Systemd option with its possibles values, and their effect
 #[derive(Debug)]
+
 pub(crate) struct OptionDescription {
     pub name: &'static str,
     pub possible_values: Vec<OptionValueDescription>,
@@ -47,14 +49,19 @@ pub(crate) struct OptionDescription {
 
 impl OptionDescription {
     pub(crate) fn write_markdown<W: Write>(&self, w: &mut W) -> io::Result<()> {
+
         const MARKDOWN_IDENT: &str = "  ";
+
         writeln!(
             w,
             "- [`{}`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#{}=)\n",
             self.name, self.name
         )?;
+
         for opt_val in &self.possible_values {
+
             if let OptionValue::List(list) = &opt_val.value {
+
                 writeln!(
                     w,
                     "{}- *dynamic {}{}*",
@@ -65,10 +72,13 @@ impl OptionDescription {
                         ListMode::WhiteList => "whitelisting",
                     }
                 )?;
+
                 break;
             }
+
             match &opt_val.value {
                 OptionValue::Boolean(v) => {
+
                     writeln!(
                         w,
                         "{}- `{}`",
@@ -79,42 +89,53 @@ impl OptionDescription {
                 OptionValue::String(v) => writeln!(w, "{MARKDOWN_IDENT}- `{v}`")?,
                 OptionValue::List(ListOptionValue { values, .. }) => {
                     for val in values {
+
                         writeln!(w, "{MARKDOWN_IDENT}- `{val}`")?;
                     }
                 }
             }
         }
+
         if let Some(updater) = &self.updater {
+
             let mut first = true;
+
             for new_opt_name in updater
                 .dynamic_option_names
                 .iter()
                 .filter(|n| **n != self.name)
             {
+
                 if first {
+
                     writeln!(
                         w,
                         "{MARKDOWN_IDENT}- to support this option, other options may be dynamically enabled:",
                     )?;
+
                     first = false;
                 }
+
                 writeln!(
                     w,
                     "{MARKDOWN_IDENT}{MARKDOWN_IDENT}- [`{new_opt_name}`](https://www.freedesktop.org/software/systemd/man/latest/systemd.directives.html#{new_opt_name}=)"
                 )?;
             }
         }
+
         writeln!(w)
     }
 }
 
 impl fmt::Display for OptionDescription {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+
         self.name.fmt(f)
     }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+
 pub(crate) enum ListMode {
     WhiteList,
     BlackList,
@@ -122,6 +143,7 @@ pub(crate) enum ListMode {
 
 /// Systemd option value
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
+
 pub(crate) enum OptionValue {
     Boolean(bool), // In most case we only model the 'true' value, because false is no-op and the default
     String(String), // enum-like, or free string
@@ -129,6 +151,7 @@ pub(crate) enum OptionValue {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
+
 pub(crate) struct ListOptionValue {
     pub values: Vec<String>,
     pub value_if_empty: Option<&'static str>,
@@ -143,6 +166,7 @@ impl FromStr for OptionValue {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+
         match s {
             "true" => Ok(OptionValue::Boolean(true)),
             "false" => Ok(OptionValue::Boolean(false)),
@@ -153,6 +177,7 @@ impl FromStr for OptionValue {
 
 /// A systemd option value and its effects
 #[derive(Debug)]
+
 pub(crate) struct OptionValueDescription {
     pub value: OptionValue,
     pub desc: OptionEffect,
@@ -160,6 +185,7 @@ pub(crate) struct OptionValueDescription {
 
 /// The effects a systemd option has if enabled
 #[derive(Debug, Clone)]
+
 pub(crate) enum OptionEffect {
     /// Option has no modeled effect (it will be unconditionally enabled)
     None,
@@ -170,6 +196,7 @@ pub(crate) enum OptionEffect {
 }
 
 #[derive(Debug, Clone)]
+
 pub(crate) enum PathDescription {
     Base {
         base: PathBuf,
@@ -180,6 +207,7 @@ pub(crate) enum PathDescription {
 
 impl PathDescription {
     pub(crate) fn base(base: &str) -> Self {
+
         Self::Base {
             base: base.into(),
             exceptions: vec![],
@@ -187,12 +215,15 @@ impl PathDescription {
     }
 
     pub(crate) fn pattern(pattern: &'static str) -> Self {
+
         #[expect(clippy::unwrap_used)]
         Self::Pattern(regex::bytes::Regex::new(pattern).unwrap())
     }
 
     pub(crate) fn matches(&self, path: &Path) -> bool {
+
         assert!(path.is_absolute(), "{path:?}");
+
         match self {
             PathDescription::Base { base, exceptions } => {
                 path.starts_with(base) && !exceptions.iter().any(|e| path.starts_with(e))
@@ -203,6 +234,7 @@ impl PathDescription {
 }
 
 #[derive(Debug, Clone)]
+
 pub(crate) struct EmptyPathDescription {
     /// Base path
     pub base: PathBuf,
@@ -216,6 +248,7 @@ pub(crate) struct EmptyPathDescription {
 
 impl EmptyPathDescription {
     pub(crate) fn base(base: &str) -> Self {
+
         Self {
             base: base.into(),
             base_ro: false,
@@ -225,6 +258,7 @@ impl EmptyPathDescription {
     }
 
     pub(crate) fn base_ro(base: &str) -> Self {
+
         Self {
             base: base.into(),
             base_ro: true,
@@ -234,23 +268,30 @@ impl EmptyPathDescription {
     }
 
     pub(crate) fn matches(&self, path: &Path, ro: bool) -> bool {
+
         assert!(path.is_absolute(), "{path:?}");
+
         if !path.starts_with(&self.base) {
+
             return false;
         }
+
         if ro {
+
             !self
                 .exceptions_ro
                 .iter()
                 .chain(&self.exceptions_rw)
                 .any(|e| path.starts_with(e))
         } else {
+
             !self.exceptions_rw.iter().any(|e| path.starts_with(e))
         }
     }
 }
 
 #[derive(Debug, Clone)]
+
 pub(crate) enum OptionValueEffect {
     /// Deny an action
     DenyAction(ProgramAction),
@@ -270,24 +311,33 @@ pub(crate) enum OptionValueEffect {
 
 impl OptionValueEffect {
     /// Merge current effect with another, while avoiding creating nested `Multiple`
+
     pub(crate) fn merge(&mut self, other: &OptionValueEffect) {
+
         match self {
             OptionValueEffect::Multiple(effs) => match other {
                 OptionValueEffect::Multiple(oeffs) => {
+
                     effs.extend(oeffs.iter().cloned());
                 }
                 oeff => {
+
                     effs.push(oeff.clone());
                 }
             },
             eff => match other {
                 OptionValueEffect::Multiple(oeffs) => {
+
                     let mut new_effs = Vec::with_capacity(oeffs.len() + 1);
+
                     new_effs.push(eff.to_owned());
+
                     new_effs.extend(oeffs.iter().cloned());
+
                     *eff = OptionValueEffect::Multiple(new_effs);
                 }
                 oeff => {
+
                     *eff = OptionValueEffect::Multiple(vec![eff.to_owned(), oeff.to_owned()]);
                 }
             },
@@ -295,7 +345,9 @@ impl OptionValueEffect {
     }
 
     /// Get an iterator over effects
+
     pub(crate) fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Self> + 'a> {
+
         match self {
             OptionValueEffect::Multiple(effs) => Box::new(effs.iter()),
             _ => Box::new(iter::once(self)),
@@ -304,6 +356,7 @@ impl OptionValueEffect {
 }
 
 #[derive(Debug, Clone)]
+
 pub(crate) enum DenySyscalls {
     /// See <https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L306>
     /// for the content of each class
@@ -322,6 +375,7 @@ pub(crate) enum DenySyscalls {
     serde::Deserialize,
 )]
 #[strum(serialize_all = "snake_case")]
+
 pub(crate) enum SocketFamily {
     Ipv4,
     Ipv6,
@@ -332,6 +386,7 @@ impl FromStr for SocketFamily {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+
         match s {
             "AF_INET" => Ok(Self::Ipv4),
             "AF_INET6" => Ok(Self::Ipv6),
@@ -351,6 +406,7 @@ impl FromStr for SocketFamily {
     serde::Deserialize,
 )]
 #[strum(serialize_all = "snake_case")]
+
 pub(crate) enum SocketProtocol {
     Tcp,
     Udp,
@@ -361,6 +417,7 @@ impl FromStr for SocketProtocol {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+
         match s {
             "SOCK_STREAM" => Ok(Self::Tcp),
             "SOCK_DGRAM" => Ok(Self::Udp),
@@ -371,9 +428,12 @@ impl FromStr for SocketProtocol {
 
 impl DenySyscalls {
     /// Get denied syscall names
+
     pub(crate) fn syscalls(&self) -> HashSet<&'static str> {
+
         match self {
             Self::Class(class) => {
+
                 #[expect(clippy::unwrap_used)]
                 let mut content: HashSet<_> = SYSCALL_CLASSES
                     .get(class)
@@ -381,10 +441,13 @@ impl DenySyscalls {
                     .iter()
                     .copied()
                     .collect();
+
                 while content.iter().any(|e| e.starts_with('@')) {
+
                     content = content
                         .iter()
                         .filter_map(|c| {
+
                             #[expect(clippy::unwrap_used)]
                             c.strip_prefix('@')
                                 .map(|cn| SYSCALL_CLASSES.get(cn).unwrap())
@@ -394,6 +457,7 @@ impl DenySyscalls {
                         .copied()
                         .collect();
                 }
+
                 content
             }
             Self::Single(sc) => HashSet::from([sc.to_owned()]),
@@ -403,6 +467,7 @@ impl DenySyscalls {
 
 /// A systemd option with a value, as would be present in a config file
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
+
 pub(crate) struct OptionWithValue<T> {
     pub name: T,
     pub value: OptionValue,
@@ -410,8 +475,11 @@ pub(crate) struct OptionWithValue<T> {
 
 impl<T: PartialEq> OptionWithValue<T> {
     /// Merge current option with another if we can, return true if we succeeded
+
     pub(crate) fn merge(&mut self, other: &Self) -> bool {
+
         if self.name == other.name {
+
             match (&mut self.value, &other.value) {
                 (
                     OptionValue::List(ListOptionValue {
@@ -439,13 +507,17 @@ impl<T: PartialEq> OptionWithValue<T> {
                     && mode == omode
                     && mergeable_paths == omergeable_paths =>
                 {
+
                     values.extend(ovalues.iter().cloned());
+
                     values.sort_unstable();
+
                     true
                 }
                 _ => false,
             }
         } else {
+
             false
         }
     }
@@ -455,6 +527,7 @@ impl FromStr for OptionWithValue<String> {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+
         let (name, value) = s
             .split_once('=')
             .ok_or_else(|| anyhow::anyhow!("Missing '=' char in {s:?}"))?;
@@ -469,8 +542,10 @@ impl FromStr for OptionWithValue<String> {
 
 impl<T: fmt::Display> fmt::Display for OptionWithValue<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+
         match &self.value {
             OptionValue::Boolean(value) => {
+
                 write!(f, "{}={}", self.name, if *value { "true" } else { "false" })
             }
             OptionValue::String(value) => write!(f, "{}={}", self.name, value),
@@ -483,21 +558,31 @@ impl<T: fmt::Display> fmt::Display for OptionWithValue<T> {
                 ..
             }) => {
                 if values.is_empty() {
+
                     write!(f, "{}=", self.name)?;
+
                     if let Some(value_if_empty) = value_if_empty {
+
                         write!(f, "{value_if_empty}")
                     } else {
+
                         unreachable!()
                     }
                 } else if *repeat_option {
+
                     for (i, value) in values.iter().enumerate() {
+
                         write!(f, "{}={}{}{}", self.name, option_prefix, elem_prefix, value)?;
+
                         if i < values.len() - 1 {
+
                             writeln!(f)?;
                         }
                     }
+
                     Ok(())
                 } else {
+
                     write!(
                         f,
                         "{}={}{}",
@@ -522,38 +607,58 @@ pub(crate) fn merge_similar_paths(
     paths: &[PathBuf],
     simplify_threshold: Option<NonZeroUsize>,
 ) -> Vec<PathBuf> {
+
     match simplify_threshold {
         Some(simplify_threshold) if paths.len() > simplify_threshold.get() => {
+
             let mut children: HashMap<PathBuf, HashSet<PathBuf>> = HashMap::new();
+
             for path in paths {
+
                 let ancestors: Vec<_> = path.ancestors().map(Path::to_path_buf).collect();
+
                 let mut parent: Option<PathBuf> = None;
+
                 for dir in ancestors.into_iter().rev() {
+
                     if let Some(parent) = parent.as_ref() {
+
                         children
                             .entry(parent.to_owned())
                             .or_default()
                             .insert(dir.clone());
                     }
+
                     parent = Some(dir);
                 }
             }
+
             let initial_candidates = vec![PathBuf::from("/")];
+
             let mut candidates = initial_candidates.clone();
+
             loop {
+
                 let mut advancing = false;
+
                 let mut new_candidates = Vec::with_capacity(candidates.len());
+
                 for candidate in &candidates {
+
                     match children.get(candidate) {
                         Some(candidate_children) if !paths.contains(candidate) => {
+
                             new_candidates.extend(candidate_children.iter().cloned());
+
                             advancing |= !candidate_children.is_empty();
                         }
                         _ => {
+
                             new_candidates.push(candidate.to_owned());
                         }
                     }
                 }
+
                 // Bail out if:
                 // not progressing anymore (paths don't have children)
                 if !advancing
@@ -564,34 +669,45 @@ pub(crate) fn merge_similar_paths(
                 // not less path than initial input
                 || (new_candidates.len() >= paths.len())
                 {
+
                     break;
                 }
+
                 candidates = new_candidates;
             }
+
             if candidates == initial_candidates {
+
                 paths.to_vec()
             } else {
+
                 candidates.sort_unstable();
+
                 candidates
             }
         }
         _ => {
+
             let mut paths: Vec<_> = paths
                 .iter()
                 .filter(|e| !paths.iter().any(|oe| *e != oe && e.starts_with(oe)))
                 .cloned()
                 .collect();
+
             paths.sort_unstable();
+
             paths
         }
     }
 }
 
 fn action_path_exception(action_path: PathBuf) -> PathBuf {
+
     if action_path
         .symlink_metadata()
         .is_ok_and(|m| m.file_type().is_symlink())
     {
+
         // systemd follows symlinks, so won't bind mount the symlink,
         // add exception for parent instead
         action_path
@@ -599,11 +715,13 @@ fn action_path_exception(action_path: PathBuf) -> PathBuf {
             .map(Path::to_path_buf)
             .unwrap_or(action_path)
     } else {
+
         action_path
     }
 }
 
 /// Context passed to option builders to determine which options are enabled
+
 pub(crate) struct OptionContext<'a> {
     pub systemd_version: &'a SystemdVersion,
     pub kernel_version: &'a KernelVersion,
@@ -614,50 +732,67 @@ pub(crate) struct OptionContext<'a> {
 
 impl OptionContext<'_> {
     fn is_system_instance(&self) -> bool {
+
         matches!(self.instance_kind, systemd::InstanceKind::System)
     }
 
     fn can_use_namespaces(&self) -> bool {
+
         self.is_system_instance() || self.sysctl_state.kernel_unprivileged_userns_clone
     }
 
     fn systemd_min_version(&self, major: u16, minor: u16) -> bool {
+
         *self.systemd_version >= SystemdVersion::new(major, minor)
     }
 
     fn kernel_min_version(&self, major: u16, minor: u16, patch: u16) -> bool {
+
         *self.kernel_version >= KernelVersion::new(major, minor, patch)
     }
 }
 
 /// Trait for systemd option specifications that can be conditionally enabled
+
 trait OptionSpec: Sync {
     /// Returns true if this option should be enabled for the given context
+
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+
         let _ = ctx;
+
         true
     }
 
     /// Builds the option description for this option
+
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription;
 }
 
 // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectSystem=
 struct ProtectSystemSpec;
+
 impl OptionSpec for ProtectSystemSpec {
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+
         let _ = ctx;
+
         let mut protect_system_yes_nowrite: Vec<_> = [
             "/usr/", "/boot/", "/efi/", "/lib/", "/lib64/", "/bin/", "/sbin/",
         ]
         .iter()
         .map(|p| OptionValueEffect::DenyWrite(PathDescription::base(p)))
         .collect();
+
         let mut protect_system_full_nowrite = protect_system_yes_nowrite.clone();
+
         protect_system_full_nowrite
             .push(OptionValueEffect::DenyWrite(PathDescription::base("/etc/")));
+
         protect_system_yes_nowrite.push(OptionValueEffect::DenyAction(ProgramAction::MountToHost));
+
         protect_system_full_nowrite.push(OptionValueEffect::DenyAction(ProgramAction::MountToHost));
+
         OptionDescription {
             name: "ProtectSystem",
             possible_values: vec![
@@ -691,13 +826,19 @@ impl OptionSpec for ProtectSystemSpec {
 
 // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectHome=
 struct ProtectHomeSpec;
+
 impl OptionSpec for ProtectHomeSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+
         ctx.can_use_namespaces()
     }
+
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+
         let _ = ctx;
+
         let home_paths = ["/home/", "/root/", "/run/user/"];
+
         OptionDescription {
             name: "ProtectHome",
             possible_values: vec![
@@ -745,17 +886,23 @@ impl OptionSpec for ProtectHomeSpec {
 
 // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateTmp=
 struct PrivateTmpSpec;
+
 impl OptionSpec for PrivateTmpSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+
         ctx.can_use_namespaces()
     }
+
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+
         OptionDescription {
             name: "PrivateTmp",
             possible_values: vec![OptionValueDescription {
                 value: if ctx.systemd_min_version(257, 0) {
+
                     OptionValue::String("disconnected".into())
                 } else {
+
                     OptionValue::Boolean(true)
                 },
                 desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
@@ -771,12 +918,17 @@ impl OptionSpec for PrivateTmpSpec {
 
 // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateDevices=
 struct PrivateDevicesSpec;
+
 impl OptionSpec for PrivateDevicesSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+
         ctx.can_use_namespaces()
     }
+
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+
         let _ = ctx;
+
         OptionDescription {
             name: "PrivateDevices",
             possible_values: vec![OptionValueDescription {
@@ -818,12 +970,17 @@ impl OptionSpec for PrivateDevicesSpec {
 
 // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateMounts=
 struct PrivateMountsSpec;
+
 impl OptionSpec for PrivateMountsSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+
         ctx.can_use_namespaces()
     }
+
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+
         let _ = ctx;
+
         OptionDescription {
             name: "PrivateMounts",
             possible_values: vec![OptionValueDescription {
@@ -839,12 +996,17 @@ impl OptionSpec for PrivateMountsSpec {
 
 // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelTunables=
 struct ProtectKernelTunablesSpec;
+
 impl OptionSpec for ProtectKernelTunablesSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+
         ctx.can_use_namespaces()
     }
+
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+
         let _ = ctx;
+
         OptionDescription {
             name: "ProtectKernelTunables",
             possible_values: vec![OptionValueDescription {
@@ -867,12 +1029,14 @@ impl OptionSpec for ProtectKernelTunablesSpec {
                     ]
                     .iter()
                     .map(|p| {
+
                         OptionValueEffect::DenyWrite(PathDescription::Base {
                             base: PathBuf::from("/proc/").join(p),
                             exceptions: vec![],
                         })
                     })
                     .chain(["kallsyms", "kcore"].iter().map(|p| {
+
                         OptionValueEffect::RemovePath(PathDescription::Base {
                             base: PathBuf::from("/proc/").join(p),
                             exceptions: vec![],
@@ -895,12 +1059,17 @@ impl OptionSpec for ProtectKernelTunablesSpec {
 
 // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelModules=
 struct ProtectKernelModulesSpec;
+
 impl OptionSpec for ProtectKernelModulesSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+
         ctx.can_use_namespaces()
     }
+
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+
         let _ = ctx;
+
         OptionDescription {
             name: "ProtectKernelModules",
             possible_values: vec![OptionValueDescription {
@@ -920,12 +1089,17 @@ impl OptionSpec for ProtectKernelModulesSpec {
 
 // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelLogs=
 struct ProtectKernelLogsSpec;
+
 impl OptionSpec for ProtectKernelLogsSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+
         ctx.can_use_namespaces()
     }
+
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+
         let _ = ctx;
+
         OptionDescription {
             name: "ProtectKernelLogs",
             possible_values: vec![OptionValueDescription {
@@ -946,12 +1120,17 @@ impl OptionSpec for ProtectKernelLogsSpec {
 
 // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectControlGroups=
 struct ProtectControlGroupsSpec;
+
 impl OptionSpec for ProtectControlGroupsSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+
         ctx.is_system_instance()
     }
+
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+
         let _ = ctx;
+
         // TODO private/strip
         OptionDescription {
             name: "ProtectControlGroups",
@@ -972,14 +1151,19 @@ impl OptionSpec for ProtectControlGroupsSpec {
 // https://github.com/systemd/systemd/commit/4e39995371738b04d98d27b0d34ea8fe09ec9fab
 // https://docs.kernel.org/filesystems/proc.html#mount-options
 struct ProtectProcSpec;
+
 impl OptionSpec for ProtectProcSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+
         ctx.is_system_instance()
             && ctx.systemd_min_version(247, 0)
             && ctx.kernel_min_version(5, 8, 0)
     }
+
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+
         let _ = ctx;
+
         OptionDescription {
             name: "ProtectProc",
             // Since we have no easy & reliable (race free) way to know which process belongs to
@@ -998,14 +1182,19 @@ impl OptionSpec for ProtectProcSpec {
 
 // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProcSubset=
 struct ProcSubsetSpec;
+
 impl OptionSpec for ProcSubsetSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+
         ctx.is_system_instance()
             && ctx.systemd_min_version(247, 0)
             && ctx.kernel_min_version(5, 8, 0)
     }
+
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+
         let _ = ctx;
+
         OptionDescription {
             name: "ProcSubset",
             possible_values: vec![OptionValueDescription {
@@ -1024,9 +1213,12 @@ impl OptionSpec for ProcSubsetSpec {
 
 // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#LockPersonality=
 struct LockPersonalitySpec;
+
 impl OptionSpec for LockPersonalitySpec {
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+
         let _ = ctx;
+
         OptionDescription {
             name: "LockPersonality",
             possible_values: vec![OptionValueDescription {
@@ -1045,9 +1237,12 @@ impl OptionSpec for LockPersonalitySpec {
 
 // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#RestrictRealtime=
 struct RestrictRealtimeSpec;
+
 impl OptionSpec for RestrictRealtimeSpec {
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+
         let _ = ctx;
+
         OptionDescription {
             name: "RestrictRealtime",
             possible_values: vec![OptionValueDescription {
@@ -1063,12 +1258,17 @@ impl OptionSpec for RestrictRealtimeSpec {
 
 // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectClock=
 struct ProtectClockSpec;
+
 impl OptionSpec for ProtectClockSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+
         ctx.can_use_namespaces()
     }
+
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+
         let _ = ctx;
+
         OptionDescription {
             name: "ProtectClock",
             possible_values: vec![OptionValueDescription {
@@ -1090,9 +1290,12 @@ impl OptionSpec for ProtectClockSpec {
 // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#MemoryDenyWriteExecute=
 // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L1721
 struct MemoryDenyWriteExecuteSpec;
+
 impl OptionSpec for MemoryDenyWriteExecuteSpec {
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+
         let _ = ctx;
+
         OptionDescription {
             name: "MemoryDenyWriteExecute",
             possible_values: vec![OptionValueDescription {
@@ -1111,12 +1314,17 @@ impl OptionSpec for MemoryDenyWriteExecuteSpec {
 // This is actually very safe to enable, but since we don't currently support checking for its
 // compatibility during profiling, only enable it in aggressive mode
 struct SystemCallArchitecturesSpec;
+
 impl OptionSpec for SystemCallArchitecturesSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+
         matches!(ctx.hardening_opts.mode, HardeningMode::Aggressive)
     }
+
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+
         let _ = ctx;
+
         OptionDescription {
             name: "SystemCallArchitectures",
             possible_values: vec![OptionValueDescription {
@@ -1130,12 +1338,17 @@ impl OptionSpec for SystemCallArchitecturesSpec {
 
 // https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ReadWritePaths=
 struct ReadOnlyPathsSpec;
+
 impl OptionSpec for ReadOnlyPathsSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+
         ctx.can_use_namespaces() && ctx.hardening_opts.filesystem_whitelisting
     }
+
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+
         let _ = ctx;
+
         OptionDescription {
             name: "ReadOnlyPaths",
             possible_values: vec![OptionValueDescription {
@@ -1155,19 +1368,25 @@ impl OptionSpec for ReadOnlyPathsSpec {
             }],
             updater: Some(OptionUpdater {
                 effect: |effect, action, _| {
+
                     let action_path = match action {
                         ProgramAction::Write(action_path) => action_path.to_owned(),
                         ProgramAction::Create(action_path) => action_path.parent()?.to_owned(),
                         _ => return None,
                     };
+
                     match effect {
                         OptionValueEffect::DenyWrite(PathDescription::Base {
                             base,
                             exceptions,
                         }) if action_path != Path::new("/") => {
+
                             let mut new_exceptions = Vec::with_capacity(exceptions.len() + 1);
+
                             new_exceptions.extend(exceptions.iter().cloned());
+
                             new_exceptions.push(action_path);
+
                             Some(OptionValueEffect::DenyWrite(PathDescription::Base {
                                 base: base.to_owned(),
                                 exceptions: new_exceptions,
@@ -1178,6 +1397,7 @@ impl OptionSpec for ReadOnlyPathsSpec {
                 },
                 options: |effect| match effect {
                     OptionValueEffect::DenyWrite(PathDescription::Base { base, exceptions }) => {
+
                         vec![
                             OptionWithValue {
                                 name: "ReadOnlyPaths",
@@ -1210,6 +1430,7 @@ impl OptionSpec for ReadOnlyPathsSpec {
                         ]
                     }
                     OptionValueEffect::DenyAction(ProgramAction::MountToHost) => {
+
                         vec![OptionWithValue {
                             name: "PrivateMounts",
                             value: OptionValue::Boolean(true),
@@ -1229,12 +1450,17 @@ impl OptionSpec for ReadOnlyPathsSpec {
 
 // https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ReadWritePaths=
 struct InaccessiblePathsSpec;
+
 impl OptionSpec for InaccessiblePathsSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+
         ctx.can_use_namespaces() && ctx.hardening_opts.filesystem_whitelisting
     }
+
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+
         let _ = ctx;
+
         let mut possible_values = vec![OptionValueDescription {
             value: OptionValue::List(ListOptionValue {
                 values: vec!["/".to_owned()],
@@ -1250,14 +1476,17 @@ impl OptionSpec for InaccessiblePathsSpec {
                 OptionValueEffect::DenyAction(ProgramAction::MountToHost),
             ])),
         }];
+
         // To avoid InaccessiblePaths being completely disabled simply because of the equivalent of 'ls /',
         // we set another option value for each dir directly under /
         let base_paths: Option<Vec<String>> = fs::read_dir("/")
             .ok()
             .and_then(|i| i.collect::<Result<Vec<_>, _>>().ok())
             .and_then(|v| {
+
                 // Don't make those inaccessible, systemd won't be able to start anything
                 let excluded_run_dirs = [Path::new("/run"), Path::new("/proc")];
+
                 v.into_iter()
                     .filter(|e| !excluded_run_dirs.contains(&e.path().as_ref()))
                     // systemd follows symlinks when applying option, so exclude them
@@ -1266,10 +1495,14 @@ impl OptionSpec for InaccessiblePathsSpec {
                     .collect()
             })
             .map(|mut v: Vec<_>| {
+
                 v.sort_unstable();
+
                 v
             });
+
         if let Some(base_paths) = base_paths {
+
             possible_values.insert(
                 0,
                 OptionValueDescription {
@@ -1286,6 +1519,7 @@ impl OptionSpec for InaccessiblePathsSpec {
                         base_paths
                             .iter()
                             .map(|p| {
+
                                 OptionValueEffect::Multiple(vec![
                                     OptionValueEffect::RemovePath(PathDescription::base(p)),
                                     OptionValueEffect::DenyAction(ProgramAction::MountToHost),
@@ -1296,11 +1530,13 @@ impl OptionSpec for InaccessiblePathsSpec {
                 },
             );
         }
+
         OptionDescription {
             name: "InaccessiblePaths",
             possible_values,
             updater: Some(OptionUpdater {
                 effect: |effect, action, _| {
+
                     let (action_path, action_ro) = match action {
                         ProgramAction::Read(action_path) | ProgramAction::Exec(action_path) => {
                             (action_path.to_owned(), true)
@@ -1311,23 +1547,32 @@ impl OptionSpec for InaccessiblePathsSpec {
                         }
                         _ => return None,
                     };
+
                     match effect {
                         OptionValueEffect::RemovePath(PathDescription::Base {
                             base,
                             exceptions,
                         }) => {
+
                             // This will be reached only when first transforming an initial InaccessiblePaths option (RemovePath) into
                             // less restrictive EmptyPaths + exceptions
                             assert!(exceptions.is_empty());
+
                             let new_exception_path = action_path_exception(action_path);
+
                             if base.starts_with(&new_exception_path) {
+
                                 return None;
                             }
+
                             let (exceptions_ro, exceptions_rw) = if action_ro {
+
                                 (vec![new_exception_path], vec![])
                             } else {
+
                                 (vec![], vec![new_exception_path])
                             };
+
                             Some(OptionValueEffect::EmptyPath(EmptyPathDescription {
                                 base: base.to_owned(),
                                 base_ro: true,
@@ -1341,32 +1586,48 @@ impl OptionSpec for InaccessiblePathsSpec {
                             exceptions_ro,
                             exceptions_rw,
                         }) => {
+
                             let mut new_exceptions_ro =
                                 Vec::with_capacity(exceptions_ro.len() + usize::from(action_ro));
+
                             new_exceptions_ro.extend(exceptions_ro.iter().cloned());
+
                             let mut new_exceptions_rw =
                                 Vec::with_capacity(exceptions_rw.len() + usize::from(!action_ro));
+
                             new_exceptions_rw.extend(exceptions_rw.iter().cloned());
+
                             let mut base_ro = *base_ro;
+
                             let new_exception_path = action_path_exception(action_path);
+
                             if matches!(action, ProgramAction::Create(_))
                                 && new_exception_path == *base
                             {
+
                                 base_ro = false;
                             } else {
+
                                 if base.starts_with(&new_exception_path) {
+
                                     return None;
                                 }
+
                                 if action_ro {
+
                                     new_exceptions_ro.push(new_exception_path);
                                 } else {
+
                                     new_exceptions_rw.push(new_exception_path);
                                 }
                             }
+
                             // Remove exceptions in ro list if in rw
                             new_exceptions_ro.retain(|ero| {
+
                                 !new_exceptions_rw.iter().any(|erw| ero.starts_with(erw))
                             });
+
                             Some(OptionValueEffect::EmptyPath(EmptyPathDescription {
                                 base: base.to_owned(),
                                 base_ro,
@@ -1384,11 +1645,13 @@ impl OptionSpec for InaccessiblePathsSpec {
                         exceptions_ro,
                         exceptions_rw,
                     }) => {
+
                         // TemporayFileSystem nullifies ReadOnlyPaths, so we must apply read only restrictions here too
                         let mut new_opts = Vec::with_capacity(
                             1 + usize::from(!exceptions_ro.is_empty())
                                 + usize::from(!exceptions_rw.is_empty()),
                         );
+
                         new_opts.push(OptionWithValue {
                             name: "TemporaryFileSystem",
                             value: OptionValue::List(ListOptionValue {
@@ -1406,18 +1669,25 @@ impl OptionSpec for InaccessiblePathsSpec {
                                 mergeable_paths: true,
                             }),
                         });
+
                         let merged_exceptions_ro: Vec<_> = {
+
                             let merged_paths = merge_similar_paths(exceptions_ro, None);
+
                             if merged_paths.iter().any(|p| *base_ro && (p == base)) {
+
                                 // The exception nullifies the option, bail out
                                 return vec![];
                             }
+
                             merged_paths
                                 .into_iter()
                                 .filter_map(|p| p.to_str().map(ToOwned::to_owned))
                                 .collect()
                         };
+
                         if !merged_exceptions_ro.is_empty() {
+
                             new_opts.push(OptionWithValue {
                                 name: "BindReadOnlyPaths",
                                 value: OptionValue::List(ListOptionValue {
@@ -1431,18 +1701,25 @@ impl OptionSpec for InaccessiblePathsSpec {
                                 }),
                             });
                         }
+
                         let merged_exceptions_rw: Vec<_> = {
+
                             let merged_paths = merge_similar_paths(exceptions_rw, None);
+
                             if merged_paths.iter().any(|p| p == base) {
+
                                 // The exception nullifies the option, bail out
                                 return vec![];
                             }
+
                             merged_paths
                                 .into_iter()
                                 .filter_map(|p| p.to_str().map(ToOwned::to_owned))
                                 .collect()
                         };
+
                         if !merged_exceptions_rw.is_empty() {
+
                             new_opts.push(OptionWithValue {
                                 name: "BindPaths",
                                 value: OptionValue::List(ListOptionValue {
@@ -1456,9 +1733,11 @@ impl OptionSpec for InaccessiblePathsSpec {
                                 }),
                             });
                         }
+
                         new_opts
                     }
                     OptionValueEffect::DenyAction(ProgramAction::MountToHost) => {
+
                         vec![OptionWithValue {
                             name: "PrivateMounts",
                             value: OptionValue::Boolean(true),
@@ -1466,7 +1745,9 @@ impl OptionSpec for InaccessiblePathsSpec {
                     }
                     #[expect(clippy::unwrap_used)]
                     OptionValueEffect::RemovePath(PathDescription::Base { base, exceptions }) => {
+
                         assert!(exceptions.is_empty());
+
                         vec![OptionWithValue {
                             name: "InaccessiblePaths",
                             value: OptionValue::List(ListOptionValue {
@@ -1495,12 +1776,17 @@ impl OptionSpec for InaccessiblePathsSpec {
 
 // https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ReadWritePaths=
 struct NoExecPathsSpec;
+
 impl OptionSpec for NoExecPathsSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+
         ctx.can_use_namespaces() && ctx.hardening_opts.filesystem_whitelisting
     }
+
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+
         let _ = ctx;
+
         OptionDescription {
             name: "NoExecPaths",
             possible_values: vec![OptionValueDescription {
@@ -1520,16 +1806,23 @@ impl OptionSpec for NoExecPathsSpec {
             }],
             updater: Some(OptionUpdater {
                 effect: |effect, action, _| {
+
                     let ProgramAction::Exec(action_path) = action else {
+
                         return None;
                     };
+
                     match effect {
                         OptionValueEffect::DenyExec(PathDescription::Base { base, exceptions })
                             if action_path != Path::new("/") =>
                         {
+
                             let mut new_exceptions = Vec::with_capacity(exceptions.len() + 1);
+
                             new_exceptions.extend(exceptions.iter().cloned());
+
                             new_exceptions.push(action_path.to_owned());
+
                             Some(OptionValueEffect::DenyExec(PathDescription::Base {
                                 base: base.to_owned(),
                                 exceptions: new_exceptions,
@@ -1540,6 +1833,7 @@ impl OptionSpec for NoExecPathsSpec {
                 },
                 options: |effect| match effect {
                     OptionValueEffect::DenyExec(PathDescription::Base { base, exceptions }) => {
+
                         vec![
                             OptionWithValue {
                                 name: "NoExecPaths",
@@ -1572,6 +1866,7 @@ impl OptionSpec for NoExecPathsSpec {
                         ]
                     }
                     OptionValueEffect::DenyAction(ProgramAction::MountToHost) => {
+
                         vec![OptionWithValue {
                             name: "PrivateMounts",
                             value: OptionValue::Boolean(true),
@@ -1587,9 +1882,12 @@ impl OptionSpec for NoExecPathsSpec {
 
 // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#RestrictAddressFamilies=
 struct RestrictAddressFamiliesSpec;
+
 impl OptionSpec for RestrictAddressFamiliesSpec {
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+
         let _ = ctx;
+
         OptionDescription {
             name: "RestrictAddressFamilies",
             possible_values: vec![OptionValueDescription {
@@ -1606,6 +1904,7 @@ impl OptionSpec for RestrictAddressFamiliesSpec {
                     ADDRESS_FAMILIES
                         .iter()
                         .map(|af| {
+
                             OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(
                                 NetworkActivity {
                                     #[expect(clippy::unwrap_used)]
@@ -1632,12 +1931,17 @@ impl OptionSpec for RestrictAddressFamiliesSpec {
 // a socket file descriptor is passed to it from another process.
 // Although this is probably a very rare/niche case, it is possible, so we consider it only in aggressive mode
 struct PrivateNetworkSpec;
+
 impl OptionSpec for PrivateNetworkSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+
         ctx.can_use_namespaces() && matches!(ctx.hardening_opts.mode, HardeningMode::Aggressive)
     }
+
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+
         let _ = ctx;
+
         OptionDescription {
             name: "PrivateNetwork",
             possible_values: vec![OptionValueDescription {
@@ -1662,12 +1966,15 @@ impl OptionSpec for PrivateNetworkSpec {
 
 // https://www.freedesktop.org/software/systemd/man/systemd.resource-control.html#SocketBindAllow=bind-rule
 struct SocketBindDenySpec;
+
 impl OptionSpec for SocketBindDenySpec {
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+
         let deny_binds: Vec<_> = SocketFamily::iter()
             .take(2)
             .cartesian_product(SocketProtocol::iter().take(2))
             .collect();
+
         OptionDescription {
             name: "SocketBindDeny",
             possible_values: vec![OptionValueDescription {
@@ -1687,6 +1994,7 @@ impl OptionSpec for SocketBindDenySpec {
                     deny_binds
                         .into_iter()
                         .map(|(af, proto)| {
+
                             OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(
                                 NetworkActivity {
                                     af: SetSpecifier::One(af),
@@ -1706,23 +2014,33 @@ impl OptionSpec for SocketBindDenySpec {
                 .network_firewalling
                 .then_some(OptionUpdater {
                     effect: |e, a, _| {
+
                         let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(
                             effect_na,
                         )) = e
                         else {
+
                             return None;
                         };
+
                         let local_port = if let ProgramAction::NetworkActivity(na) = a {
+
                             if let SetSpecifier::One(local_port) = &na.as_ref().local_port {
+
                                 local_port
                             } else {
+
                                 return None;
                             }
                         } else {
+
                             return None;
                         };
+
                         let mut new_eff_local_port = effect_na.local_port.clone();
+
                         new_eff_local_port.remove(local_port);
+
                         Some(OptionValueEffect::DenyAction(
                             ProgramAction::NetworkActivity(
                                 NetworkActivity {
@@ -1737,10 +2055,12 @@ impl OptionSpec for SocketBindDenySpec {
                         ))
                     },
                     options: |e| {
+
                         let (af, proto, local_port) = if let OptionValueEffect::DenyAction(
                             ProgramAction::NetworkActivity(na),
                         ) = e
                         {
+
                             if let NetworkActivity {
                                 af: SetSpecifier::One(af),
                                 proto: SetSpecifier::One(proto),
@@ -1748,19 +2068,26 @@ impl OptionSpec for SocketBindDenySpec {
                                 ..
                             } = na.as_ref()
                             {
+
                                 (af, proto, local_port)
                             } else {
+
                                 unreachable!()
                             }
                         } else {
+
                             unreachable!();
                         };
+
                         let port_exceptions = local_port.excluded_elements();
+
                         let mut opts = Vec::with_capacity(1 + port_exceptions.len());
+
                         opts.push(OptionWithValue {
                             name: "SocketBindDeny",
                             value: OptionValue::String(format!("{af}:{proto}")),
                         });
+
                         opts.extend(
                             port_exceptions
                                 .iter()
@@ -1771,6 +2098,7 @@ impl OptionSpec for SocketBindDenySpec {
                                     )),
                                 }),
                         );
+
                         opts
                     },
                     dynamic_option_names: Vec::from(["SocketBindDeny"]),
@@ -1780,12 +2108,17 @@ impl OptionSpec for SocketBindDenySpec {
 }
 
 struct IpAddressDenySpec;
+
 impl OptionSpec for IpAddressDenySpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+
         ctx.hardening_opts.network_firewalling
     }
+
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+
         let _ = ctx;
+
         OptionDescription {
             name: "IPAddressDeny",
             possible_values: vec![OptionValueDescription {
@@ -1805,26 +2138,36 @@ impl OptionSpec for IpAddressDenySpec {
             }],
             updater: Some(OptionUpdater {
                 effect: |effect, action, _| {
+
                     let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(effect_na)) =
                         effect
                     else {
+
                         return None;
                     };
+
                     let action_addr = if let ProgramAction::NetworkActivity(na) = action {
+
                         if let NetworkActivity {
                             address: SetSpecifier::One(action_addr),
                             ..
                         } = na.as_ref()
                         {
+
                             action_addr
                         } else {
+
                             return None;
                         }
                     } else {
+
                         return None;
                     };
+
                     let mut new_effect_address = effect_na.address.clone();
+
                     new_effect_address.remove(action_addr);
+
                     Some(OptionValueEffect::DenyAction(
                         ProgramAction::NetworkActivity(
                             NetworkActivity {
@@ -1837,7 +2180,9 @@ impl OptionSpec for IpAddressDenySpec {
                 },
                 options: |effect| match effect {
                     OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(na)) => {
+
                         let NetworkActivity { address, .. } = na.as_ref();
+
                         vec![
                             OptionWithValue {
                                 name: "IPAddressDeny",
@@ -1870,12 +2215,17 @@ impl OptionSpec for IpAddressDenySpec {
 }
 
 struct CapabilityBoundingSetSpec;
+
 impl OptionSpec for CapabilityBoundingSetSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+
         ctx.can_use_namespaces()
     }
+
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+
         let _ = ctx;
+
         let cap_effects = [
             // CAP_AUDIT_CONTROL, CAP_AUDIT_READ, CAP_AUDIT_WRITE: requires netlink socket message handling
             (
@@ -1948,6 +2298,7 @@ impl OptionSpec for CapabilityBoundingSetSpec {
                             // AF_NETLINK sockets use SOCK_RAW, but does not require CAP_NET_RAW
                             .filter(|af| **af != "AF_NETLINK")
                             .map(|af| {
+
                                 OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(
                                     NetworkActivity {
                                         #[expect(clippy::unwrap_used)]
@@ -2041,6 +2392,7 @@ impl OptionSpec for CapabilityBoundingSetSpec {
                 OptionValueEffect::DenyAction(ProgramAction::SetAlarm),
             ),
         ];
+
         OptionDescription {
             name: "CapabilityBoundingSet",
             possible_values: vec![OptionValueDescription {
@@ -2061,14 +2413,21 @@ impl OptionSpec for CapabilityBoundingSetSpec {
 }
 
 struct SystemCallFilterSpec;
+
 impl OptionSpec for SystemCallFilterSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
+
         !matches!(ctx.hardening_opts.mode, HardeningMode::Generic)
     }
+
     fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+
         let _ = ctx;
+
         let mut syscall_classes: Vec<_> = SYSCALL_CLASSES.keys().copied().collect();
+
         syscall_classes.sort_unstable();
+
         OptionDescription {
             name: "SystemCallFilter",
             possible_values: vec![OptionValueDescription {
@@ -2109,6 +2468,7 @@ impl OptionSpec for SystemCallFilterSpec {
 // which we need to model
 
 /// Address families for `RestrictAddressFamilies` and `CapabilityBoundingSet`
+
 const ADDRESS_FAMILIES: &[&str] = &[
     // curl https://man7.org/linux/man-pages/man7/address_families.7.html | grep -o 'AF_[A-Za-z0-9]*' | sort -u | xargs -I'{}' echo \"'{}'\",
     "AF_ALG",
@@ -2156,6 +2516,7 @@ const ADDRESS_FAMILIES: &[&str] = &[
 ];
 
 /// Static registry of option specifications with their enable conditions
+
 static OPTION_SPECS: &[&dyn OptionSpec] = &[
     &ProtectSystemSpec,
     &ProtectHomeSpec,
@@ -2191,6 +2552,7 @@ pub(crate) fn build_options(
     instance_kind: &systemd::InstanceKind,
     hardening_opts: &HardeningOptions,
 ) -> Vec<OptionDescription> {
+
     let ctx = OptionContext {
         systemd_version,
         kernel_version,
@@ -2205,6 +2567,7 @@ pub(crate) fn build_options(
         .filter(|spec| spec.enabled_if(&ctx))
         .map(|spec| spec.build(&ctx))
         .filter(|desc| {
+
             ctx.hardening_opts
                 .systemd_options
                 .as_ref()
@@ -2213,15 +2576,20 @@ pub(crate) fn build_options(
         .collect();
 
     log::debug!("{options:#?}");
+
     options
 }
 
 #[cfg(test)]
+
 mod tests {
+
     use super::*;
 
     #[test]
+
     fn merge_similar_paths_works() {
+
         assert_eq!(
             merge_similar_paths(
                 &[
@@ -2234,6 +2602,7 @@ mod tests {
             ),
             vec![PathBuf::from("/a/ab")]
         );
+
         assert_eq!(
             merge_similar_paths(
                 &[
@@ -2249,6 +2618,7 @@ mod tests {
                 PathBuf::from("/a3/ab/ab3")
             ]
         );
+
         assert_eq!(
             merge_similar_paths(
                 &[
@@ -2260,6 +2630,7 @@ mod tests {
             ),
             vec![PathBuf::from("/a")]
         );
+
         assert_eq!(
             merge_similar_paths(
                 &[
@@ -2271,7 +2642,9 @@ mod tests {
             ),
             vec![PathBuf::from("/a/aa"), PathBuf::from("/a/ab")]
         );
+
         for threshold in [2, 5] {
+
             assert_eq!(
                 merge_similar_paths(
                     &[

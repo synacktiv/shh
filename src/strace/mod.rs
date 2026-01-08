@@ -9,13 +9,16 @@ use nix::libc::pid_t;
 pub(crate) use run::Strace;
 
 const STRACE_BIN: &str = if let Some(p) = option_env!("SHH_STRACE_BIN_PATH") {
+
     p
 } else {
+
     "strace"
 };
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(test, derive(serde::Serialize))]
+
 pub(crate) struct Syscall {
     pub pid: pid_t,
     pub rel_ts: f64,
@@ -26,6 +29,7 @@ pub(crate) struct Syscall {
 
 impl Syscall {
     pub(crate) fn is_successful_or_pending(&self) -> bool {
+
         // Strace `--successful-only` argument can make us miss interesting stuff,
         // so identify "successful" syscalls with our own logic
 
@@ -36,6 +40,7 @@ impl Syscall {
         ///   can then be waited for with `epoll`
         /// - The operation is idempotent, and the code means "already done", for example `open`
         ///   with `O_EXCL|O_CREAT` flags that returns EEXIST error
+
         const SUCCESSFUL_ERRNO_VALUES: [&str; 4] =
             ["EAGAIN", "EEXIST", "EINPROGRESS", "EWOULDBLOCK"];
 
@@ -51,6 +56,7 @@ impl Syscall {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(test, derive(serde::Serialize))]
+
 pub(crate) enum BufferType {
     AbstractPath,
     Unknown,
@@ -58,6 +64,7 @@ pub(crate) enum BufferType {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(test, derive(serde::Serialize))]
+
 pub(crate) struct IntegerExpression {
     pub value: IntegerExpressionValue,
     pub metadata: Option<Vec<u8>>,
@@ -65,12 +72,14 @@ pub(crate) struct IntegerExpression {
 
 impl IntegerExpression {
     pub(crate) fn value(&self) -> Option<i128> {
+
         self.value.value()
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(test, derive(serde::Serialize))]
+
 pub(crate) struct BufferExpression {
     pub value: Vec<u8>,
     pub type_: BufferType,
@@ -78,6 +87,7 @@ pub(crate) struct BufferExpression {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(test, derive(serde::Serialize))]
+
 pub(crate) enum Expression {
     Buffer(BufferExpression),
     MacAddress([u8; 6]),
@@ -96,6 +106,7 @@ pub(crate) enum Expression {
 
 impl Expression {
     pub(crate) fn metadata(&self) -> Option<&[u8]> {
+
         match self {
             Self::Integer(IntegerExpression { metadata, .. }) => metadata.as_deref(),
             _ => None,
@@ -105,6 +116,7 @@ impl Expression {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(test, derive(serde::Serialize))]
+
 pub(crate) enum IntegerExpressionValue {
     BinaryOr(Vec<IntegerExpressionValue>),
     BooleanAnd(Vec<IntegerExpressionValue>),
@@ -125,6 +137,7 @@ pub(crate) enum IntegerExpressionValue {
 
 impl IntegerExpressionValue {
     pub(crate) fn is_flag_set(&self, flag: &str) -> bool {
+
         match self {
             IntegerExpressionValue::NamedSymbol(v) => flag == v,
             IntegerExpressionValue::BinaryOr(ces) => ces.iter().any(|ce| ce.is_flag_set(flag)),
@@ -133,6 +146,7 @@ impl IntegerExpressionValue {
     }
 
     pub(crate) fn flags(&self) -> Vec<String> {
+
         match self {
             IntegerExpressionValue::NamedSymbol(v) => vec![v.clone()],
             IntegerExpressionValue::BinaryOr(vs) => {
@@ -143,6 +157,7 @@ impl IntegerExpressionValue {
     }
 
     pub(crate) fn value(&self) -> Option<i128> {
+
         match self {
             IntegerExpressionValue::BinaryOr(values) => values
                 .iter()
@@ -184,6 +199,7 @@ impl IntegerExpressionValue {
 }
 
 #[derive(Ord, PartialOrd, Eq, PartialEq)]
+
 pub(crate) struct StraceVersion {
     pub major: u16,
     pub minor: u16,
@@ -191,27 +207,33 @@ pub(crate) struct StraceVersion {
 
 impl StraceVersion {
     pub(crate) fn new(major: u16, minor: u16) -> Self {
+
         Self { major, minor }
     }
 
     pub(crate) fn local_system() -> anyhow::Result<Self> {
+
         let output = Command::new(STRACE_BIN).arg("--version").output()?;
+
         anyhow::ensure!(
             output.status.success(),
             "strace invocation failed with code {:?}",
             output.status
         );
+
         let version_line = output
             .stdout
             .lines()
             .next()
             .ok_or_else(|| anyhow::anyhow!("Unable to get strace version"))??;
+
         let (major, minor) = version_line
             .rsplit_once(' ')
             .ok_or_else(|| anyhow::anyhow!("Unable to get strace version"))?
             .1
             .split_once('.')
             .ok_or_else(|| anyhow::anyhow!("Unable to get strace version"))?;
+
         Ok(Self {
             major: major.parse()?,
             minor: minor.parse()?,
@@ -221,6 +243,7 @@ impl StraceVersion {
 
 impl fmt::Display for StraceVersion {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+
         write!(f, "{}.{}", self.major, self.minor)
     }
 }

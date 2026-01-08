@@ -9,6 +9,7 @@ use crate::systemd;
 /// Command line arguments
 #[derive(Parser, Debug)]
 #[command(version, about)]
+
 pub(crate) struct Args {
     #[command(subcommand)]
     pub action: Action,
@@ -17,6 +18,7 @@ pub(crate) struct Args {
 /// How hard we should harden
 #[derive(Debug, Clone, Default, clap::ValueEnum, strum::Display)]
 #[strum(serialize_all = "snake_case")]
+
 pub(crate) enum HardeningMode {
     /// Try to generate hardening options that are more likely be portable across different systems for this service.
     /// WARNING: This is a best effort attempt, and NOT a guarantee. The only way to ensure the options will
@@ -31,6 +33,7 @@ pub(crate) enum HardeningMode {
 }
 
 #[derive(Debug, clap::Parser)]
+
 pub(crate) struct HardeningOptions {
     /// How hard we should harden
     #[arg(short, long, default_value_t, value_enum)]
@@ -59,7 +62,9 @@ pub(crate) struct HardeningOptions {
 impl HardeningOptions {
     /// Build the standard options options
     #[cfg_attr(not(test), expect(dead_code))]
+
     pub(crate) fn standard() -> Self {
+
         Self {
             mode: HardeningMode::Standard,
             network_firewalling: false,
@@ -71,7 +76,9 @@ impl HardeningOptions {
     }
 
     /// Build the most strict options
+
     pub(crate) fn strict() -> Self {
+
         Self {
             mode: HardeningMode::Aggressive,
             network_firewalling: true,
@@ -83,34 +90,45 @@ impl HardeningOptions {
     }
 
     pub(crate) fn to_cmd_args(&self) -> Vec<String> {
+
         let mut args = vec!["-m".to_owned(), self.mode.to_string()];
+
         if self.network_firewalling {
+
             args.push("-f".to_owned());
         }
+
         if self.filesystem_whitelisting {
+
             args.push("-w".to_owned());
         }
+
         args.extend([
             "--merge-paths-threshold".to_owned(),
             self.merge_paths_threshold.to_string(),
         ]);
+
         args
     }
 
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
+
         anyhow::ensure!(
             !(matches!(self.mode, HardeningMode::Generic) && self.network_firewalling),
             "Network firewalling is incompatible with generic hardening mode"
         );
+
         anyhow::ensure!(
             !(matches!(self.mode, HardeningMode::Generic) && self.filesystem_whitelisting),
             "Filesystem whitelisting is incompatible with generic hardening mode"
         );
+
         Ok(())
     }
 }
 
 #[derive(Debug, clap::Subcommand)]
+
 pub(crate) enum Action {
     /// Run a program to profile its behavior
     Run {
@@ -163,6 +181,7 @@ pub(crate) enum Action {
 }
 
 #[derive(Debug, clap::Parser)]
+
 pub(crate) struct Service {
     /// Service unit name
     pub name: String,
@@ -171,6 +190,7 @@ pub(crate) struct Service {
 }
 
 #[derive(Debug, clap::Parser)]
+
 pub(crate) struct ServiceInstance {
     /// Systemd instance of the service ("system" or "user" for per-user instances of the service manager)
     #[arg(short, long, default_value_t, value_enum)]
@@ -178,6 +198,7 @@ pub(crate) struct ServiceInstance {
 }
 
 #[derive(Debug, clap::Subcommand)]
+
 pub(crate) enum ServiceAction {
     /// Add fragment config to service to profile its behavior
     StartProfile {

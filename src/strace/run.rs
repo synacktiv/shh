@@ -24,14 +24,19 @@ pub(crate) struct Strace {
 
 impl Strace {
     pub(crate) fn run(command: &[&str], log_path: Option<PathBuf>) -> anyhow::Result<Self> {
+
         // Create named pipe in runtime directory or a temp dir
         let mut pipe_path_builder = tempfile::Builder::new();
+
         pipe_path_builder.prefix("strace_").suffix(".pipe");
+
         let pipe_path = if let Some(runtime_dir) =
             env::var_os("RUNTIME_DIRECTORY").and_then(|rd| env::split_paths(&rd).last())
         {
+
             pipe_path_builder.make_in(runtime_dir, Self::make_pipe)
         } else {
+
             pipe_path_builder.make(Self::make_pipe)
         }
         .context("Failed to create strace named pipe")?;
@@ -76,12 +81,14 @@ impl Strace {
     }
 
     fn make_pipe(path: &Path) -> io::Result<()> {
+
         #[expect(clippy::unwrap_used)]
         nix::unistd::mkfifo(path, nix::sys::stat::Mode::from_bits(0o600).unwrap())
             .map_err(Into::into)
     }
 
     pub(crate) fn stop(&self) {
+
         // Strace runs with `--deamonize=grandchild`, so will become child of the init process.
         // Consequently, the pid we have is already gone, but because we have started it with a unique process group,
         // we can still reliably kill strace.
@@ -89,19 +96,24 @@ impl Strace {
         // another process group (sshd does this).
         #[expect(clippy::cast_possible_wrap)]
         let pgid = nix::unistd::Pid::from_raw(-(self.process.id() as i32));
+
         // Ignore errors because it may have already naturally stopped
         let _ = nix::sys::signal::kill(pgid, nix::sys::signal::Signal::SIGKILL);
     }
 
     pub(crate) fn log_lines(&self) -> anyhow::Result<LogParser> {
+
         let reader = BufReader::new(File::open(self.pipe_path.path())?);
+
         LogParser::new(Box::new(reader), self.log_path.as_deref())
     }
 }
 
 impl Drop for Strace {
     fn drop(&mut self) {
+
         let _ = self.process.kill();
+
         let _ = self.process.wait();
     }
 }

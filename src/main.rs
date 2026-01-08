@@ -29,6 +29,7 @@ fn sd_options(
     instance_kind: &systemd::InstanceKind,
     hardening_opts: &cl::HardeningOptions,
 ) -> Vec<systemd::OptionDescription> {
+
     let sd_opts = systemd::build_options(
         sd_version,
         kernel_version,
@@ -36,6 +37,7 @@ fn sd_options(
         instance_kind,
         hardening_opts,
     );
+
     log::info!(
         "Enabled support for systemd options: {}",
         sd_opts
@@ -44,36 +46,49 @@ fn sd_options(
             .collect::<Vec<_>>()
             .join(", ")
     );
+
     sd_opts
 }
 
 fn edit_file(path: &Path) -> anyhow::Result<()> {
+
     let editor = env::var("VISUAL")
         .or_else(|_| env::var("EDITOR"))
         .unwrap_or_else(|_| {
+
             log::warn!("Neither VISUAL or EDITOR environment variable is set, defaulting to nano");
+
             "nano".into()
         });
+
     let editor_args = shlex::split(&editor)
         .ok_or_else(|| anyhow::anyhow!("Unable to parse environment variable value {editor:?}"))?;
+
     let (first_arg, other_args) = editor_args
         .split_first()
         .ok_or_else(|| anyhow::anyhow!("Empty editor environment variable value"))?;
+
     let status = Command::new(first_arg)
         .args(other_args)
         .arg(path)
         .status()?;
+
     anyhow::ensure!(status.success(), "Editor failed with status {status}");
+
     Ok(())
 }
 
 #[expect(clippy::too_many_lines)]
+
 fn main() -> anyhow::Result<()> {
+
     // Init logger
     simple_logger::SimpleLogger::new()
         .with_level(if cfg!(debug_assertions) {
+
             log::LevelFilter::Debug
         } else {
+
             log::LevelFilter::Info
         })
         .env()
@@ -83,13 +98,17 @@ fn main() -> anyhow::Result<()> {
     // Get versions
     let sd_version =
         systemd::SystemdVersion::local_system().context("Failed to get systemd version")?;
+
     let kernel_version =
         systemd::KernelVersion::local_system().context("Failed to get Linux kernel version")?;
+
     let strace_version =
         strace::StraceVersion::local_system().context("Failed to get strace version")?;
+
     log::info!(
         "Detected versions: Systemd {sd_version}, Linux kernel {kernel_version}, strace {strace_version}"
     );
+
     anyhow::ensure!(
         strace_version >= strace::StraceVersion::new(6, 6),
         "Strace version >=6.6 is required"
@@ -107,12 +126,14 @@ fn main() -> anyhow::Result<()> {
             profile_data_path,
             strace_log_path,
         } => {
+
             hardening_opts
                 .validate()
                 .context("Invalid command line options")?;
 
             // Build supported systemd options
             let sysctl_state = sysctl::State::fetch()?;
+
             let sd_opts = sd_options(
                 &sd_version,
                 &kernel_version,
@@ -123,6 +144,7 @@ fn main() -> anyhow::Result<()> {
 
             // Run strace
             let cmd = command.iter().map(|a| &**a).collect::<Vec<&str>>();
+
             let st = Arc::new(
                 strace::Strace::run(&cmd, strace_log_path)
                     .context("Failed to setup strace profiling")?,
@@ -135,15 +157,22 @@ fn main() -> anyhow::Result<()> {
                 signal_hook::consts::signal::SIGTERM,
             ])
             .context("Failed to setup signal handlers")?;
+
             let st_sig = Arc::clone(&st);
+
             thread::spawn(move || {
+
                 for sig in signals.forever() {
+
                     // Propagate signal to strace after this delay, in most cases everything should have already stopped
                     const SIGNAL_STRACE_STOP_DELAY: Duration = Duration::from_secs(5);
 
                     log::info!("Got signal {sig:?}");
+
                     sleep(SIGNAL_STRACE_STOP_DELAY);
+
                     log::info!("Stopping strace");
+
                     st_sig.stop();
                 }
             });
@@ -162,15 +191,20 @@ fn main() -> anyhow::Result<()> {
             let logs = st
                 .log_lines()
                 .context("Failed to setup strace output reader")?;
+
             let actions = summarize::summarize(logs, &env_paths, state)
                 .context("Failed to summarize syscalls")?;
+
             log::debug!("{actions:?}");
 
             if let Some(profile_data_path) = profile_data_path {
+
                 // Dump profile data
                 log::info!("Writing profile data into {profile_data_path:?}...");
+
                 let mut file = File::create(&profile_data_path)
                     .with_context(|| format!("Failed to create {profile_data_path:?}"))?;
+
                 bincode::serde::encode_into_std_write(
                     &actions,
                     &mut file,
@@ -178,6 +212,7 @@ fn main() -> anyhow::Result<()> {
                 )
                 .context("Failed to serialize profile")?;
             } else {
+
                 // Resolve
                 let resolved_opts = systemd::resolve(&sd_opts, &actions, &hardening_opts);
 
@@ -190,12 +225,14 @@ fn main() -> anyhow::Result<()> {
             hardening_opts,
             paths,
         } => {
+
             hardening_opts
                 .validate()
                 .context("Invalid command line options")?;
 
             // Build supported systemd options
             let sysctl_state = sysctl::State::fetch()?;
+
             let sd_opts = sd_options(
                 &sd_version,
                 &kernel_version,
@@ -206,14 +243,19 @@ fn main() -> anyhow::Result<()> {
 
             // Load and merge profile data
             let mut actions: Vec<summarize::ProgramAction> = Vec::new();
+
             for path in &paths {
+
                 let mut file =
                     File::open(path).with_context(|| format!("Failed to open {path:?}"))?;
+
                 let mut profile_actions: Vec<summarize::ProgramAction> =
                     bincode::serde::decode_from_std_read(&mut file, bincode::config::standard())
                         .with_context(|| format!("Failed to deserialize profile from {path:?}"))?;
+
                 actions.append(&mut profile_actions);
             }
+
             log::debug!("{actions:?}");
 
             // Resolve
@@ -224,6 +266,7 @@ fn main() -> anyhow::Result<()> {
 
             // Remove profile data files
             for path in paths {
+
                 fs::remove_file(&path)
                     .with_context(|| format!("Failed to remove profile file {path:?}"))?;
             }
@@ -234,39 +277,50 @@ fn main() -> anyhow::Result<()> {
             no_restart,
             refresh,
         }) => {
+
             hardening_opts
                 .validate()
                 .context("Invalid command line options")?;
 
             let service = systemd::Service::new(&service.name, service.instance.instance)
                 .context("Invalid service name")?;
+
             log::info!(
                 "Current service exposure level: {}",
                 service
                     .get_exposure_level()
                     .context("Failed to get exposure level")?
             );
+
             if refresh {
+
                 let moved = service
                     .rename_hardening_fragment()
                     .context("Failed to move existing systemd hardening fragment")?;
+
                 if moved {
+
                     service
                         .reload_unit_config()
                         .context("Failed to reload systemd config")?;
                 }
             }
+
             service
                 .add_profile_fragment(&hardening_opts)
                 .context("Failed to write systemd unit profiling fragment")?;
+
             if no_restart {
+
                 log::warn!(
                     "Profiling config will only be applied when systemd config is reloaded, and service restarted"
                 );
             } else {
+
                 service
                     .reload_unit_config()
                     .context("Failed to reload systemd config")?;
+
                 service
                     .action("restart", false)
                     .context("Failed to restart service")?;
@@ -278,16 +332,22 @@ fn main() -> anyhow::Result<()> {
             edit,
             no_restart,
         }) => {
+
             let service = systemd::Service::new(&service.name, service.instance.instance)
                 .context("Invalid service name")?;
+
             let cursor = systemd::JournalCursor::current()?;
+
             service
                 .action("stop", true)
                 .context("Failed to stop service")?;
+
             service
                 .remove_profile_fragment()
                 .context("Failed to remove systemd unit profiling fragment")?;
+
             let resolved_opts = service.profiling_result_retry(&cursor)?;
+
             log::info!(
                 "Resolved systemd options:\n{}",
                 resolved_opts
@@ -296,20 +356,28 @@ fn main() -> anyhow::Result<()> {
                     .collect::<Vec<_>>()
                     .join("\n")
             );
+
             if apply && !resolved_opts.is_empty() {
+
                 let fragment_path = service
                     .add_hardening_fragment(resolved_opts)
                     .context("Failed to write systemd unit hardening fragment")?;
+
                 if edit {
+
                     edit_file(&fragment_path).with_context(|| {
+
                         format!("Failed to edit geneted frament {fragment_path:?}")
                     })?;
                 }
             }
+
             service
                 .reload_unit_config()
                 .context("Failed to reload systemd config")?;
+
             if apply {
+
                 log::info!(
                     "New service exposure level: {}",
                     service
@@ -317,24 +385,34 @@ fn main() -> anyhow::Result<()> {
                         .context("Failed to get exposure level")?
                 );
             }
+
             if !no_restart {
+
                 service
                     .action("start", false)
                     .context("Failed to start service")?;
             }
         }
         cl::Action::Service(cl::ServiceAction::Reset { service }) => {
+
             let service = systemd::Service::new(&service.name, service.instance.instance)?;
+
             let _ = service.remove_profile_fragment();
+
             let _ = service.remove_hardening_fragment();
+
             service
                 .reload_unit_config()
                 .context("Failed to reload systemd config")?;
+
             let _ = service.action("try-restart", true);
         }
         cl::Action::ListSystemdOptions => {
+
             println!("# Supported systemd options\n");
+
             let sysctl_state = sysctl::State::all();
+
             let mut sd_opts = sd_options(
                 &sd_version,
                 &kernel_version,
@@ -342,10 +420,15 @@ fn main() -> anyhow::Result<()> {
                 &systemd::InstanceKind::System,
                 &cl::HardeningOptions::strict(),
             );
+
             sd_opts.sort_unstable_by_key(|o| o.name);
+
             {
+
                 let mut stdout = io::stdout().lock();
+
                 for sd_opt in sd_opts {
+
                     sd_opt
                         .write_markdown(&mut stdout)
                         .context("Failed to write markdown output")?;
@@ -354,30 +437,40 @@ fn main() -> anyhow::Result<()> {
         }
         #[cfg(feature = "generate-extra")]
         cl::Action::GenManPages { dir } => {
+
             use clap::CommandFactory as _;
 
             // Use the binary name instead of the default of the package name
             let cmd = cl::Args::command().name(env!("CARGO_BIN_NAME"));
+
             clap_mangen::generate_to(cmd, &dir)?;
         }
         #[cfg(feature = "generate-extra")]
         cl::Action::GenShellComplete { shell, dir } => {
+
             use clap::{CommandFactory as _, ValueEnum as _};
             use clap_complete::{Shell, generate, generate_to};
 
             // Use the binary name instead of the default of the package name
             let name = env!("CARGO_BIN_NAME");
+
             let mut cmd = cl::Args::command().name(name);
 
             if let Some(shell) = shell {
+
                 if let Some(dir) = dir {
+
                     generate_to(shell, &mut cmd, name, dir)?;
                 } else {
+
                     generate(shell, &mut cmd, name, &mut io::stdout());
                 }
             } else if let Some(dir) = dir {
+
                 let shells = Shell::value_variants();
+
                 for shell_i in shells {
+
                     generate_to(*shell_i, &mut cmd, name, &dir)?;
                 }
             }

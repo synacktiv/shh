@@ -16,7 +16,9 @@ use predicates::{BoxPredicate, prelude::*};
 //
 
 #[test]
+
 fn run_true() {
+
     cargo_bin_cmd!("shh")
         .args(["run", "--", "true"])
         .unwrap()
@@ -54,7 +56,9 @@ fn run_true() {
 }
 
 #[test]
+
 fn run_write_dev_null() {
+
     cargo_bin_cmd!("shh")
         .args(["run", "--", "sh", "-c", ": > /dev/null"])
         .unwrap()
@@ -87,7 +91,9 @@ fn run_write_dev_null() {
 }
 
 #[test]
+
 fn run_ls_dev() {
+
     cargo_bin_cmd!("shh")
         .args(["run", "--", "ls", "/dev"])
         .unwrap()
@@ -124,7 +130,9 @@ fn run_ls_dev() {
 }
 
 #[test]
+
 fn run_ls_proc() {
+
     cargo_bin_cmd!("shh")
         .args(["run", "--", "busybox", "ls", "/proc/1/"])
         .unwrap()
@@ -188,7 +196,9 @@ fn run_ls_proc() {
 }
 
 #[test]
+
 fn run_read_kallsyms() {
+
     cargo_bin_cmd!("shh")
         .args(["run", "--", "head", "/proc/kallsyms"])
         .unwrap()
@@ -226,7 +236,9 @@ fn run_read_kallsyms() {
 }
 
 #[test]
+
 fn run_ls_modules() {
+
     cargo_bin_cmd!("shh")
         .args(["run", "--", "ls", "/usr/lib/modules/"])
         .unwrap()
@@ -267,7 +279,9 @@ fn run_ls_modules() {
     not(feature = "int-tests-as-root"),
     ignore = "int-tests-as-root feature not enabled"
 )]
+
 fn run_dmesg() {
+
     assert!(Uid::effective().is_root());
 
     cargo_bin_cmd!("shh")
@@ -300,7 +314,9 @@ fn run_dmesg() {
 
 #[test]
 #[cfg_attr(feature = "int-tests-as-root", ignore)]
+
 fn run_systemctl() {
+
     assert!(!Uid::effective().is_root());
 
     cargo_bin_cmd!("shh")
@@ -339,7 +355,9 @@ fn run_systemctl() {
 }
 
 #[test]
+
 fn run_ss() {
+
     cargo_bin_cmd!("shh")
         .args(["run", "--", "ss", "-l"])
         .unwrap()
@@ -377,7 +395,9 @@ fn run_ss() {
 }
 
 #[test]
+
 fn run_mmap_wx() {
+
     cargo_bin_cmd!("shh")
         .args(["run", "--", "python3", "-c", "import mmap; mmap.mmap(-1, 4096, prot=mmap.PROT_WRITE|mmap.PROT_EXEC)"])
         .unwrap()
@@ -444,7 +464,9 @@ fn run_mmap_wx() {
     not(feature = "int-tests-as-root"),
     ignore = "int-tests-as-root feature not enabled"
 )]
+
 fn run_sched_realtime() {
+
     assert!(Uid::effective().is_root());
 
     cargo_bin_cmd!("shh")
@@ -499,7 +521,9 @@ fn run_sched_realtime() {
 }
 
 #[test]
+
 fn run_bind() {
+
     cargo_bin_cmd!("shh")
         .args(["run", "--", "python3", "-c", "import socket; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.bind((\"127.0.0.1\", 1234))"])
         .unwrap()
@@ -567,7 +591,9 @@ fn run_bind() {
     not(feature = "int-tests-as-root"),
     ignore = "int-tests-as-root feature not enabled"
 )]
+
 fn run_sock_packet() {
+
     assert!(Uid::effective().is_root());
 
     cargo_bin_cmd!("shh")
@@ -636,7 +662,9 @@ fn run_sock_packet() {
     not(feature = "int-tests-as-root"),
     ignore = "int-tests-as-root feature not enabled"
 )]
+
 fn run_syslog() {
+
     assert!(Uid::effective().is_root());
 
     cargo_bin_cmd!("shh")
@@ -672,12 +700,15 @@ fn run_syslog() {
     not(feature = "int-tests-as-root"),
     ignore = "int-tests-as-root feature not enabled"
 )]
+
 fn run_mknod() {
+
     assert!(Uid::effective().is_root());
 
     let tmp_dir = tempfile::tempdir().unwrap();
 
     let pipe_path = tmp_dir.path().join("pipe");
+
     cargo_bin_cmd!("shh")
         .args(["run", "--", "mknod", pipe_path.as_os_str().to_str().unwrap(), "p"])
         .unwrap()
@@ -706,6 +737,7 @@ fn run_mknod() {
         .stdout(predicate::str::contains("CapabilityBoundingSet=~CAP_BLOCK_SUSPEND CAP_BPF CAP_CHOWN CAP_IPC_LOCK CAP_KILL CAP_MKNOD CAP_NET_RAW CAP_PERFMON CAP_SYS_BOOT CAP_SYS_CHROOT CAP_SYS_MODULE CAP_SYS_NICE CAP_SYS_PACCT CAP_SYS_PTRACE CAP_SYS_TIME CAP_SYS_TTY_CONFIG CAP_SYSLOG CAP_WAKE_ALARM\n").count(1));
 
     let dev_path = tmp_dir.path().join("dev");
+
     cargo_bin_cmd!("shh")
         .args(["run", "--", "mknod", dev_path.as_os_str().to_str().unwrap(), "b", "255", "255"])
         .unwrap()
@@ -735,7 +767,9 @@ fn run_mknod() {
 }
 
 #[test]
+
 fn run_ping_4() {
+
     cargo_bin_cmd!("shh")
         .args(["run", "-f", "--", "ping", "-4", "-c", "1", "127.0.0.1"])
         .unwrap()
@@ -752,7 +786,9 @@ fn run_ping_4() {
 }
 
 #[test]
+
 fn run_ping_6() {
+
     cargo_bin_cmd!("shh")
         .args(["run", "-f", "--", "ping", "-6", "-c", "1", "::1"])
         .unwrap()

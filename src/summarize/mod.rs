@@ -26,6 +26,7 @@ mod handlers;
 /// A high level program runtime action
 /// This does *not* map 1-1 with a syscall, and does *not* necessarily respect chronology
 #[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+
 pub(crate) enum ProgramAction {
     /// Path was created
     Create(PathBuf),
@@ -62,6 +63,7 @@ pub(crate) enum ProgramAction {
 
 /// Network (socket) activity
 #[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+
 pub(crate) struct NetworkActivity {
     pub af: SetSpecifier<SocketFamily>,
     pub proto: SetSpecifier<SocketProtocol>,
@@ -73,6 +75,7 @@ pub(crate) struct NetworkActivity {
 
 /// Quantify something that is done or denied
 #[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+
 pub(crate) enum SetSpecifier<T> {
     None,
     One(T),
@@ -83,6 +86,7 @@ pub(crate) enum SetSpecifier<T> {
 
 impl<T: Eq + Clone> SetSpecifier<T> {
     fn contains_one(&self, needle: &T) -> bool {
+
         match self {
             Self::None => false,
             Self::One(e) => e == needle,
@@ -93,6 +97,7 @@ impl<T: Eq + Clone> SetSpecifier<T> {
     }
 
     pub(crate) fn intersects(&self, other: &Self) -> bool {
+
         match self {
             Self::None => false,
             Self::One(e) => other.contains_one(e),
@@ -109,6 +114,7 @@ impl<T: Eq + Clone> SetSpecifier<T> {
     }
 
     pub(crate) fn excluded_elements(&self) -> Vec<T> {
+
         match self {
             Self::AllExcept(vec) => vec.to_owned(),
             _ => unimplemented!(),
@@ -118,22 +124,31 @@ impl<T: Eq + Clone> SetSpecifier<T> {
     /// Remove a single element from the set
     /// The element to remove **must** be in the set, otherwise may panic
     #[expect(clippy::unwrap_used, clippy::panic)]
+
     pub(crate) fn remove(&mut self, to_rm: &T) {
+
         debug_assert!(self.contains_one(to_rm));
+
         match self {
             Self::None => panic!(),
             Self::One(_) => {
+
                 *self = Self::None;
             }
             Self::Some(es) => {
+
                 let idx = es.iter().position(|e| e == to_rm).unwrap();
+
                 es.remove(idx);
             }
             Self::AllExcept(excs) => {
+
                 debug_assert!(!excs.contains(to_rm));
+
                 excs.push(to_rm.to_owned());
             }
             Self::All => {
+
                 *self = Self::AllExcept(vec![to_rm.to_owned()]);
             }
         }
@@ -142,6 +157,7 @@ impl<T: Eq + Clone> SetSpecifier<T> {
 
 /// Socket activity
 #[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+
 pub(crate) enum NetworkActivityKind {
     SocketCreation,
     Bind,
@@ -152,6 +168,7 @@ pub(crate) enum NetworkActivityKind {
 
 impl NetworkActivityKind {
     /// All kinds that are linked with one or more addresses
+
     pub(crate) const ADDRESSED: [Self; 4] = [
         NetworkActivityKind::Bind,
         NetworkActivityKind::Connect,
@@ -160,7 +177,9 @@ impl NetworkActivityKind {
     ];
 
     /// Get kind from syscall name, panic if it fails
+
     fn from_sc_name(sc: &str) -> Self {
+
         match sc {
             "socket" => NetworkActivityKind::SocketCreation,
             "bind" => NetworkActivityKind::Bind,
@@ -173,30 +192,36 @@ impl NetworkActivityKind {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+
 pub(crate) struct NetworkPort(NonZeroU16);
 
 impl Display for NetworkPort {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+
         self.0.fmt(f)
     }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+
 pub(crate) struct NetworkAddress(IpAddr);
 
 impl From<IpAddr> for NetworkAddress {
     fn from(value: IpAddr) -> Self {
+
         Self(value)
     }
 }
 
 impl Display for NetworkAddress {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+
         write!(f, "{}", self.0)
     }
 }
 
 #[derive(Debug)]
+
 enum FdOrPath<T> {
     Fd(T),
     Path(T),
@@ -204,6 +229,7 @@ enum FdOrPath<T> {
 
 /// Meta structure to group syscalls that have similar summary handling
 /// and store arguments
+
 enum SyscallArgsInfo<T> {
     Chdir(FdOrPath<T>),
     EpollCtl {
@@ -275,13 +301,18 @@ enum SyscallArgsInfo<T> {
 }
 
 /// Syscall argument indexes
+
 type SyscallArgsIndex = SyscallArgsInfo<usize>;
+
 /// Syscall arguments
+
 type SyscallArgs<'a> = SyscallArgsInfo<&'a Expression>;
 
 impl SyscallArgsIndex {
     /// Extract arguments from indexes
+
     fn extract_args<'a>(&self, sc: &'a Syscall) -> anyhow::Result<SyscallArgs<'a>> {
+
         let args = match self {
             Self::Chdir(p) => SyscallArgsInfo::Chdir(match p {
                 FdOrPath::Fd(i) => FdOrPath::Fd(Self::extract_arg(sc, *i)?),
@@ -376,11 +407,14 @@ impl SyscallArgsIndex {
                 clockid: Self::extract_arg(sc, *clockid)?,
             },
         };
+
         Ok(args)
     }
 
     fn extract_arg(sc: &Syscall, index: usize) -> anyhow::Result<&Expression> {
+
         sc.args.get(index).ok_or_else(|| {
+
             anyhow::anyhow!(
                 "Unable to extract syscall argument {} for {:?}",
                 index,
@@ -397,6 +431,7 @@ impl SyscallArgsIndex {
 // - https://linasm.sourceforge.net/docs/syscalls/filesystem.php
 //
 static SYSCALL_MAP: LazyLock<HashMap<&'static str, SyscallArgsIndex>> = LazyLock::new(|| {
+
     HashMap::from([
         // chdir
         ("chdir", SyscallArgsIndex::Chdir(FdOrPath::Path(0))),
@@ -574,6 +609,7 @@ static SYSCALL_MAP: LazyLock<HashMap<&'static str, SyscallArgsIndex>> = LazyLock
 /// Information that persists between syscalls and that we need to handle
 /// Obviously, keeping this to a minimum is a goal
 #[derive(Debug)]
+
 pub(crate) struct ProgramState {
     /// Keep known socket protocols (per process) for bind handling, we don't care for the socket closings
     /// because the fd will be reused or never bound again
@@ -587,6 +623,7 @@ impl ProgramState {
     where
         P: Into<PathBuf>,
     {
+
         Self {
             known_sockets_proto: HashMap::new(),
             cur_dir: cur_dir.into(),
@@ -602,19 +639,28 @@ pub(crate) fn summarize<I>(
 where
     I: IntoIterator<Item = anyhow::Result<Syscall>>,
 {
+
     let mut actions = Vec::new();
+
     let mut stats: HashMap<String, u64> = HashMap::new();
+
     for syscall in syscalls {
+
         let syscall = syscall?;
+
         log::trace!("{syscall:?}");
+
         stats
             .entry(syscall.name.clone())
             .and_modify(|c| *c += 1)
             .or_insert(1);
+
         let name = syscall.name.as_str();
 
         if let Some(arg_indexes) = SYSCALL_MAP.get(name) {
+
             let args = arg_indexes.extract_args(&syscall)?;
+
             handlers::summarize_syscall(&syscall, args, &mut actions, &mut program_state)
                 .with_context(|| format!("Failed to summarize syscall {syscall:?}"))?;
         }
@@ -631,11 +677,16 @@ where
 
     // Report stats
     if log::log_enabled!(log::Level::Debug) {
+
         let mut syscall_names = stats.keys().collect::<Vec<_>>();
+
         syscall_names.sort_unstable();
+
         for syscall_name in syscall_names {
+
             #[expect(clippy::unwrap_used)]
             let count = stats.get(syscall_name).unwrap();
+
             log::debug!("{:24} {: >12}", format!("{syscall_name}:"), count);
         }
     }
@@ -645,24 +696,31 @@ where
 
 #[expect(clippy::unreadable_literal)]
 #[cfg(test)]
+
 mod tests {
+
     use std::os::unix::ffi::OsStrExt as _;
 
     use super::*;
     use crate::strace::*;
 
     #[test]
+
     fn relative_rename() {
+
         let _ = simple_logger::SimpleLogger::new().init();
 
         let env_paths = [
             PathBuf::from("/path/from/env/1"),
             PathBuf::from("/path/from/env/2"),
         ];
+
         let state = ProgramState::new("/");
 
         let temp_dir_src = tempfile::tempdir().unwrap();
+
         let temp_dir_dst = tempfile::tempdir().unwrap();
+
         let syscalls = [Ok(Syscall {
             pid: 1068781,
             rel_ts: 0.000083,
@@ -694,6 +752,7 @@ mod tests {
                 metadata: None,
             },
         })];
+
         assert_eq!(
             summarize(syscalls, &env_paths, state).unwrap(),
             vec![
@@ -709,13 +768,16 @@ mod tests {
     }
 
     #[test]
+
     fn connect_uds() {
+
         let _ = simple_logger::SimpleLogger::new().init();
 
         let env_paths = [
             PathBuf::from("/path/from/env/1"),
             PathBuf::from("/path/from/env/2"),
         ];
+
         let state = ProgramState::new("/");
 
         let syscalls = [Ok(Syscall {
@@ -753,6 +815,7 @@ mod tests {
                 metadata: None,
             },
         })];
+
         assert_eq!(
             summarize(syscalls, &env_paths, state).unwrap(),
             vec![
@@ -765,7 +828,9 @@ mod tests {
     }
 
     #[test]
+
     fn fstat_unknown() {
+
         let _ = simple_logger::SimpleLogger::new().init();
 
         let state = ProgramState::new("/");
@@ -911,6 +976,7 @@ mod tests {
                 metadata: None,
             },
         })];
+
         assert_eq!(
             summarize(syscalls, &[], state).unwrap(),
             vec![ProgramAction::Syscalls(

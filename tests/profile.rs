@@ -12,7 +12,9 @@ use predicates::prelude::predicate;
     not(feature = "int-tests-gimp"),
     ignore = "int-tests-gimp feature not enabled"
 )]
+
 fn run_gimp() {
+
     cargo_bin_cmd!("shh")
         .args(["run", "--", "xvfb-run", "timeout", "10", "gimp"])
         .unwrap()
