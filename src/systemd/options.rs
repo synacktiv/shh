@@ -921,6 +921,9 @@ fn build_lock_personality(_ctx: &OptionsContext<'_>) -> OptionDescription {
         name: "LockPersonality",
         possible_values: vec![OptionValueDescription {
             value: OptionValue::Boolean(true),
+            // In practice, the option allows the call if the default personality is set, but we don't
+            // need to model that level of precision.
+            // The "deny" model prevents false positives
             desc: OptionEffect::Simple(OptionValueEffect::DenySyscalls(DenySyscalls::Single(
                 "personality",
             ))),
