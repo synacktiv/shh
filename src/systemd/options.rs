@@ -604,7 +604,7 @@ fn action_path_exception(action_path: PathBuf) -> PathBuf {
 }
 
 /// Context passed to option builders to determine which options are enabled
-pub(crate) struct OptionsContext<'a> {
+pub(crate) struct OptionContext<'a> {
     pub systemd_version: &'a SystemdVersion,
     pub kernel_version: &'a KernelVersion,
     pub sysctl_state: &'a sysctl::State,
@@ -612,7 +612,7 @@ pub(crate) struct OptionsContext<'a> {
     pub hardening_opts: &'a HardeningOptions,
 }
 
-impl OptionsContext<'_> {
+impl OptionContext<'_> {
     fn is_system_instance(&self) -> bool {
         matches!(self.instance_kind, systemd::InstanceKind::System)
     }
@@ -632,16 +632,16 @@ impl OptionsContext<'_> {
 
 /// Specification for a systemd option that can be conditionally enabled
 struct OptionSpec {
-    enabled_if: fn(&OptionsContext<'_>) -> bool,
-    build: fn(&OptionsContext<'_>) -> OptionDescription,
+    enabled_if: fn(&OptionContext<'_>) -> bool,
+    build: fn(&OptionContext<'_>) -> OptionDescription,
 }
 
-fn always_enabled(_: &OptionsContext<'_>) -> bool {
+fn always_enabled(_: &OptionContext<'_>) -> bool {
     true
 }
 
 // Builder functions for each option
-fn build_protect_system(_ctx: &OptionsContext<'_>) -> OptionDescription {
+fn build_protect_system(_ctx: &OptionContext<'_>) -> OptionDescription {
     let mut protect_system_yes_nowrite: Vec<_> = [
         "/usr/", "/boot/", "/efi/", "/lib/", "/lib64/", "/bin/", "/sbin/",
     ]
@@ -680,7 +680,7 @@ fn build_protect_system(_ctx: &OptionsContext<'_>) -> OptionDescription {
     }
 }
 
-fn build_protect_home(_ctx: &OptionsContext<'_>) -> OptionDescription {
+fn build_protect_home(_ctx: &OptionContext<'_>) -> OptionDescription {
     let home_paths = ["/home/", "/root/", "/run/user/"];
     OptionDescription {
         name: "ProtectHome",
@@ -726,7 +726,7 @@ fn build_protect_home(_ctx: &OptionsContext<'_>) -> OptionDescription {
     }
 }
 
-fn build_private_tmp(ctx: &OptionsContext<'_>) -> OptionDescription {
+fn build_private_tmp(ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "PrivateTmp",
         possible_values: vec![OptionValueDescription {
@@ -745,7 +745,7 @@ fn build_private_tmp(ctx: &OptionsContext<'_>) -> OptionDescription {
     }
 }
 
-fn build_private_devices(_ctx: &OptionsContext<'_>) -> OptionDescription {
+fn build_private_devices(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "PrivateDevices",
         possible_values: vec![OptionValueDescription {
@@ -783,7 +783,7 @@ fn build_private_devices(_ctx: &OptionsContext<'_>) -> OptionDescription {
     }
 }
 
-fn build_private_mounts(_ctx: &OptionsContext<'_>) -> OptionDescription {
+fn build_private_mounts(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "PrivateMounts",
         possible_values: vec![OptionValueDescription {
@@ -794,7 +794,7 @@ fn build_private_mounts(_ctx: &OptionsContext<'_>) -> OptionDescription {
     }
 }
 
-fn build_protect_kernel_tunables(_ctx: &OptionsContext<'_>) -> OptionDescription {
+fn build_protect_kernel_tunables(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "ProtectKernelTunables",
         possible_values: vec![OptionValueDescription {
@@ -840,7 +840,7 @@ fn build_protect_kernel_tunables(_ctx: &OptionsContext<'_>) -> OptionDescription
     }
 }
 
-fn build_protect_kernel_modules(_ctx: &OptionsContext<'_>) -> OptionDescription {
+fn build_protect_kernel_modules(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "ProtectKernelModules",
         possible_values: vec![OptionValueDescription {
@@ -856,7 +856,7 @@ fn build_protect_kernel_modules(_ctx: &OptionsContext<'_>) -> OptionDescription 
     }
 }
 
-fn build_protect_kernel_logs(_ctx: &OptionsContext<'_>) -> OptionDescription {
+fn build_protect_kernel_logs(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "ProtectKernelLogs",
         possible_values: vec![OptionValueDescription {
@@ -872,7 +872,7 @@ fn build_protect_kernel_logs(_ctx: &OptionsContext<'_>) -> OptionDescription {
     }
 }
 
-fn build_protect_control_groups(_ctx: &OptionsContext<'_>) -> OptionDescription {
+fn build_protect_control_groups(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "ProtectControlGroups",
         possible_values: vec![OptionValueDescription {
@@ -886,7 +886,7 @@ fn build_protect_control_groups(_ctx: &OptionsContext<'_>) -> OptionDescription 
     }
 }
 
-fn build_protect_proc(_ctx: &OptionsContext<'_>) -> OptionDescription {
+fn build_protect_proc(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "ProtectProc",
         possible_values: vec![OptionValueDescription {
@@ -900,7 +900,7 @@ fn build_protect_proc(_ctx: &OptionsContext<'_>) -> OptionDescription {
     }
 }
 
-fn build_proc_subset(_ctx: &OptionsContext<'_>) -> OptionDescription {
+fn build_proc_subset(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "ProcSubset",
         possible_values: vec![OptionValueDescription {
@@ -916,7 +916,7 @@ fn build_proc_subset(_ctx: &OptionsContext<'_>) -> OptionDescription {
     }
 }
 
-fn build_lock_personality(_ctx: &OptionsContext<'_>) -> OptionDescription {
+fn build_lock_personality(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "LockPersonality",
         possible_values: vec![OptionValueDescription {
@@ -932,7 +932,7 @@ fn build_lock_personality(_ctx: &OptionsContext<'_>) -> OptionDescription {
     }
 }
 
-fn build_restrict_realtime(_ctx: &OptionsContext<'_>) -> OptionDescription {
+fn build_restrict_realtime(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "RestrictRealtime",
         possible_values: vec![OptionValueDescription {
@@ -945,7 +945,7 @@ fn build_restrict_realtime(_ctx: &OptionsContext<'_>) -> OptionDescription {
     }
 }
 
-fn build_protect_clock(_ctx: &OptionsContext<'_>) -> OptionDescription {
+fn build_protect_clock(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "ProtectClock",
         possible_values: vec![OptionValueDescription {
@@ -961,7 +961,7 @@ fn build_protect_clock(_ctx: &OptionsContext<'_>) -> OptionDescription {
     }
 }
 
-fn build_memory_deny_write_execute(_ctx: &OptionsContext<'_>) -> OptionDescription {
+fn build_memory_deny_write_execute(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "MemoryDenyWriteExecute",
         possible_values: vec![OptionValueDescription {
@@ -974,7 +974,7 @@ fn build_memory_deny_write_execute(_ctx: &OptionsContext<'_>) -> OptionDescripti
     }
 }
 
-fn build_system_call_architectures(_ctx: &OptionsContext<'_>) -> OptionDescription {
+fn build_system_call_architectures(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "SystemCallArchitectures",
         possible_values: vec![OptionValueDescription {
@@ -1031,7 +1031,7 @@ const ADDRESS_FAMILIES: &[&str] = &[
     "AF_XDP",
 ];
 
-fn build_private_network(_ctx: &OptionsContext<'_>) -> OptionDescription {
+fn build_private_network(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "PrivateNetwork",
         possible_values: vec![OptionValueDescription {
@@ -1053,7 +1053,7 @@ fn build_private_network(_ctx: &OptionsContext<'_>) -> OptionDescription {
     }
 }
 
-fn build_read_only_paths(_ctx: &OptionsContext<'_>) -> OptionDescription {
+fn build_read_only_paths(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "ReadOnlyPaths",
         possible_values: vec![OptionValueDescription {
@@ -1139,7 +1139,7 @@ fn build_read_only_paths(_ctx: &OptionsContext<'_>) -> OptionDescription {
     }
 }
 
-fn build_inaccessible_paths(_ctx: &OptionsContext<'_>) -> OptionDescription {
+fn build_inaccessible_paths(_ctx: &OptionContext<'_>) -> OptionDescription {
     let mut possible_values = vec![OptionValueDescription {
         value: OptionValue::List(ListOptionValue {
             values: vec!["/".to_owned()],
@@ -1393,7 +1393,7 @@ fn build_inaccessible_paths(_ctx: &OptionsContext<'_>) -> OptionDescription {
     }
 }
 
-fn build_no_exec_paths(_ctx: &OptionsContext<'_>) -> OptionDescription {
+fn build_no_exec_paths(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "NoExecPaths",
         possible_values: vec![OptionValueDescription {
@@ -1477,7 +1477,7 @@ fn build_no_exec_paths(_ctx: &OptionsContext<'_>) -> OptionDescription {
     }
 }
 
-fn build_restrict_address_families(_ctx: &OptionsContext<'_>) -> OptionDescription {
+fn build_restrict_address_families(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "RestrictAddressFamilies",
         possible_values: vec![OptionValueDescription {
@@ -1513,7 +1513,7 @@ fn build_restrict_address_families(_ctx: &OptionsContext<'_>) -> OptionDescripti
     }
 }
 
-fn build_socket_bind_deny(ctx: &OptionsContext<'_>) -> OptionDescription {
+fn build_socket_bind_deny(ctx: &OptionContext<'_>) -> OptionDescription {
     let deny_binds: Vec<_> = SocketFamily::iter()
         .take(2)
         .cartesian_product(SocketProtocol::iter().take(2))
@@ -1627,7 +1627,7 @@ fn build_socket_bind_deny(ctx: &OptionsContext<'_>) -> OptionDescription {
     }
 }
 
-fn build_ip_address_deny(_ctx: &OptionsContext<'_>) -> OptionDescription {
+fn build_ip_address_deny(_ctx: &OptionContext<'_>) -> OptionDescription {
     OptionDescription {
         name: "IPAddressDeny",
         possible_values: vec![OptionValueDescription {
@@ -1710,7 +1710,7 @@ fn build_ip_address_deny(_ctx: &OptionsContext<'_>) -> OptionDescription {
     }
 }
 
-fn build_capability_bounding_set(_ctx: &OptionsContext<'_>) -> OptionDescription {
+fn build_capability_bounding_set(_ctx: &OptionContext<'_>) -> OptionDescription {
     let cap_effects = [
         (
             "CAP_BLOCK_SUSPEND",
@@ -1868,7 +1868,7 @@ fn build_capability_bounding_set(_ctx: &OptionsContext<'_>) -> OptionDescription
     }
 }
 
-fn build_system_call_filter(_ctx: &OptionsContext<'_>) -> OptionDescription {
+fn build_system_call_filter(_ctx: &OptionContext<'_>) -> OptionDescription {
     let mut syscall_classes: Vec<_> = SYSCALL_CLASSES.keys().copied().collect();
     syscall_classes.sort_unstable();
     OptionDescription {
@@ -2043,7 +2043,7 @@ pub(crate) fn build_options(
     instance_kind: &systemd::InstanceKind,
     hardening_opts: &HardeningOptions,
 ) -> Vec<OptionDescription> {
-    let ctx = OptionsContext {
+    let ctx = OptionContext {
         systemd_version,
         kernel_version,
         sysctl_state,
