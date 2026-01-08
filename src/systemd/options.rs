@@ -1870,12 +1870,13 @@ impl OptionSpec for IpAddressDenySpec {
 }
 
 struct CapabilityBoundingSetSpec;
+
 impl OptionSpec for CapabilityBoundingSetSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
         ctx.can_use_namespaces()
     }
-    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        let _ = ctx;
+
+    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
         let cap_effects = [
             // CAP_AUDIT_CONTROL, CAP_AUDIT_READ, CAP_AUDIT_WRITE: requires netlink socket message handling
             (
@@ -2060,13 +2061,15 @@ impl OptionSpec for CapabilityBoundingSetSpec {
     }
 }
 
+// https://www.freedesktop.org/software/systemd/man/systemd.exec.html#SystemCallFilter=
 struct SystemCallFilterSpec;
+
 impl OptionSpec for SystemCallFilterSpec {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
         !matches!(ctx.hardening_opts.mode, HardeningMode::Generic)
     }
-    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
-        let _ = ctx;
+
+    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
         let mut syscall_classes: Vec<_> = SYSCALL_CLASSES.keys().copied().collect();
         syscall_classes.sort_unstable();
         OptionDescription {
