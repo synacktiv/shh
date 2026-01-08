@@ -2061,19 +2061,22 @@ pub(crate) fn build_options(
     // which we need to model
 
     // Build options from the static registry
-    let mut options: Vec<OptionDescription> = OPTION_SPECS
+    let options: Vec<OptionDescription> = OPTION_SPECS
         .iter()
         .filter(|spec| (spec.enabled_if)(&ctx))
         .map(|spec| (spec.build)(&ctx))
+        .filter(|desc| {
+            ctx.hardening_opts
+                .systemd_options
+                .as_ref()
+                .is_none_or(|whitelist| whitelist.iter().any(|wo| desc.name == wo))
+        })
         .collect();
-
-    if let Some(options_whitelist) = &ctx.hardening_opts.systemd_options {
-        options.retain(|o| options_whitelist.iter().any(|k| o.name == k));
-    }
 
     log::debug!("{options:#?}");
     options
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
