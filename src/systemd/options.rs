@@ -603,29 +603,45 @@ fn action_path_exception(action_path: PathBuf) -> PathBuf {
     }
 }
 
-#[expect(clippy::too_many_lines, clippy::similar_names)]
-pub(crate) fn build_options(
-    systemd_version: &SystemdVersion,
-    kernel_version: &KernelVersion,
-    sysctl_state: &sysctl::State,
-    instance_kind: &systemd::InstanceKind,
-    hardening_opts: &HardeningOptions,
-) -> Vec<OptionDescription> {
-    let mut options = Vec::new();
+/// Context passed to option builders to determine which options are enabled
+pub(crate) struct OptionsContext<'a> {
+    pub systemd_version: &'a SystemdVersion,
+    pub kernel_version: &'a KernelVersion,
+    pub sysctl_state: &'a sysctl::State,
+    pub instance_kind: &'a systemd::InstanceKind,
+    pub hardening_opts: &'a HardeningOptions,
+}
 
-    //
-    // Warning: options values must be ordered from less to most restrictive
-    //
+impl OptionsContext<'_> {
+    fn is_system_instance(&self) -> bool {
+        matches!(self.instance_kind, systemd::InstanceKind::System)
+    }
 
-    // Options model does not aim to accurately define the option's effects, it is often an oversimplification.
-    // However the model should always tend to make options *more* (or equally as) restrictive than what they really are,
-    // as to avoid suggesting options that might break execution.
+    fn can_use_namespaces(&self) -> bool {
+        self.is_system_instance() || self.sysctl_state.kernel_unprivileged_userns_clone
+    }
 
-    // TODO APPROXIMATION
-    // Some options implicitly force NoNewPrivileges=true which has some effects in itself,
-    // which we need to model
+    fn systemd_at_least(&self, major: u16, minor: u16) -> bool {
+        *self.systemd_version >= SystemdVersion::new(major, minor)
+    }
 
-    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectSystem=
+    fn kernel_at_least(&self, major: u16, minor: u16, patch: u16) -> bool {
+        *self.kernel_version >= KernelVersion::new(major, minor, patch)
+    }
+}
+
+/// Specification for a systemd option that can be conditionally enabled
+struct OptionSpec {
+    enabled_if: fn(&OptionsContext<'_>) -> bool,
+    build: fn(&OptionsContext<'_>) -> OptionDescription,
+}
+
+fn always_enabled(_: &OptionsContext<'_>) -> bool {
+    true
+}
+
+// Builder functions for each option
+fn build_protect_system(_ctx: &OptionsContext<'_>) -> OptionDescription {
     let mut protect_system_yes_nowrite: Vec<_> = [
         "/usr/", "/boot/", "/efi/", "/lib/", "/lib64/", "/bin/", "/sbin/",
     ]
@@ -636,7 +652,7 @@ pub(crate) fn build_options(
     protect_system_full_nowrite.push(OptionValueEffect::DenyWrite(PathDescription::base("/etc/")));
     protect_system_yes_nowrite.push(OptionValueEffect::DenyAction(ProgramAction::MountToHost));
     protect_system_full_nowrite.push(OptionValueEffect::DenyAction(ProgramAction::MountToHost));
-    options.push(OptionDescription {
+    OptionDescription {
         name: "ProtectSystem",
         possible_values: vec![
             OptionValueDescription {
@@ -661,281 +677,250 @@ pub(crate) fn build_options(
             },
         ],
         updater: None,
-    });
+    }
+}
 
-    if matches!(instance_kind, systemd::InstanceKind::System)
-        || sysctl_state.kernel_unprivileged_userns_clone
-    {
-        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectHome=
-        let home_paths = ["/home/", "/root/", "/run/user/"];
-        options.push(OptionDescription {
-            name: "ProtectHome",
-            possible_values: vec![
-                OptionValueDescription {
-                    value: OptionValue::String("tmpfs".to_owned()),
-                    desc: OptionEffect::Simple(OptionValueEffect::Multiple(
-                        home_paths
-                            .iter()
-                            .map(|p| OptionValueEffect::EmptyPath(EmptyPathDescription::base(p)))
-                            .chain(iter::once(OptionValueEffect::DenyAction(
-                                ProgramAction::MountToHost,
-                            )))
-                            .collect(),
-                    )),
-                },
-                OptionValueDescription {
-                    value: OptionValue::String("read-only".to_owned()),
-                    desc: OptionEffect::Simple(OptionValueEffect::Multiple(
-                        home_paths
-                            .iter()
-                            .map(|p| OptionValueEffect::EmptyPath(EmptyPathDescription::base_ro(p)))
-                            .chain(iter::once(OptionValueEffect::DenyAction(
-                                ProgramAction::MountToHost,
-                            )))
-                            .collect(),
-                    )),
-                },
-                OptionValueDescription {
-                    value: OptionValue::Boolean(true),
-                    desc: OptionEffect::Simple(OptionValueEffect::Multiple(
-                        home_paths
-                            .iter()
-                            .map(|p| OptionValueEffect::RemovePath(PathDescription::base(p)))
-                            .chain(iter::once(OptionValueEffect::DenyAction(
-                                ProgramAction::MountToHost,
-                            )))
-                            .collect(),
-                    )),
-                },
-            ],
-            updater: None,
-        });
-
-        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateTmp=
-        options.push(OptionDescription {
-            name: "PrivateTmp",
-            possible_values: vec![OptionValueDescription {
-                value: if *systemd_version >= SystemdVersion::new(257, 0) {
-                    OptionValue::String("disconnected".into())
-                } else {
-                    OptionValue::Boolean(true)
-                },
-                desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                    OptionValueEffect::EmptyPath(EmptyPathDescription::base("/tmp")),
-                    OptionValueEffect::EmptyPath(EmptyPathDescription::base("/var/tmp")),
-                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
-                ])),
-            }],
-            updater: None,
-        });
-
-        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateDevices=
-        options.push(OptionDescription {
-            name: "PrivateDevices",
-            possible_values: vec![OptionValueDescription {
-                value: OptionValue::Boolean(true),
-                desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                    OptionValueEffect::EmptyPath(EmptyPathDescription {
-                        base: "/dev/".into(),
-                        base_ro: true,
-                        exceptions_ro: vec![],
-                        // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L912
-                        exceptions_rw: [
-                            "null",
-                            "zero",
-                            "full",
-                            "random",
-                            "urandom",
-                            "tty",
-                            "pts/",
-                            "ptmx",
-                            "shm/",
-                            "mqueue/",
-                            "hugepages/",
-                            "log",
-                        ]
+fn build_protect_home(_ctx: &OptionsContext<'_>) -> OptionDescription {
+    let home_paths = ["/home/", "/root/", "/run/user/"];
+    OptionDescription {
+        name: "ProtectHome",
+        possible_values: vec![
+            OptionValueDescription {
+                value: OptionValue::String("tmpfs".to_owned()),
+                desc: OptionEffect::Simple(OptionValueEffect::Multiple(
+                    home_paths
                         .iter()
-                        .map(|p| PathBuf::from("/dev/").join(p))
+                        .map(|p| OptionValueEffect::EmptyPath(EmptyPathDescription::base(p)))
+                        .chain(iter::once(OptionValueEffect::DenyAction(
+                            ProgramAction::MountToHost,
+                        )))
                         .collect(),
-                    }),
-                    OptionValueEffect::DenySyscalls(DenySyscalls::Class("raw-io")),
-                    OptionValueEffect::DenyAction(ProgramAction::MknodSpecial),
-                    OptionValueEffect::DenyExec(PathDescription::base("/dev")),
-                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
-                ])),
-            }],
-            updater: None,
-        });
-
-        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateMounts=
-        options.push(OptionDescription {
-            name: "PrivateMounts",
-            possible_values: vec![OptionValueDescription {
-                value: OptionValue::Boolean(true),
-                desc: OptionEffect::Simple(OptionValueEffect::DenyAction(
-                    ProgramAction::MountToHost,
                 )),
-            }],
-            updater: None,
-        });
-
-        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelTunables=
-        options.push(OptionDescription {
-            name: "ProtectKernelTunables",
-            possible_values: vec![OptionValueDescription {
+            },
+            OptionValueDescription {
+                value: OptionValue::String("read-only".to_owned()),
+                desc: OptionEffect::Simple(OptionValueEffect::Multiple(
+                    home_paths
+                        .iter()
+                        .map(|p| OptionValueEffect::EmptyPath(EmptyPathDescription::base_ro(p)))
+                        .chain(iter::once(OptionValueEffect::DenyAction(
+                            ProgramAction::MountToHost,
+                        )))
+                        .collect(),
+                )),
+            },
+            OptionValueDescription {
                 value: OptionValue::Boolean(true),
                 desc: OptionEffect::Simple(OptionValueEffect::Multiple(
-                    // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L113
-                    [
-                        "acpi/",
-                        "apm",
-                        "asound/",
-                        "bus/",
-                        "fs/",
-                        "irq/",
-                        "latency_stats",
-                        "mttr",
-                        "scsi/",
-                        "sys/",
-                        "sysrq-trigger",
-                        "timer_stats",
+                    home_paths
+                        .iter()
+                        .map(|p| OptionValueEffect::RemovePath(PathDescription::base(p)))
+                        .chain(iter::once(OptionValueEffect::DenyAction(
+                            ProgramAction::MountToHost,
+                        )))
+                        .collect(),
+                )),
+            },
+        ],
+        updater: None,
+    }
+}
+
+fn build_private_tmp(ctx: &OptionsContext<'_>) -> OptionDescription {
+    OptionDescription {
+        name: "PrivateTmp",
+        possible_values: vec![OptionValueDescription {
+            value: if ctx.systemd_at_least(257, 0) {
+                OptionValue::String("disconnected".into())
+            } else {
+                OptionValue::Boolean(true)
+            },
+            desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                OptionValueEffect::EmptyPath(EmptyPathDescription::base("/tmp")),
+                OptionValueEffect::EmptyPath(EmptyPathDescription::base("/var/tmp")),
+                OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+            ])),
+        }],
+        updater: None,
+    }
+}
+
+fn build_private_devices(_ctx: &OptionsContext<'_>) -> OptionDescription {
+    OptionDescription {
+        name: "PrivateDevices",
+        possible_values: vec![OptionValueDescription {
+            value: OptionValue::Boolean(true),
+            desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                OptionValueEffect::EmptyPath(EmptyPathDescription {
+                    base: "/dev/".into(),
+                    base_ro: true,
+                    exceptions_ro: vec![],
+                    exceptions_rw: [
+                        "null", "zero", "full", "random", "urandom", "tty", "pts/", "ptmx",
+                        "shm/", "mqueue/", "hugepages/", "log",
                     ]
                     .iter()
-                    .map(|p| {
-                        OptionValueEffect::DenyWrite(PathDescription::Base {
-                            base: PathBuf::from("/proc/").join(p),
-                            exceptions: vec![],
-                        })
-                    })
-                    .chain(["kallsyms", "kcore"].iter().map(|p| {
-                        OptionValueEffect::RemovePath(PathDescription::Base {
-                            base: PathBuf::from("/proc/").join(p),
-                            exceptions: vec![],
-                        })
-                    }))
-                    .chain(
-                        // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L130
-                        iter::once(OptionValueEffect::DenyWrite(PathDescription::base("/sys"))),
-                    )
-                    .chain(iter::once(OptionValueEffect::DenyAction(
-                        ProgramAction::MountToHost,
-                    )))
+                    .map(|p| PathBuf::from("/dev/").join(p))
                     .collect(),
+                }),
+                OptionValueEffect::DenySyscalls(DenySyscalls::Class("raw-io")),
+                OptionValueEffect::DenyAction(ProgramAction::MknodSpecial),
+                OptionValueEffect::DenyExec(PathDescription::base("/dev")),
+                OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+            ])),
+        }],
+        updater: None,
+    }
+}
+
+fn build_private_mounts(_ctx: &OptionsContext<'_>) -> OptionDescription {
+    OptionDescription {
+        name: "PrivateMounts",
+        possible_values: vec![OptionValueDescription {
+            value: OptionValue::Boolean(true),
+            desc: OptionEffect::Simple(OptionValueEffect::DenyAction(ProgramAction::MountToHost)),
+        }],
+        updater: None,
+    }
+}
+
+fn build_protect_kernel_tunables(_ctx: &OptionsContext<'_>) -> OptionDescription {
+    OptionDescription {
+        name: "ProtectKernelTunables",
+        possible_values: vec![OptionValueDescription {
+            value: OptionValue::Boolean(true),
+            desc: OptionEffect::Simple(OptionValueEffect::Multiple(
+                [
+                    "acpi/",
+                    "apm",
+                    "asound/",
+                    "bus/",
+                    "fs/",
+                    "irq/",
+                    "latency_stats",
+                    "mttr",
+                    "scsi/",
+                    "sys/",
+                    "sysrq-trigger",
+                    "timer_stats",
+                ]
+                .iter()
+                .map(|p| {
+                    OptionValueEffect::DenyWrite(PathDescription::Base {
+                        base: PathBuf::from("/proc/").join(p),
+                        exceptions: vec![],
+                    })
+                })
+                .chain(["kallsyms", "kcore"].iter().map(|p| {
+                    OptionValueEffect::RemovePath(PathDescription::Base {
+                        base: PathBuf::from("/proc/").join(p),
+                        exceptions: vec![],
+                    })
+                }))
+                .chain(iter::once(OptionValueEffect::DenyWrite(
+                    PathDescription::base("/sys"),
+                )))
+                .chain(iter::once(OptionValueEffect::DenyAction(
+                    ProgramAction::MountToHost,
+                )))
+                .collect(),
+            )),
+        }],
+        updater: None,
+    }
+}
+
+fn build_protect_kernel_modules(_ctx: &OptionsContext<'_>) -> OptionDescription {
+    OptionDescription {
+        name: "ProtectKernelModules",
+        possible_values: vec![OptionValueDescription {
+            value: OptionValue::Boolean(true),
+            desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                OptionValueEffect::RemovePath(PathDescription::base("/lib/modules/")),
+                OptionValueEffect::RemovePath(PathDescription::base("/usr/lib/modules/")),
+                OptionValueEffect::DenySyscalls(DenySyscalls::Class("module")),
+                OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+            ])),
+        }],
+        updater: None,
+    }
+}
+
+fn build_protect_kernel_logs(_ctx: &OptionsContext<'_>) -> OptionDescription {
+    OptionDescription {
+        name: "ProtectKernelLogs",
+        possible_values: vec![OptionValueDescription {
+            value: OptionValue::Boolean(true),
+            desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                OptionValueEffect::RemovePath(PathDescription::base("/proc/kmsg")),
+                OptionValueEffect::RemovePath(PathDescription::base("/dev/kmsg")),
+                OptionValueEffect::DenySyscalls(DenySyscalls::Single("syslog")),
+                OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+            ])),
+        }],
+        updater: None,
+    }
+}
+
+fn build_protect_control_groups(_ctx: &OptionsContext<'_>) -> OptionDescription {
+    OptionDescription {
+        name: "ProtectControlGroups",
+        possible_values: vec![OptionValueDescription {
+            value: OptionValue::Boolean(true),
+            desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                OptionValueEffect::DenyWrite(PathDescription::base("/sys/fs/cgroup/")),
+                OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+            ])),
+        }],
+        updater: None,
+    }
+}
+
+fn build_protect_proc(_ctx: &OptionsContext<'_>) -> OptionDescription {
+    OptionDescription {
+        name: "ProtectProc",
+        possible_values: vec![OptionValueDescription {
+            value: OptionValue::String("ptraceable".to_owned()),
+            desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                OptionValueEffect::RemovePath(PathDescription::pattern("^/proc/[0-9]+(/|$)")),
+                OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+            ])),
+        }],
+        updater: None,
+    }
+}
+
+fn build_proc_subset(_ctx: &OptionsContext<'_>) -> OptionDescription {
+    OptionDescription {
+        name: "ProcSubset",
+        possible_values: vec![OptionValueDescription {
+            value: OptionValue::String("pid".to_owned()),
+            desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                OptionValueEffect::RemovePath(PathDescription::pattern(
+                    "^/proc/[^/]*[^0-9/]+[^/]*",
                 )),
-            }],
-            updater: None,
-        });
-
-        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelModules=
-        options.push(OptionDescription {
-            name: "ProtectKernelModules",
-            possible_values: vec![OptionValueDescription {
-                value: OptionValue::Boolean(true),
-                desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                    // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L140
-                    OptionValueEffect::RemovePath(PathDescription::base("/lib/modules/")),
-                    OptionValueEffect::RemovePath(PathDescription::base("/usr/lib/modules/")),
-                    OptionValueEffect::DenySyscalls(DenySyscalls::Class("module")),
-                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
-                ])),
-            }],
-            updater: None,
-        });
-
-        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectKernelLogs=
-        options.push(OptionDescription {
-            name: "ProtectKernelLogs",
-            possible_values: vec![OptionValueDescription {
-                value: OptionValue::Boolean(true),
-                desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                    // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L148
-                    OptionValueEffect::RemovePath(PathDescription::base("/proc/kmsg")),
-                    OptionValueEffect::RemovePath(PathDescription::base("/dev/kmsg")),
-                    OptionValueEffect::DenySyscalls(DenySyscalls::Single("syslog")),
-                    // TODO figure out about this one, systemd doc says it doesn't but tests seem to say otherwise?
-                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
-                ])),
-            }],
-            updater: None,
-        });
+                OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+            ])),
+        }],
+        updater: None,
     }
+}
 
-    if matches!(instance_kind, systemd::InstanceKind::System) {
-        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectControlGroups=
-        // TODO private/strip
-        options.push(OptionDescription {
-            name: "ProtectControlGroups",
-            possible_values: vec![OptionValueDescription {
-                value: OptionValue::Boolean(true),
-                desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                    OptionValueEffect::DenyWrite(PathDescription::base("/sys/fs/cgroup/")),
-                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
-                ])),
-            }],
-            updater: None,
-        });
-
-        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectProc=
-        // https://github.com/systemd/systemd/blob/v247/NEWS#L342
-        // https://github.com/systemd/systemd/commit/4e39995371738b04d98d27b0d34ea8fe09ec9fab
-        // https://docs.kernel.org/filesystems/proc.html#mount-options
-        if (systemd_version >= &SystemdVersion::new(247, 0))
-            && (kernel_version >= &KernelVersion::new(5, 8, 0))
-        {
-            options.push(OptionDescription {
-                name: "ProtectProc",
-                // Since we have no easy & reliable (race free) way to know which process belongs to
-                // which user, only support the most restrictive option
-                possible_values: vec![OptionValueDescription {
-                    value: OptionValue::String("ptraceable".to_owned()),
-                    desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                        OptionValueEffect::RemovePath(PathDescription::pattern(
-                            "^/proc/[0-9]+(/|$)",
-                        )),
-                        OptionValueEffect::DenyAction(ProgramAction::MountToHost),
-                    ])),
-                }],
-                updater: None,
-            });
-        }
-
-        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProcSubset=
-        if (systemd_version >= &SystemdVersion::new(247, 0))
-            && (kernel_version >= &KernelVersion::new(5, 8, 0))
-        {
-            options.push(OptionDescription {
-                name: "ProcSubset",
-                possible_values: vec![OptionValueDescription {
-                    value: OptionValue::String("pid".to_owned()),
-                    desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                        OptionValueEffect::RemovePath(PathDescription::pattern(
-                            "^/proc/[^/]*[^0-9/]+[^/]*",
-                        )),
-                        OptionValueEffect::DenyAction(ProgramAction::MountToHost),
-                    ])),
-                }],
-                updater: None,
-            });
-        }
-    }
-
-    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#LockPersonality=
-    options.push(OptionDescription {
+fn build_lock_personality(_ctx: &OptionsContext<'_>) -> OptionDescription {
+    OptionDescription {
         name: "LockPersonality",
         possible_values: vec![OptionValueDescription {
             value: OptionValue::Boolean(true),
-            // In practice, the option allows the call if the default personality is set, but we don't
-            // need to model that level of precision.
-            // The "deny" model prevents false positives
             desc: OptionEffect::Simple(OptionValueEffect::DenySyscalls(DenySyscalls::Single(
                 "personality",
             ))),
         }],
         updater: None,
-    });
+    }
+}
 
-    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#RestrictRealtime=
-    options.push(OptionDescription {
+fn build_restrict_realtime(_ctx: &OptionsContext<'_>) -> OptionDescription {
+    OptionDescription {
         name: "RestrictRealtime",
         possible_values: vec![OptionValueDescription {
             value: OptionValue::Boolean(true),
@@ -944,32 +929,27 @@ pub(crate) fn build_options(
             )),
         }],
         updater: None,
-    });
-
-    if matches!(instance_kind, systemd::InstanceKind::System)
-        || sysctl_state.kernel_unprivileged_userns_clone
-    {
-        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectClock=
-        options.push(OptionDescription {
-            name: "ProtectClock",
-            possible_values: vec![OptionValueDescription {
-                value: OptionValue::Boolean(true),
-                desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                    OptionValueEffect::DenyWrite(PathDescription::pattern("/dev/rtc.*")),
-                    // See handling of CAP_SYS_TIME
-                    OptionValueEffect::DenySyscalls(DenySyscalls::Single("stime")),
-                    OptionValueEffect::DenySyscalls(DenySyscalls::Class("clock")),
-                    // See handling of CAP_WAKE_ALARM
-                    OptionValueEffect::DenyAction(ProgramAction::SetAlarm),
-                ])),
-            }],
-            updater: None,
-        });
     }
+}
 
-    // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#MemoryDenyWriteExecute=
-    // https://github.com/systemd/systemd/blob/v254/src/shared/seccomp-util.c#L1721
-    options.push(OptionDescription {
+fn build_protect_clock(_ctx: &OptionsContext<'_>) -> OptionDescription {
+    OptionDescription {
+        name: "ProtectClock",
+        possible_values: vec![OptionValueDescription {
+            value: OptionValue::Boolean(true),
+            desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                OptionValueEffect::DenyWrite(PathDescription::pattern("/dev/rtc.*")),
+                OptionValueEffect::DenySyscalls(DenySyscalls::Single("stime")),
+                OptionValueEffect::DenySyscalls(DenySyscalls::Class("clock")),
+                OptionValueEffect::DenyAction(ProgramAction::SetAlarm),
+            ])),
+        }],
+        updater: None,
+    }
+}
+
+fn build_memory_deny_write_execute(_ctx: &OptionsContext<'_>) -> OptionDescription {
+    OptionDescription {
         name: "MemoryDenyWriteExecute",
         possible_values: vec![OptionValueDescription {
             value: OptionValue::Boolean(true),
@@ -978,28 +958,180 @@ pub(crate) fn build_options(
             )),
         }],
         updater: None,
-    });
-
-    if let HardeningMode::Aggressive = hardening_opts.mode {
-        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#SystemCallArchitectures=
-        //
-        // This is actually very safe to enable, but since we don't currently support checking for its
-        // compatibility during profiling, only enable it in aggressive mode
-        options.push(OptionDescription {
-            name: "SystemCallArchitectures",
-            possible_values: vec![OptionValueDescription {
-                value: OptionValue::String("native".to_owned()),
-                desc: OptionEffect::None,
-            }],
-            updater: None,
-        });
     }
+}
 
-    if matches!(instance_kind, systemd::InstanceKind::System)
-        || sysctl_state.kernel_unprivileged_userns_clone
-    {
+fn build_system_call_architectures(_ctx: &OptionsContext<'_>) -> OptionDescription {
+    OptionDescription {
+        name: "SystemCallArchitectures",
+        possible_values: vec![OptionValueDescription {
+            value: OptionValue::String("native".to_owned()),
+            desc: OptionEffect::None,
+        }],
+        updater: None,
+    }
+}
+
+fn build_private_network(_ctx: &OptionsContext<'_>) -> OptionDescription {
+    OptionDescription {
+        name: "PrivateNetwork",
+        possible_values: vec![OptionValueDescription {
+            value: OptionValue::Boolean(true),
+            desc: OptionEffect::Simple(OptionValueEffect::DenyAction(
+                ProgramAction::NetworkActivity(
+                    NetworkActivity {
+                        af: SetSpecifier::All,
+                        proto: SetSpecifier::All,
+                        kind: SetSpecifier::All,
+                        local_port: SetSpecifier::All,
+                        address: SetSpecifier::All,
+                    }
+                    .into(),
+                ),
+            )),
+        }],
+        updater: None,
+    }
+}
+
+/// Static registry of option specifications with their enable conditions
+static OPTION_SPECS: &[OptionSpec] = &[
+    // ProtectSystem - always enabled
+    OptionSpec {
+        enabled_if: always_enabled,
+        build: build_protect_system,
+    },
+    // ProtectHome - requires namespaces
+    OptionSpec {
+        enabled_if: |ctx| ctx.can_use_namespaces(),
+        build: build_protect_home,
+    },
+    // PrivateTmp - requires namespaces
+    OptionSpec {
+        enabled_if: |ctx| ctx.can_use_namespaces(),
+        build: build_private_tmp,
+    },
+    // PrivateDevices - requires namespaces
+    OptionSpec {
+        enabled_if: |ctx| ctx.can_use_namespaces(),
+        build: build_private_devices,
+    },
+    // PrivateMounts - requires namespaces
+    OptionSpec {
+        enabled_if: |ctx| ctx.can_use_namespaces(),
+        build: build_private_mounts,
+    },
+    // ProtectKernelTunables - requires namespaces
+    OptionSpec {
+        enabled_if: |ctx| ctx.can_use_namespaces(),
+        build: build_protect_kernel_tunables,
+    },
+    // ProtectKernelModules - requires namespaces
+    OptionSpec {
+        enabled_if: |ctx| ctx.can_use_namespaces(),
+        build: build_protect_kernel_modules,
+    },
+    // ProtectKernelLogs - requires namespaces
+    OptionSpec {
+        enabled_if: |ctx| ctx.can_use_namespaces(),
+        build: build_protect_kernel_logs,
+    },
+    // ProtectControlGroups - system instance only
+    OptionSpec {
+        enabled_if: |ctx| ctx.is_system_instance(),
+        build: build_protect_control_groups,
+    },
+    // ProtectProc - system instance, systemd >= 247, kernel >= 5.8
+    OptionSpec {
+        enabled_if: |ctx| {
+            ctx.is_system_instance()
+                && ctx.systemd_at_least(247, 0)
+                && ctx.kernel_at_least(5, 8, 0)
+        },
+        build: build_protect_proc,
+    },
+    // ProcSubset - system instance, systemd >= 247, kernel >= 5.8
+    OptionSpec {
+        enabled_if: |ctx| {
+            ctx.is_system_instance()
+                && ctx.systemd_at_least(247, 0)
+                && ctx.kernel_at_least(5, 8, 0)
+        },
+        build: build_proc_subset,
+    },
+    // LockPersonality - always enabled
+    OptionSpec {
+        enabled_if: always_enabled,
+        build: build_lock_personality,
+    },
+    // RestrictRealtime - always enabled
+    OptionSpec {
+        enabled_if: always_enabled,
+        build: build_restrict_realtime,
+    },
+    // ProtectClock - requires namespaces
+    OptionSpec {
+        enabled_if: |ctx| ctx.can_use_namespaces(),
+        build: build_protect_clock,
+    },
+    // MemoryDenyWriteExecute - always enabled
+    OptionSpec {
+        enabled_if: always_enabled,
+        build: build_memory_deny_write_execute,
+    },
+    // SystemCallArchitectures - aggressive mode only
+    OptionSpec {
+        enabled_if: |ctx| matches!(ctx.hardening_opts.mode, HardeningMode::Aggressive),
+        build: build_system_call_architectures,
+    },
+    // PrivateNetwork - namespaces + aggressive mode
+    OptionSpec {
+        enabled_if: |ctx| {
+            ctx.can_use_namespaces() && matches!(ctx.hardening_opts.mode, HardeningMode::Aggressive)
+        },
+        build: build_private_network,
+    },
+];
+
+#[expect(clippy::too_many_lines, clippy::similar_names)]
+pub(crate) fn build_options(
+    systemd_version: &SystemdVersion,
+    kernel_version: &KernelVersion,
+    sysctl_state: &sysctl::State,
+    instance_kind: &systemd::InstanceKind,
+    hardening_opts: &HardeningOptions,
+) -> Vec<OptionDescription> {
+    let ctx = OptionsContext {
+        systemd_version,
+        kernel_version,
+        sysctl_state,
+        instance_kind,
+        hardening_opts,
+    };
+
+    //
+    // Warning: options values must be ordered from less to most restrictive
+    //
+
+    // Options model does not aim to accurately define the option's effects, it is often an oversimplification.
+    // However the model should always tend to make options *more* (or equally as) restrictive than what they really are,
+    // as to avoid suggesting options that might break execution.
+
+    // TODO APPROXIMATION
+    // Some options implicitly force NoNewPrivileges=true which has some effects in itself,
+    // which we need to model
+
+    // Build options from the static registry
+    let mut options: Vec<OptionDescription> = OPTION_SPECS
+        .iter()
+        .filter(|spec| (spec.enabled_if)(&ctx))
+        .map(|spec| (spec.build)(&ctx))
+        .collect();
+
+    // Additional options with complex updaters that aren't easily expressed in the registry
+    if ctx.can_use_namespaces() {
         // https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#ReadWritePaths=
-        if hardening_opts.filesystem_whitelisting {
+        if ctx.hardening_opts.filesystem_whitelisting {
             options.push(OptionDescription {
                 name: "ReadOnlyPaths",
                 possible_values: vec![OptionValueDescription {
@@ -1524,36 +1656,6 @@ pub(crate) fn build_options(
         updater: None,
     });
 
-    if (matches!(instance_kind, systemd::InstanceKind::System)
-        || sysctl_state.kernel_unprivileged_userns_clone)
-        && matches!(hardening_opts.mode, HardeningMode::Aggressive)
-    {
-        // https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateNetwork=
-        //
-        // For now we enable this option if no sockets are used at all, in theory this could break if
-        // a socket file descriptor is passed to it from another process.
-        // Although this is probably a very rare/niche case, it is possible, so we consider it only in aggressive mode
-        options.push(OptionDescription {
-            name: "PrivateNetwork",
-            possible_values: vec![OptionValueDescription {
-                value: OptionValue::Boolean(true),
-                desc: OptionEffect::Simple(OptionValueEffect::DenyAction(
-                    ProgramAction::NetworkActivity(
-                        NetworkActivity {
-                            af: SetSpecifier::All,
-                            proto: SetSpecifier::All,
-                            kind: SetSpecifier::All,
-                            local_port: SetSpecifier::All,
-                            address: SetSpecifier::All,
-                        }
-                        .into(),
-                    ),
-                )),
-            }],
-            updater: None,
-        });
-    }
-
     // https://www.freedesktop.org/software/systemd/man/systemd.resource-control.html#SocketBindAllow=bind-rule
     let deny_binds: Vec<_> = SocketFamily::iter()
         .take(2)
@@ -1592,7 +1694,7 @@ pub(crate) fn build_options(
                     .collect(),
             ),
         }],
-        updater: hardening_opts.network_firewalling.then_some(OptionUpdater {
+        updater: ctx.hardening_opts.network_firewalling.then_some(OptionUpdater {
             effect: |e, a, _| {
                 let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(effect_na)) = e
                 else {
@@ -1660,7 +1762,7 @@ pub(crate) fn build_options(
     });
 
     // https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html#IPAddressAllow=ADDRESS%5B/PREFIXLENGTH%5D%E2%80%A6
-    if hardening_opts.network_firewalling {
+    if ctx.hardening_opts.network_firewalling {
         options.push(OptionDescription {
             name: "IPAddressDeny",
             possible_values: vec![OptionValueDescription {
@@ -1743,9 +1845,7 @@ pub(crate) fn build_options(
         });
     }
 
-    if matches!(instance_kind, systemd::InstanceKind::System)
-        || sysctl_state.kernel_unprivileged_userns_clone
-    {
+    if ctx.can_use_namespaces() {
         // https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#CapabilityBoundingSet=
         // Note: we don't want to duplicate the kernel permission checking logic here, which would be
         // a maintenance nightmare, so in most case we over (never under!) simplify the capability's effect
@@ -1940,7 +2040,7 @@ pub(crate) fn build_options(
     // signal when it makes the call, so change the default to just return EPERM.
     // Real world example: https://github.com/tjko/jpegoptim/blob/v1.5.5/jpegoptim.c#L1097-L1099
     //
-    if !matches!(hardening_opts.mode, HardeningMode::Generic) {
+    if !matches!(ctx.hardening_opts.mode, HardeningMode::Generic) {
         let mut syscall_classes: Vec<_> = SYSCALL_CLASSES.keys().copied().collect();
         syscall_classes.sort_unstable();
         options.push(OptionDescription {
@@ -1969,7 +2069,7 @@ pub(crate) fn build_options(
         });
     }
 
-    if let Some(options_to_keep) = &hardening_opts.systemd_options {
+    if let Some(options_to_keep) = &ctx.hardening_opts.systemd_options {
         options.retain(|o| options_to_keep.iter().any(|k| o.name == k));
     }
 
