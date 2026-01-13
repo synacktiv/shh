@@ -41,7 +41,7 @@ install -Dm 755 -t /usr/local/bin target/release/shh
 ### From [`crates.io`](https://crates.io/)
 
 ```
-sudo cargo install --root /usr/local
+sudo cargo install --root /usr/local systemd-hardening-helper
 ```
 
 ### Debian (or Debian based distribution)
