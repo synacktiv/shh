@@ -610,6 +610,7 @@ struct OptionContext<'a> {
     pub kernel_version: &'a KernelVersion,
     pub sysctl_state: &'a sysctl::State,
     pub instance_kind: &'a systemd::InstanceKind,
+    pub container: bool,
     pub hardening_opts: &'a HardeningOptions,
 }
 
@@ -620,6 +621,10 @@ impl OptionContext<'_> {
 
     fn can_use_namespaces(&self) -> bool {
         self.is_system_instance() || self.sysctl_state.kernel_unprivileged_userns_clone
+    }
+
+    fn container_unit(&self) -> bool {
+        self.container
     }
 
     fn systemd_min_version(&self, major: u16, minor: u16) -> bool {
@@ -636,6 +641,7 @@ pub(crate) fn build_options(
     kernel_version: &KernelVersion,
     sysctl_state: &sysctl::State,
     instance_kind: &systemd::InstanceKind,
+    container: bool,
     hardening_opts: &HardeningOptions,
 ) -> Vec<OptionDescription> {
     let ctx = OptionContext {
@@ -643,6 +649,7 @@ pub(crate) fn build_options(
         kernel_version,
         sysctl_state,
         instance_kind,
+        container,
         hardening_opts,
     };
 
