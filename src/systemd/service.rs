@@ -187,6 +187,10 @@ impl Service {
 
         // Read current config
         let current_config = self.cat_config().context("Failed to cat service config")?;
+        let is_container = current_config.lines().any(|l| l == "[Container]");
+        if is_container {
+            log::info!("Detected unit generated from .container template");
+        }
 
         // Write new fragment
         #[expect(clippy::unwrap_used)] // fragment_path guarantees by construction we have a parent
@@ -231,6 +235,14 @@ impl Service {
             .to_str()
             .ok_or_else(|| anyhow::anyhow!("Unable to decode current executable path"))?
             .to_owned();
+        let shh_common_args = self
+            .instance
+            .to_cmd_args()
+            .into_iter()
+            .chain(hardening_opts.to_cmd_args())
+            .chain(is_container.then(|| "-c".to_owned()))
+            .collect::<Vec<_>>()
+            .join(" ");
 
         // Wrap ExecStartXxx directives
         let mut exec_start_idx = 1;
@@ -254,12 +266,7 @@ impl Service {
                         "{}={} run {} -p {} -- {}",
                         exec_start_opt,
                         shh_bin,
-                        self.instance
-                            .to_cmd_args()
-                            .into_iter()
-                            .chain(hardening_opts.to_cmd_args())
-                            .collect::<Vec<_>>()
-                            .join(" "),
+                        shh_common_args,
                         profile_data_path.to_str().unwrap(),
                         cmd
                     )?;
@@ -274,12 +281,7 @@ impl Service {
             fragment_file,
             "ExecStopPost={} merge-profile-data {} {}",
             shh_bin,
-            self.instance
-                .to_cmd_args()
-                .into_iter()
-                .chain(hardening_opts.to_cmd_args())
-                .collect::<Vec<_>>()
-                .join(" "),
+            shh_common_args,
             profile_data_paths
                 .iter()
                 .map(|p| p.to_str().unwrap())

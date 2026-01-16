@@ -119,6 +119,10 @@ pub(crate) enum Action {
         command: Vec<String>,
         #[command(flatten)]
         instance: ServiceInstance,
+        /// EXPERIMENTAL
+        /// Assume the systemd .service unit has been generated from a .container template
+        #[arg(short, long, default_value_t)]
+        container: bool,
         #[command(flatten)]
         hardening_opts: HardeningOptions,
         /// Generate profile data file to be merged with others instead of generating systemd options directly
@@ -133,6 +137,10 @@ pub(crate) enum Action {
     MergeProfileData {
         #[command(flatten)]
         instance: ServiceInstance,
+        /// EXPERIMENTAL
+        /// Assume the systemd .service unit has been generated from a .container template
+        #[arg(short, long, default_value_t)]
+        container: bool,
         #[command(flatten)]
         hardening_opts: HardeningOptions,
         /// Profile data paths

@@ -297,7 +297,7 @@ struct ProtectKernelModules;
 
 impl OptionSpec for ProtectKernelModules {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
-        ctx.can_use_namespaces()
+        ctx.can_use_namespaces() && !ctx.container_unit()
     }
 
     fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
@@ -323,7 +323,7 @@ struct ProtectKernelLogs;
 
 impl OptionSpec for ProtectKernelLogs {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
-        ctx.can_use_namespaces()
+        ctx.can_use_namespaces() && !ctx.container_unit()
     }
 
     fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
@@ -470,7 +470,7 @@ struct ProtectClock;
 
 impl OptionSpec for ProtectClock {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
-        ctx.can_use_namespaces()
+        ctx.can_use_namespaces() && !ctx.container_unit()
     }
 
     fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
@@ -1335,7 +1335,7 @@ struct CapabilityBoundingSet;
 
 impl OptionSpec for CapabilityBoundingSet {
     fn enabled_if(&self, ctx: &OptionContext<'_>) -> bool {
-        ctx.can_use_namespaces()
+        ctx.can_use_namespaces() && !ctx.container_unit()
     }
 
     fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
