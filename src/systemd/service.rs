@@ -431,7 +431,6 @@ impl Service {
         }
         let mut child = cmd
             .args([
-                "-r",
                 "-o",
                 "cat",
                 "--output-fields=MESSAGE",
@@ -455,30 +454,18 @@ impl Service {
             // Stream lines but bubble up errors
             .skip_while(|r| {
                 r.as_ref()
-                    .map(|l| l != END_OPTION_OUTPUT_SNIPPET)
+                    .map(|l| l != START_OPTION_OUTPUT_SNIPPET)
                     .unwrap_or(false)
             })
-            .take_while_inclusive(|r| {
+            .skip(1)
+            .take_while(|r| {
                 r.as_ref()
-                    .map(|l| l != START_OPTION_OUTPUT_SNIPPET)
+                    .map(|l| l != END_OPTION_OUTPUT_SNIPPET)
                     .unwrap_or(true)
             })
             .collect::<Result<_, _>>()?;
-        if (snippet_lines.len() < 2)
-            || (snippet_lines
-                .last()
-                .ok_or_else(|| anyhow::anyhow!("Unable to get profiling result lines"))?
-                != START_OPTION_OUTPUT_SNIPPET)
-        {
-            anyhow::bail!("Unable to get profiling result snippet");
-        }
-        // The output with '-r' flag is in reverse chronological order
-        // (to get the end as fast as possible), so reverse it, after we have
-        // removed marker lines
-        #[expect(clippy::indexing_slicing)]
-        let opts = snippet_lines[1..snippet_lines.len() - 1]
+        let opts = snippet_lines
             .iter()
-            .rev()
             .map(|l| l.parse::<OptionWithValue<String>>())
             .collect::<anyhow::Result<_>>()?;
 
