@@ -75,6 +75,9 @@ impl JournalCursor {
                     .to_str()
                     .ok_or_else(|| anyhow::anyhow!("Invalid temporary filepath"))?,
             ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .status()?;
         anyhow::ensure!(status.success(), "journalctl failed: {status}");
         let val = fs::read_to_string(tmp_file.path())?;
