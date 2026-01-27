@@ -1,5 +1,49 @@
 # Changelog
 
+## v2026.1.27
+
+### <!-- 01 -->💡 Features
+
+- More accurate handling of ProtectClock ([b6c80ad](https://github.com/desbma/shh/commit/b6c80ada564776985706cffd8b19e9424254fb9a) by desbma)
+- Support opt-in debug logs for release builds ([811ce9e](https://github.com/desbma/shh/commit/811ce9e3cdae06efc887489880d8a4df5de039cc) by desbma)
+- Experimental support for service generated from .container templates ([804a09a](https://github.com/desbma/shh/commit/804a09a5ea34c7133396899e4efbfb180c2a2c34) by desbma)
+
+### <!-- 02 -->🐛 Bug fixes
+
+- Ignore open*/socket syscall return value when they fail ([f4b7997](https://github.com/desbma/shh/commit/f4b7997717f05e2855e0542a8676ac4d3b5ad256) by desbma)
+- Ignore bincode audit warning for now ([fd6fbba](https://github.com/desbma/shh/commit/fd6fbba3076f0a6a26785de8d7d67ba3bead9e83) by desbma)
+- Remove reverse log fetching, unneeded now that we use cursors ([9133c4c](https://github.com/desbma/shh/commit/9133c4ce12f46996ef391fc3907a180fa8219d35) by desbma)
+- Hide journalctl output when getting cursor ([95e322e](https://github.com/desbma/shh/commit/95e322ec96365d742f89af56605a126a6aab8548) by desbma)
+- README: Double title ([c4e0835](https://github.com/desbma/shh/commit/c4e083544bce3186251ac307473e295d61f8e18d) by desbma)
+
+### <!-- 04 -->📗 Documentation
+
+- Add logo ([f328d34](https://github.com/desbma/shh/commit/f328d34200dfbc7ef37fc314a4012090ca001232) by desbma)
+- Add preview logo ([f582d25](https://github.com/desbma/shh/commit/f582d259ae2e691f0e2f2ce9a4e34d175ea118ab) by desbma)
+- README: Fix install instructions from crates.io ([c81c513](https://github.com/desbma/shh/commit/c81c5136c8acb8c2f960c3766a069bb25a070c35) by desbma)
+
+### <!-- 05 -->🧪 Testing
+
+- Add ignore reason ([1c8e1c4](https://github.com/desbma/shh/commit/1c8e1c43700f9ef9c2f40b196012c4a48e6bd5a5) by desbma)
+- Add opt-in gimp integration test ([442fcee](https://github.com/desbma/shh/commit/442fcee85c2eb1cd83a9b1e78af91d9dd6b228c1) by desbma)
+- Fix integration tests with Python 3.14 ([a8b680f](https://github.com/desbma/shh/commit/a8b680f6281ec932e8e9b6501c012d00c37224a6) by desbma)
+
+### <!-- 06 -->🚜 Refactor
+
+- Simplify path lists only once ([75cb380](https://github.com/desbma/shh/commit/75cb3805fb49c6a5addf153f120103e7a9f886fa) by desbma)
+- Factorize some option exception logic ([55da9fe](https://github.com/desbma/shh/commit/55da9fe44be866c992b37089b1475294421b89ca) by desbma)
+- Simplify option definition ([628482f](https://github.com/desbma/shh/commit/628482f07a203571a6bf220193206d455e64f6d4) by desbma)
+- Make OptionUpdater a trait ([01808da](https://github.com/desbma/shh/commit/01808da02861d61d2691a04d1b17011aad36c31f) by desbma)
+
+### <!-- 10 -->🧰 Miscellaneous tasks
+
+- Fix cargo_bin deprecated use ([0f7d572](https://github.com/desbma/shh/commit/0f7d572ffdc9aa9e0ab9af2f418613b07abcec9b) by desbma)
+- Replace bincode by postcard ([5b9af19](https://github.com/desbma/shh/commit/5b9af19c4f379eb9ebeda9d3bc4d8eeae33e097d) by desbma)
+- Add AGENTS.md ([e56b8b8](https://github.com/desbma/shh/commit/e56b8b8f5f8eb7cafb4b7fa82c732fff481c8f66) by desbma)
+- Update dependencies ([68ee2da](https://github.com/desbma/shh/commit/68ee2da07b23f08b6024ea6ee3e3d931db8eb30f) by desbma)
+
+---
+
 ## v2025.11.3
 
 ### <!-- 01 -->💡 Features
