@@ -1,7 +1,5 @@
 ![SHH (Systemd Hardening Helper)](./logo/github_banner_dark.png)
 
-# SHH (Systemd Hardening Helper)
-
 [![CI status](https://github.com/desbma/shh/actions/workflows/ci.yml/badge.svg)](https://github.com/desbma/shh/actions)
 [![crates.io version](https://img.shields.io/crates/v/systemd-hardening-helper)](https://crates.io/crates/systemd-hardening-helper)
 [![AUR version](https://img.shields.io/aur/version/shh.svg?style=flat)](https://aur.archlinux.org/packages/shh/)
