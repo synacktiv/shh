@@ -1,0 +1,91 @@
+#!/bin/bash -eu
+
+#
+# Host requirements: qemu-system-x86, virtiofsd, systemd (>= 256)
+#
+
+set -o pipefail
+
+if [ $# -lt 2 ]
+then
+    echo "Usage: $0 DISTRIBUTION COMMAND [ARGS...]" >&2
+    echo "Environment: TARGET_DIR (default: <repo>/test-env/target/<distribution>)" >&2
+    exit 1
+fi
+
+readonly DISTRIBUTION="${1:?}"
+shift 1
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+readonly PROJECT_DIR
+readonly TARGET_DIR="${TARGET_DIR:-${PROJECT_DIR}/test-env/target/${DISTRIBUTION}}"
+
+# Ephemeral overlay so the base tree stays unmodified and
+# concurrent instances don't interfere with each other
+EPHEMERAL="$(mktemp -d --tmpdir vmtest-XXXXXXXXXX)"
+readonly EPHEMERAL
+mkdir "${EPHEMERAL}"/{upper,work,merged}
+sudo mount -t overlay overlay \
+    -o "lowerdir=${TARGET_DIR},upperdir=${EPHEMERAL}/upper,workdir=${EPHEMERAL}/work" \
+    "${EPHEMERAL}/merged"
+
+KERNELS=("${TARGET_DIR}"/boot/vmlinuz-*)
+INITRDS=("${TARGET_DIR}"/boot/initrd.img-*)
+readonly KERNEL="${KERNELS[0]}" INITRD="${INITRDS[0]}"
+
+# Build wrapper script in /root/ (not /tmp/ which systemd
+# mounts as tmpfs, hiding anything written there)
+readonly VMRESULT="/src/test-env/.vmtest-$$"
+{
+    echo '#!/bin/bash'
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --setenv) printf 'export %q\n' "$2"; shift 2 ;;
+            *)        break ;;
+        esac
+    done
+    echo 'systemctl start systemd-networkd.service systemd-resolved.service systemd-logind.service systemd-machined.service'
+    printf 'mkdir -p %q\nexec %s >%q/stdout 2>%q/stderr\n' \
+        "${VMRESULT}" "$(printf '%q ' "$@")" "${VMRESULT}" "${VMRESULT}"
+} | sudo tee "${EPHEMERAL}/merged/root/vmtest.sh" > /dev/null
+sudo chmod +x "${EPHEMERAL}/merged/root/vmtest.sh"
+
+# Pre-create result dir so tail -f can start before the VM writes
+readonly RESULT="${PROJECT_DIR}/test-env/.vmtest-$$"
+mkdir -p "${RESULT}"
+touch "${RESULT}/stdout" "${RESULT}/stderr"
+trap 'kill ${TAIL_STDOUT} ${TAIL_STDERR} 2>/dev/null || true; sudo umount ${EPHEMERAL}/merged 2>/dev/null || true; sudo rm -rf ${EPHEMERAL} ${RESULT}' EXIT
+
+# CPU cores: min(4, host cores)
+NCPUS=$(nproc 2>/dev/null || echo 1)
+NCPUS=$((NCPUS > 4 ? 4 : NCPUS))
+readonly NCPUS
+
+sudo systemd-vmspawn \
+    --machine="${EPHEMERAL##*/}" \
+    -D "${EPHEMERAL}/merged" \
+    --bind="${PROJECT_DIR}:/src" \
+    --linux="${KERNEL}" \
+    --initrd="${INITRD}" \
+    --network-user-mode \
+    --console=read-only \
+    --cpus="${NCPUS}" \
+    --ram=2G \
+    -q \
+    quiet \
+    systemd.show_status=false \
+    "systemd.run=/root/vmtest.sh" \
+    systemd.run_success_action=exit \
+    systemd.run_failure_action=exit \
+> /dev/null 2>&1 &
+VMSPAWN_PID=$!
+
+# Stream test output in real time, auto-exit when vmspawn dies
+tail --pid=${VMSPAWN_PID} -f "${RESULT}/stdout" &
+TAIL_STDOUT=$!
+tail --pid=${VMSPAWN_PID} -f "${RESULT}/stderr" >&2 &
+TAIL_STDERR=$!
+
+RC=0
+wait "${VMSPAWN_PID}" || RC=$?
+wait ${TAIL_STDOUT} ${TAIL_STDERR} 2>/dev/null || true
+exit "${RC}"

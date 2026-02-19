@@ -1,5 +1,7 @@
 /.aider.*
 /target
+/test-env/target
+/test-env/.vmtest-*
 /*.log
 /*.log.*
 /logo/*.tmp

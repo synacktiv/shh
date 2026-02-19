@@ -1,0 +1,68 @@
+#!/bin/bash -eux
+
+#
+# Host requirements:
+#   Debian/Ubuntu: apt install debootstrap systemd-container qemu-system-x86 virtiofsd
+#   Arch Linux:    pacman -S debootstrap systemd qemu-system-x86 virtiofsd
+#
+
+set -o pipefail
+
+if [ $# -ne 1 ]
+then
+    echo "Usage: $0 TARGET_DISTRIBUTION" >&2
+    echo "Environment: TARGET_DIR (default: <repo>/test-env/target/<distribution>)" >&2
+    exit 1
+fi
+
+readonly TARGET_DISTRIBUTION="${1:?}"
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+readonly PROJECT_DIR
+readonly TARGET_DIR="${TARGET_DIR:-${PROJECT_DIR}/test-env/target/${TARGET_DISTRIBUTION}}"
+
+if [ "${TARGET_DISTRIBUTION}" != "debian-trixie" ]
+then
+    echo "Unsupported target distribution: ${TARGET_DISTRIBUTION} (only debian-trixie is supported)" >&2
+    exit 1
+fi
+
+if [ -f "${TARGET_DIR}/etc/os-release" ]
+then
+    echo "Target already exists at ${TARGET_DIR}, updating packages" >&2
+    sudo systemd-nspawn -D "${TARGET_DIR}" --bind-ro=/etc/resolv.conf --pipe apt-get update -qq < /dev/null
+    sudo systemd-nspawn -D "${TARGET_DIR}" --bind-ro=/etc/resolv.conf --pipe apt-get upgrade -qq -y < /dev/null
+    exit 0
+fi
+
+readonly PACKAGES=(
+    busybox
+    ca-certificates
+    curl
+    dbus
+    iputils-ping
+    iproute2
+    linux-image-amd64
+    kmod
+    python3
+    strace
+    systemd-resolved
+    xauth
+    xvfb
+)
+
+sudo debootstrap \
+    --include="$(IFS=,; echo "${PACKAGES[*]}")" \
+    trixie \
+    "${TARGET_DIR}"
+
+sudo systemd-nspawn -D "${TARGET_DIR}" --pipe useradd --create-home --shell /bin/bash testuser < /dev/null
+sudo mkdir -p "${TARGET_DIR}/var/lib/systemd/linger"
+sudo touch "${TARGET_DIR}/var/lib/systemd/linger/testuser"
+
+# has to be done after debootstrap to avoid package resolution errors
+sudo systemd-nspawn -D "${TARGET_DIR}" --bind-ro=/etc/resolv.conf --pipe apt-get install --no-install-recommends gimp polkitd -y < /dev/null
+
+sudo ln -sf ../run/systemd/resolve/stub-resolv.conf "${TARGET_DIR}/etc/resolv.conf"
+sudo mkdir -p "${TARGET_DIR}/etc/systemd/network"
+printf '[Match]\nName=*\n\n[Network]\nDHCP=yes\n' \
+    | sudo tee "${TARGET_DIR}/etc/systemd/network/80-vm.network" > /dev/null

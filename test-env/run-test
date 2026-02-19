@@ -1,0 +1,53 @@
+#!/bin/bash -eu
+
+#
+# Cargo test runner for systemd-vmspawn environments.
+#
+# Usage:
+#   CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER='./test-env/run-test debian-trixie' cargo test --features test-env-vm
+#
+
+set -o pipefail
+
+if [ $# -lt 2 ]
+then
+    echo "Usage: $0 DISTRIBUTION BINARY [ARGS...]" >&2
+    exit 1
+fi
+
+readonly DISTRIBUTION="${1:?}"
+shift 1
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+readonly SCRIPT_DIR
+PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+readonly PROJECT_DIR
+
+readonly PASSTHROUGH_VARS=(
+    RUST_BACKTRACE
+    RUST_LOG
+    INSTA_UPDATE
+)
+
+ENV_ARGS=()
+
+# Always set CARGO_BIN_EXE_shh to the target path
+ENV_ARGS+=(--setenv "CARGO_BIN_EXE_shh=/src/target/debug/shh")
+
+# Tell insta where the workspace root is inside the VM,
+# so it doesn't try to run cargo metadata with the baked-in host path
+ENV_ARGS+=(--setenv "INSTA_WORKSPACE_ROOT=/src")
+ENV_ARGS+=(--setenv "TEST_USER=testuser")
+
+for var in "${PASSTHROUGH_VARS[@]}"; do
+    if [ -n "${!var+set}" ]; then
+        ENV_ARGS+=(--setenv "${var}=${!var}")
+    fi
+done
+
+# Remap host paths to target paths (PROJECT_DIR -> /src)
+ARGS=()
+for arg in "$@"; do
+    ARGS+=("${arg/#"${PROJECT_DIR}"/\/src}")
+done
+
+exec "${SCRIPT_DIR}/run" "${DISTRIBUTION}" "${ENV_ARGS[@]}" "${ARGS[@]}"

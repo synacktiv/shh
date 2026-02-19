@@ -1,57 +1,7 @@
 #!/bin/bash -eux
 
-# shellcheck disable=SC2155,SC2164,SC2086
+cargo test --bins -- "$@"
 
-readonly TEST_ARGS="$*"
+CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER='./test-env/run-test debian-trixie' cargo test --features test-env-vm --test options -- "$@"
 
-# auto cleanup
-at_exit() {
-  [ "${TMP_DIR:-}" ] && rm -Rf "${TMP_DIR}"
-}
-trap at_exit EXIT
-
-readonly TMP_DIR="$(mktemp -d /tmp/"$(basename -- "$0")".XXXXXXXXXX)"
-
-if ! pwd | grep -q '^/home/'
-then
-  echo 'This script should be run from /home' >&2
-  exit 1
-fi
-
-if [ "${GITHUB_ACTIONS:-}" ]
-then
-  # some tests with 'systemd-run --user' fail on GitHub Actions, but succeed on different
-  # Debian and Arch environments
-  # TODO figure out why
-  INT_TEST_FEATURES=int-tests-as-root
-elif command -v gimp > /dev/null && command -v xvfb-run > /dev/null
-then
-  INT_TEST_FEATURES=int-tests-as-root,int-tests-sd-user,int-tests-gimp
-else
-  INT_TEST_FEATURES=int-tests-as-root,int-tests-sd-user
-fi
-
-#
-# runs test in current dir
-#
-
-# unit tests + integration tests
-cargo test ${TEST_ARGS}
-
-# integration tests as root
-CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER='sudo -E' cargo test --features ${INT_TEST_FEATURES} --test '*' ${TEST_ARGS}
-
-#
-# runs tests in /tmp
-#
-
-cp -Ra . "${TMP_DIR}"
-pushd "${TMP_DIR}"
-
-  # unit tests + integration tests
-  cargo test --test '*' ${TEST_ARGS}
-
-  # integration tests as root
-  CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER='sudo -E' cargo test --features ${INT_TEST_FEATURES} --test '*' ${TEST_ARGS}
-
-popd
+CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER='./test-env/run-test debian-trixie' cargo test --features test-env-vm --test systemd-run -- --test-threads=1 "$@"

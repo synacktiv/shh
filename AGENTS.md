@@ -6,8 +6,7 @@
 - Check/Lint: `cargo clippy` (pedantic + restriction lints enabled)
 - Format: `cargo fmt`
 - Test: `cargo test`
-- Single test: `cargo test <test_name>` (e.g., `cargo test run_true`)
-- Integration tests as root: `CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER='sudo -E' cargo test --features int-tests-as-root --test '*'`
+- Single test: `cargo test <test_name>`
 
 ## Architecture
 

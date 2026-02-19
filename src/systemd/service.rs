@@ -457,17 +457,9 @@ impl Service {
         let snippet_lines: Vec<_> = reader
             .lines()
             // Stream lines but bubble up errors
-            .skip_while(|r| {
-                r.as_ref()
-                    .map(|l| l != START_OPTION_OUTPUT_SNIPPET)
-                    .unwrap_or(false)
-            })
+            .skip_while(|r| r.as_ref().is_ok_and(|l| l != START_OPTION_OUTPUT_SNIPPET))
             .skip(1)
-            .take_while(|r| {
-                r.as_ref()
-                    .map(|l| l != END_OPTION_OUTPUT_SNIPPET)
-                    .unwrap_or(true)
-            })
+            .take_while(|r| r.as_ref().map_or(true, |l| l != END_OPTION_OUTPUT_SNIPPET))
             .collect::<Result<_, _>>()?;
         let opts = snippet_lines
             .iter()

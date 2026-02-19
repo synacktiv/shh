@@ -510,7 +510,7 @@ mod benchs {
             .unwrap();
 
         b.iter(|| {
-            log_lines.iter().map(|l| parse_line(&l)).for_each(drop);
+            log_lines.iter().map(|l| parse_line(l)).for_each(drop);
         });
     }
 }
