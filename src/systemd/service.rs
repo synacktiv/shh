@@ -3,7 +3,7 @@
 use std::{
     env, fmt,
     fs::{self, File},
-    io::{self, BufRead as _, BufReader, BufWriter, Write},
+    io::{self, BufRead as _, BufWriter, Write},
     ops::RangeInclusive,
     path::PathBuf,
     process::{Command, Stdio},
@@ -434,7 +434,7 @@ impl Service {
         if matches!(self.instance, InstanceKind::User) {
             cmd.arg("--user");
         }
-        let mut child = cmd
+        let output = cmd
             .args([
                 "-o",
                 "cat",
@@ -449,12 +449,16 @@ impl Service {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .env("LANG", "C")
-            .spawn()?;
+            .output()?;
+        anyhow::ensure!(
+            output.status.success(),
+            "journalctl failed: {}",
+            output.status
+        );
 
         // Parse its output
-        #[expect(clippy::unwrap_used)]
-        let reader = BufReader::new(child.stdout.take().unwrap());
-        let snippet_lines: Vec<_> = reader
+        let snippet_lines: Vec<_> = output
+            .stdout
             .lines()
             // Stream lines but bubble up errors
             .skip_while(|r| r.as_ref().is_ok_and(|l| l != START_OPTION_OUTPUT_SNIPPET))
@@ -465,10 +469,6 @@ impl Service {
             .iter()
             .map(|l| l.parse::<OptionWithValue<String>>())
             .collect::<anyhow::Result<_>>()?;
-
-        // Stop journalctl
-        child.kill()?;
-        child.wait()?;
 
         Ok(opts)
     }
