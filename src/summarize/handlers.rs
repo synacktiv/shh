@@ -25,8 +25,8 @@ use path_clean::PathClean as _;
 
 use super::{
     BufferExpression, BufferType, Expression, FdOrPath, IntegerExpression, IntegerExpressionValue,
-    NetworkActivity, NetworkActivityKind, NetworkPort, ProgramAction, ProgramState, SetSpecifier,
-    SocketFamily, SocketProtocol, Syscall, SyscallArgs, SyscallArgsInfo,
+    NetworkActivity, NetworkActivityKind, NetworkAddress, NetworkPort, ProgramAction, ProgramState,
+    SetSpecifier, SocketFamily, SocketProtocol, Syscall, SyscallArgs, SyscallArgsInfo,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -475,7 +475,7 @@ fn handle_network(
         });
     };
 
-    let ip_addr = match addr_struct
+    let ip_addr: SetSpecifier<NetworkAddress> = match addr_struct
         .iter()
         .find_map(|(k, v)| ["sin_addr", "sin6_addr"].contains(&k.as_str()).then_some(v))
     {
@@ -582,11 +582,32 @@ fn handle_network(
             type_dst: type_name::<RawFd>(),
         })?,
     )) {
+        let kind = SetSpecifier::One(NetworkActivityKind::from_sc_name(name));
+
+        // When binding to [::] (IPv6 unspecified), the socket is typically dual-stack
+        // and also serves IPv4 traffic, so emit an IPv4 bind action too
+        let is_ipv6_unspecified_bind = name == "bind"
+            && af == SocketFamily::Ipv6
+            && matches!(&ip_addr,
+                SetSpecifier::One(addr) if addr.is_ipv6_unspecified());
+        if is_ipv6_unspecified_bind {
+            actions.push(ProgramAction::NetworkActivity(
+                NetworkActivity {
+                    af: SetSpecifier::One(SocketFamily::Ipv4),
+                    proto: SetSpecifier::One(proto.to_owned()),
+                    kind: kind.clone(),
+                    local_port: local_port.clone(),
+                    address: ip_addr.clone(),
+                }
+                .into(),
+            ));
+        }
+
         actions.push(ProgramAction::NetworkActivity(
             NetworkActivity {
                 af: SetSpecifier::One(af),
                 proto: SetSpecifier::One(proto.to_owned()),
-                kind: SetSpecifier::One(NetworkActivityKind::from_sc_name(name)),
+                kind,
                 local_port,
                 address: ip_addr,
             }

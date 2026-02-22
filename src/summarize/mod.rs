@@ -184,6 +184,12 @@ impl Display for NetworkPort {
 #[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct NetworkAddress(IpAddr);
 
+impl NetworkAddress {
+    pub(crate) fn is_ipv6_unspecified(&self) -> bool {
+        matches!(self.0, IpAddr::V6(addr) if addr.is_unspecified())
+    }
+}
+
 impl From<IpAddr> for NetworkAddress {
     fn from(value: IpAddr) -> Self {
         Self(value)
