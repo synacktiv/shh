@@ -30,8 +30,13 @@ readonly PASSTHROUGH_VARS=(
 
 ENV_ARGS=()
 
-# Always set CARGO_BIN_EXE_shh to the target path
-ENV_ARGS+=(--setenv "CARGO_BIN_EXE_shh=/src/target/debug/shh")
+# Determine build profile (debug/release) from the test binary path passed by Cargo
+PROFILE_DIR="${1#*target/}"
+PROFILE_DIR="${PROFILE_DIR%%/*}"
+readonly PROFILE_DIR
+
+# Set CARGO_BIN_EXE_shh to the matching target path inside the VM
+ENV_ARGS+=(--setenv "CARGO_BIN_EXE_shh=/src/target/${PROFILE_DIR}/shh")
 
 # Tell insta where the workspace root is inside the VM,
 # so it doesn't try to run cargo metadata with the baked-in host path

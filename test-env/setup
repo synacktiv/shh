@@ -37,6 +37,7 @@ fi
 readonly PACKAGES=(
     busybox
     ca-certificates
+    caddy
     curl
     dbus
     iputils-ping
