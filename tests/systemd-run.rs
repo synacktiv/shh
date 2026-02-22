@@ -36,22 +36,23 @@ mod tests {
             .arg("--")
             .args(cmd)
             .unwrap();
-        let opts = output
+        let mut has_end_marker = false;
+        let opts: Vec<_> = output
             .stdout
             .lines()
             // Filter out delimiting lines while letting errors bubble up
-            .skip_while(|r| {
-                r.as_ref()
-                    .is_ok_and(|l| !l.starts_with(START_OPTION_OUTPUT_SNIPPET))
-            })
+            .skip_while(|r| r.as_ref().is_ok_and(|l| l != START_OPTION_OUTPUT_SNIPPET))
             .skip(1)
-            .take_while(|r| {
-                r.as_ref().is_err()
-                    || r.as_ref()
-                        .is_ok_and(|l| !l.starts_with(END_OPTION_OUTPUT_SNIPPET))
+            .inspect(|r| {
+                if r.as_ref().is_ok_and(|l| l == END_OPTION_OUTPUT_SNIPPET) {
+                    has_end_marker = true;
+                }
             })
+            .take_while(|r| r.as_ref().map_or(true, |l| l != END_OPTION_OUTPUT_SNIPPET))
             .collect::<Result<_, _>>()
             .unwrap();
+        assert!(has_end_marker);
+
         output.assert().success();
         opts
     }

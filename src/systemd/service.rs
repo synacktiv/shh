@@ -457,14 +457,23 @@ impl Service {
         );
 
         // Parse its output
+        let mut has_end_marker = false;
         let snippet_lines: Vec<_> = output
             .stdout
             .lines()
-            // Stream lines but bubble up errors
+            // Filter out delimiting lines while letting errors bubble up
             .skip_while(|r| r.as_ref().is_ok_and(|l| l != START_OPTION_OUTPUT_SNIPPET))
             .skip(1)
+            .inspect(|r| {
+                if r.as_ref().is_ok_and(|l| l == END_OPTION_OUTPUT_SNIPPET) {
+                    has_end_marker = true;
+                }
+            })
             .take_while(|r| r.as_ref().map_or(true, |l| l != END_OPTION_OUTPUT_SNIPPET))
             .collect::<Result<_, _>>()?;
+
+        anyhow::ensure!(has_end_marker, "Incomplete output");
+
         let opts = snippet_lines
             .iter()
             .map(|l| l.parse::<OptionWithValue<String>>())
