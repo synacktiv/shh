@@ -76,7 +76,7 @@ sudo systemd-vmspawn \
     "systemd.run=/root/vmtest.sh" \
     systemd.run_success_action=exit \
     systemd.run_failure_action=exit \
-> /dev/null 2>&1 &
+< /dev/null > /dev/null 2>&1 &
 VMSPAWN_PID=$!
 
 # Stream test output in real time, auto-exit when vmspawn dies
