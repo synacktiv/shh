@@ -321,6 +321,9 @@ fn main() -> anyhow::Result<()> {
                         .context("Failed to get exposure level")?
                 );
             }
+            service
+                .action("reset-failed", true)
+                .context("Failed to reset restart count")?;
             if !no_restart {
                 service
                     .action("start", false)
