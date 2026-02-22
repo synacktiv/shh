@@ -2,12 +2,26 @@
 
 cargo test --bins -- "$@"
 
-cargo build
+CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER='./test-env/run-test debian-trixie' \
+  cargo test \
+    --features test-env-vm \
+    --test options \
+    -- \
+    "$@"
 
-CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER='./test-env/run-test debian-trixie' cargo test --features test-env-vm --test options -- "$@"
+CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER='./test-env/run-test debian-trixie' \
+  cargo test \
+    --features test-env-vm \
+    --test systemd-run \
+    -- \
+    --test-threads=1 \
+    "$@"
 
-CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER='./test-env/run-test debian-trixie' cargo test --features test-env-vm --test systemd-run -- --test-threads=1 "$@"
-
-cargo build --release
-
-CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER='./test-env/run-test debian-trixie' cargo test --release --features test-env-vm --test end_to_end -- --test-threads=1 "$@"
+CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER='./test-env/run-test debian-trixie' \
+  cargo test \
+    --release \
+    --features test-env-vm \
+    --test end_to_end \
+    -- \
+    --test-threads=1 \
+    "$@"
