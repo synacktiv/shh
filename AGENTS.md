@@ -4,7 +4,7 @@
 
 - Build: `cargo build` (release: `cargo build --release`)
 - Check/Lint: `cargo clippy` (pedantic + restriction lints enabled)
-- Format: `cargo fmt`
+- Format: `cargo fmt --all`
 - Test: `cargo test`
 - Single test: `cargo test <test_name>`
 
@@ -25,3 +25,13 @@
 - Use `thiserror` for custom error types
 - Group std imports first, then external crates, then local modules
 - Prefer `log` macros for logging; no `dbg!` or `todo!`
+- Prefer `default-features = false` for dependencies.
+- In tests: use `use super::*;` to import from the parent module
+- In tests: prefer `unwrap()` over `expect()` for conciseness
+- In tests: do not add custom messages to `assert!`/`assert_eq!`/`assert_ne!` — the test name is sufficient
+- When moving or refactoring code, never remove comment lines — preserve all comments and move them along with the code they document
+
+## Version control
+
+- This repository uses the jujutsu VCS. **Never use any `jj` command that modifies the repository**.
+- You can also use read-only git commands for inspecting repository state. **Never use any git command that modifies the repository**.
