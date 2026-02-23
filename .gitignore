@@ -1,3 +1,4 @@
+*.snap.new
 /.aider.*
 /target
 /test-env/target/*/
