@@ -108,6 +108,26 @@ impl ExtractArg for FdOrPath<usize> {
     }
 }
 
+impl FdOrPath<&Expression> {
+    /// Resolve an fd-or-path reference to an optional absolute path
+    fn resolve(self, sc_name: &str, cur_dir: &Path) -> Result<Option<PathBuf>, HandlerError> {
+        match self {
+            FdOrPath::Fd(fd) => Ok(resolve_path(Path::new(""), Some(fd), cur_dir)),
+            FdOrPath::Path(Expression::Buffer(BufferExpression {
+                value: b,
+                type_: BufferType::Unknown,
+            })) => {
+                let p = Path::new(OsStr::from_bytes(b));
+                Ok(resolve_path(p, None, cur_dir))
+            }
+            FdOrPath::Path(e) => Err(HandlerError::ArgTypeMismatch {
+                sc_name: sc_name.to_owned(),
+                arg: e.to_owned(),
+            }),
+        }
+    }
+}
+
 /// Handle chdir-like syscalls
 pub(crate) struct ChdirHandler {
     pub path: FdOrPath<usize>,
@@ -120,23 +140,10 @@ impl SyscallHandler for ChdirHandler {
         actions: &mut Vec<ProgramAction>,
         state: &mut ProgramState,
     ) -> Result<(), HandlerError> {
-        let path = self.path.extract(sc)?;
-        let dir = match path {
-            FdOrPath::Fd(fd) => resolve_path(Path::new(""), Some(fd), state.cur_dir.as_ref()),
-            FdOrPath::Path(Expression::Buffer(BufferExpression {
-                value: b,
-                type_: BufferType::Unknown,
-            })) => {
-                let p = Path::new(OsStr::from_bytes(b));
-                resolve_path(p, None, state.cur_dir.as_ref())
-            }
-            FdOrPath::Path(e) => {
-                return Err(HandlerError::ArgTypeMismatch {
-                    sc_name: sc.name.clone(),
-                    arg: e.to_owned(),
-                });
-            }
-        };
+        let dir = self
+            .path
+            .extract(sc)?
+            .resolve(&sc.name, state.cur_dir.as_ref())?;
         if let Some(mut dir) = dir {
             traverse_symlinks(&mut dir, actions);
             debug_assert!(dir.is_absolute());
@@ -420,22 +427,10 @@ impl SyscallHandler for MknodHandler {
                 arg: mode.to_owned(),
             });
         };
-        let path = match self.path.extract(sc)? {
-            FdOrPath::Fd(fd) => resolve_path(Path::new(""), Some(fd), state.cur_dir.as_ref()),
-            FdOrPath::Path(Expression::Buffer(BufferExpression {
-                value: b,
-                type_: BufferType::Unknown,
-            })) => {
-                let p = Path::new(OsStr::from_bytes(b));
-                resolve_path(p, None, state.cur_dir.as_ref())
-            }
-            FdOrPath::Path(e) => {
-                return Err(HandlerError::ArgTypeMismatch {
-                    sc_name: sc.name.clone(),
-                    arg: e.to_owned(),
-                });
-            }
-        };
+        let path = self
+            .path
+            .extract(sc)?
+            .resolve(&sc.name, state.cur_dir.as_ref())?;
 
         if PRIVILEGED_ST_MODES
             .iter()
@@ -2733,5 +2728,89 @@ x86_Thread_features_locked:
         let fd_or_path: FdOrPath<usize> = FdOrPath::Path(0);
         let result: Result<FdOrPath<&Expression>, _> = fd_or_path.extract(&sc);
         assert_eq!(result.unwrap(), FdOrPath::Path(&buf_expr(b"/tmp")));
+    }
+
+    // chdir("/tmp")
+    #[test]
+    fn resolve_chdir_absolute() {
+        let path = FdOrPath::Path(&buf_expr(b"/tmp"));
+        assert_eq!(
+            path.resolve("chdir", Path::new("/")).unwrap(),
+            Some(PathBuf::from("/tmp"))
+        );
+    }
+
+    // chdir("subdir")
+    #[test]
+    fn resolve_chdir_relative() {
+        let path = FdOrPath::Path(&buf_expr(b"subdir"));
+        assert_eq!(
+            path.resolve("chdir", Path::new("/home/user")).unwrap(),
+            Some(PathBuf::from("/home/user/subdir"))
+        );
+    }
+
+    // fchdir(3) with fd metadata pointing to /var/log
+    #[test]
+    fn resolve_fchdir() {
+        let fd = Expression::Integer(IntegerExpression {
+            value: IntegerExpressionValue::Literal(3),
+            metadata: Some(b"/var/log".to_vec()),
+        });
+        let path = FdOrPath::Fd(&fd);
+        assert_eq!(
+            path.resolve("fchdir", Path::new("/")).unwrap(),
+            Some(PathBuf::from("/var/log"))
+        );
+    }
+
+    // mknod("/dev/null", ...)
+    #[test]
+    fn resolve_mknod_absolute() {
+        let path = FdOrPath::Path(&buf_expr(b"/dev/null"));
+        assert_eq!(
+            path.resolve("mknod", Path::new("/")).unwrap(),
+            Some(PathBuf::from("/dev/null"))
+        );
+    }
+
+    // mknodat(AT_FDCWD</tmp>, "mydev", ...)
+    #[test]
+    fn resolve_mknodat_relative() {
+        let fd = Expression::Integer(IntegerExpression {
+            value: IntegerExpressionValue::NamedSymbol("AT_FDCWD".to_owned()),
+            metadata: Some(b"/tmp".to_vec()),
+        });
+        let path = FdOrPath::Fd(&fd);
+        assert_eq!(
+            path.resolve("mknodat", Path::new("/")).unwrap(),
+            Some(PathBuf::from("/tmp"))
+        );
+    }
+
+    // Pseudo path (eg pipe:[12345]) returns None
+    #[test]
+    fn resolve_pseudo_path() {
+        let path = FdOrPath::Path(&buf_expr(b"pipe:[12345]"));
+        assert_eq!(path.resolve("mknod", Path::new("/")).unwrap(), None);
+    }
+
+    // Fd with pipe pseudo metadata returns None
+    #[test]
+    fn resolve_fd_pseudo_metadata() {
+        let fd = Expression::Integer(IntegerExpression {
+            value: IntegerExpressionValue::Literal(3),
+            metadata: Some(b"pipe:[12345]".to_vec()),
+        });
+        let path = FdOrPath::Fd(&fd);
+        assert_eq!(path.resolve("fchdir", Path::new("/")).unwrap(), None);
+    }
+
+    // Wrong expression type for Path variant returns error
+    #[test]
+    fn resolve_path_type_mismatch() {
+        let expr = int_literal(42);
+        let path = FdOrPath::Path(&expr);
+        assert!(path.resolve("chdir", Path::new("/")).is_err());
     }
 }
