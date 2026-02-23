@@ -488,6 +488,7 @@ mod tests {
 }
 
 #[cfg(all(feature = "nightly", test))]
+#[expect(clippy::tests_outside_test_module)]
 mod benchs {
     extern crate test;
 

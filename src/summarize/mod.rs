@@ -14,14 +14,18 @@ use anyhow::Context as _;
 use nix::libc::pid_t;
 
 use crate::{
-    strace::{
-        BufferExpression, BufferType, Expression, IntegerExpression, IntegerExpressionValue,
-        Syscall,
-    },
+    strace::Syscall,
     systemd::{SocketFamily, SocketProtocol},
 };
 
 mod handlers;
+
+use handlers::{
+    ChdirHandler, EpollCtlHandler, ExecHandler, KillHandler, MemfdCreateHandler, MkdirHandler,
+    MknodHandler, MmapHandler, MountHandler, NetworkHandler, OpenHandler, RenameHandler,
+    SetSchedulerHandler, ShmCtlHandler, SocketHandler, StatFdHandler, StatPathHandler,
+    SyscallHandler, TimerCreateHandler,
+};
 
 /// A high level program runtime action
 /// This does *not* map 1-1 with a syscall, and does *not* necessarily respect chronology
@@ -203,197 +207,10 @@ impl Display for NetworkAddress {
 }
 
 #[derive(Debug)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
 enum FdOrPath<T> {
     Fd(T),
     Path(T),
-}
-
-/// Meta structure to group syscalls that have similar summary handling
-/// and store arguments
-enum SyscallArgsInfo<T> {
-    Chdir(FdOrPath<T>),
-    EpollCtl {
-        op: T,
-        event: T,
-    },
-    Exec {
-        relfd: Option<T>,
-        path: T,
-    },
-    Kill {
-        pid: T,
-        sig: T,
-    },
-    MemfdCreate {
-        flags: T,
-    },
-    Mkdir {
-        relfd: Option<T>,
-        path: T,
-    },
-    Mknod {
-        mode: T,
-    },
-    Mmap {
-        prot: T,
-        flags: Option<T>,
-        fd: Option<T>,
-    },
-    Mount {
-        flags: T,
-    },
-    Network {
-        fd: T,
-        sockaddr: T,
-    },
-    Open {
-        relfd: Option<T>,
-        path: T,
-        flags: T,
-    },
-    Rename {
-        relfd_src: Option<T>,
-        path_src: T,
-        relfd_dst: Option<T>,
-        path_dst: T,
-        flags: Option<T>,
-    },
-    SetScheduler {
-        policy: T,
-    },
-    ShmCtl {
-        op: T,
-    },
-    Socket {
-        af: T,
-        flags: T,
-    },
-    StatFd {
-        fd: T,
-    },
-    StatPath {
-        relfd: Option<T>,
-        path: T,
-    },
-    TimerCreate {
-        clockid: T,
-    },
-}
-
-/// Syscall argument indexes
-type SyscallArgsIndex = SyscallArgsInfo<usize>;
-/// Syscall arguments
-type SyscallArgs<'a> = SyscallArgsInfo<&'a Expression>;
-
-impl SyscallArgsIndex {
-    /// Extract arguments from indexes
-    fn extract_args<'a>(&self, sc: &'a Syscall) -> anyhow::Result<SyscallArgs<'a>> {
-        let args = match self {
-            Self::Chdir(p) => SyscallArgsInfo::Chdir(match p {
-                FdOrPath::Fd(i) => FdOrPath::Fd(Self::extract_arg(sc, *i)?),
-                FdOrPath::Path(i) => FdOrPath::Path(Self::extract_arg(sc, *i)?),
-            }),
-            Self::EpollCtl { op, event } => SyscallArgs::EpollCtl {
-                op: Self::extract_arg(sc, *op)?,
-                event: Self::extract_arg(sc, *event)?,
-            },
-            Self::Exec { relfd, path } => SyscallArgs::Exec {
-                relfd: relfd
-                    .map(|relfd| Self::extract_arg(sc, relfd))
-                    .transpose()?,
-                path: Self::extract_arg(sc, *path)?,
-            },
-            Self::Kill { pid, sig } => SyscallArgs::Kill {
-                pid: Self::extract_arg(sc, *pid)?,
-                sig: Self::extract_arg(sc, *sig)?,
-            },
-            Self::MemfdCreate { flags } => SyscallArgs::MemfdCreate {
-                flags: Self::extract_arg(sc, *flags)?,
-            },
-            Self::Mkdir { relfd, path } => SyscallArgs::Mkdir {
-                relfd: relfd
-                    .map(|relfd| Self::extract_arg(sc, relfd))
-                    .transpose()?,
-                path: Self::extract_arg(sc, *path)?,
-            },
-            Self::Mknod { mode } => SyscallArgs::Mknod {
-                mode: Self::extract_arg(sc, *mode)?,
-            },
-            Self::Mmap { prot, flags, fd } => SyscallArgs::Mmap {
-                prot: Self::extract_arg(sc, *prot)?,
-                flags: flags
-                    .map(|flags| Self::extract_arg(sc, flags))
-                    .transpose()?,
-                fd: fd.map(|fd| Self::extract_arg(sc, fd)).transpose()?,
-            },
-            Self::Mount { flags } => SyscallArgs::Mount {
-                flags: Self::extract_arg(sc, *flags)?,
-            },
-            Self::Network { fd, sockaddr } => SyscallArgs::Network {
-                fd: Self::extract_arg(sc, *fd)?,
-                sockaddr: Self::extract_arg(sc, *sockaddr)?,
-            },
-            Self::Open { relfd, path, flags } => SyscallArgs::Open {
-                relfd: relfd
-                    .map(|relfd| Self::extract_arg(sc, relfd))
-                    .transpose()?,
-                path: Self::extract_arg(sc, *path)?,
-                flags: Self::extract_arg(sc, *flags)?,
-            },
-            Self::Rename {
-                relfd_src,
-                path_src,
-                relfd_dst,
-                path_dst,
-                flags,
-            } => SyscallArgs::Rename {
-                relfd_src: relfd_src
-                    .map(|relfd_src| Self::extract_arg(sc, relfd_src))
-                    .transpose()?,
-                path_src: Self::extract_arg(sc, *path_src)?,
-                relfd_dst: relfd_dst
-                    .map(|relfd_dst| Self::extract_arg(sc, relfd_dst))
-                    .transpose()?,
-                path_dst: Self::extract_arg(sc, *path_dst)?,
-                flags: flags
-                    .map(|flags| Self::extract_arg(sc, flags))
-                    .transpose()?,
-            },
-            Self::SetScheduler { policy } => SyscallArgs::SetScheduler {
-                policy: Self::extract_arg(sc, *policy)?,
-            },
-            Self::ShmCtl { op } => SyscallArgs::ShmCtl {
-                op: Self::extract_arg(sc, *op)?,
-            },
-            Self::Socket { af, flags } => SyscallArgs::Socket {
-                af: Self::extract_arg(sc, *af)?,
-                flags: Self::extract_arg(sc, *flags)?,
-            },
-            Self::StatFd { fd } => SyscallArgs::StatFd {
-                fd: Self::extract_arg(sc, *fd)?,
-            },
-            Self::StatPath { relfd, path } => SyscallArgs::StatPath {
-                relfd: relfd
-                    .map(|relfd| Self::extract_arg(sc, relfd))
-                    .transpose()?,
-                path: Self::extract_arg(sc, *path)?,
-            },
-            Self::TimerCreate { clockid } => SyscallArgsInfo::TimerCreate {
-                clockid: Self::extract_arg(sc, *clockid)?,
-            },
-        };
-        Ok(args)
-    }
-
-    fn extract_arg(sc: &Syscall, index: usize) -> anyhow::Result<&Expression> {
-        sc.args.get(index).ok_or_else(|| {
-            anyhow::anyhow!(
-                "Unable to extract syscall argument {} for {:?}",
-                index,
-                sc.name
-            )
-        })
-    }
 }
 
 //
@@ -402,180 +219,203 @@ impl SyscallArgsIndex {
 // - https://filippo.io/linux-syscall-table/
 // - https://linasm.sourceforge.net/docs/syscalls/filesystem.php
 //
-static SYSCALL_MAP: LazyLock<HashMap<&'static str, SyscallArgsIndex>> = LazyLock::new(|| {
-    HashMap::from([
+static SYSCALL_MAP: LazyLock<HashMap<&'static str, Box<dyn SyscallHandler>>> =
+    LazyLock::new(|| {
+        let mut m: HashMap<&'static str, Box<dyn SyscallHandler>> = HashMap::new();
         // chdir
-        ("chdir", SyscallArgsIndex::Chdir(FdOrPath::Path(0))),
-        ("fchdir", SyscallArgsIndex::Chdir(FdOrPath::Fd(0))),
+        m.insert(
+            "chdir",
+            Box::new(ChdirHandler {
+                path: FdOrPath::Path(0),
+            }),
+        );
+        m.insert(
+            "fchdir",
+            Box::new(ChdirHandler {
+                path: FdOrPath::Fd(0),
+            }),
+        );
         // epoll_ctl
-        ("epoll_ctl", SyscallArgsIndex::EpollCtl { op: 1, event: 3 }),
+        m.insert("epoll_ctl", Box::new(EpollCtlHandler { op: 1, event: 3 }));
         // execve
-        (
+        m.insert(
             "execve",
-            SyscallArgsIndex::Exec {
+            Box::new(ExecHandler {
                 relfd: None,
                 path: 0,
-            },
-        ),
-        (
+            }),
+        );
+        m.insert(
             "execveat",
-            SyscallArgsIndex::Exec {
+            Box::new(ExecHandler {
                 relfd: Some(0),
                 path: 1,
-            },
-        ),
+            }),
+        );
         // kill
-        ("kill", SyscallArgsIndex::Kill { pid: 0, sig: 1 }),
+        m.insert("kill", Box::new(KillHandler { pid: 0, sig: 1 }));
         // memfd_create
-        ("memfd_create", SyscallArgsIndex::MemfdCreate { flags: 1 }),
+        m.insert("memfd_create", Box::new(MemfdCreateHandler { flags: 1 }));
         // mkdir
-        (
+        m.insert(
             "mkdir",
-            SyscallArgsIndex::Mkdir {
-                path: 0,
+            Box::new(MkdirHandler {
                 relfd: None,
-            },
-        ),
-        (
+                path: 0,
+            }),
+        );
+        m.insert(
             "mkdirat",
-            SyscallArgsIndex::Mkdir {
-                path: 1,
+            Box::new(MkdirHandler {
                 relfd: Some(0),
-            },
-        ),
+                path: 1,
+            }),
+        );
         // mknod
-        ("mknod", SyscallArgsIndex::Mknod { mode: 1 }),
-        ("mknodat", SyscallArgsIndex::Mknod { mode: 2 }),
+        m.insert(
+            "mknod",
+            Box::new(MknodHandler {
+                path: FdOrPath::Path(0),
+                mode: 1,
+            }),
+        );
+        m.insert(
+            "mknodat",
+            Box::new(MknodHandler {
+                path: FdOrPath::Fd(1),
+                mode: 2,
+            }),
+        );
         // mmap
-        (
+        m.insert(
             "mmap",
-            SyscallArgsIndex::Mmap {
+            Box::new(MmapHandler {
                 prot: 2,
                 flags: Some(3),
                 fd: Some(4),
-            },
-        ),
-        (
+            }),
+        );
+        m.insert(
             "mmap2",
-            SyscallArgsIndex::Mmap {
+            Box::new(MmapHandler {
                 prot: 2,
                 flags: Some(3),
                 fd: Some(4),
-            },
-        ),
-        (
+            }),
+        );
+        m.insert(
             "mprotect",
-            SyscallArgsIndex::Mmap {
+            Box::new(MmapHandler {
                 prot: 2,
                 flags: None,
                 fd: None,
-            },
-        ),
-        (
+            }),
+        );
+        m.insert(
             "pkey_mprotect",
-            SyscallArgsIndex::Mmap {
+            Box::new(MmapHandler {
                 prot: 2,
                 flags: None,
                 fd: None,
-            },
-        ),
+            }),
+        );
         // mount
-        ("mount", SyscallArgsIndex::Mount { flags: 3 }),
+        m.insert("mount", Box::new(MountHandler { flags: 3 }));
         // network
         // We don't track other send/recv variants because, we can track activity we need
         // from other syscalls
-        ("accept", SyscallArgsIndex::Network { fd: 0, sockaddr: 1 }),
-        ("accept4", SyscallArgsIndex::Network { fd: 0, sockaddr: 1 }),
-        ("bind", SyscallArgsIndex::Network { fd: 0, sockaddr: 1 }),
-        ("connect", SyscallArgsIndex::Network { fd: 0, sockaddr: 1 }),
-        ("recvfrom", SyscallArgsIndex::Network { fd: 0, sockaddr: 4 }),
-        ("sendto", SyscallArgsIndex::Network { fd: 0, sockaddr: 4 }),
+        m.insert("accept", Box::new(NetworkHandler { fd: 0, sockaddr: 1 }));
+        m.insert("accept4", Box::new(NetworkHandler { fd: 0, sockaddr: 1 }));
+        m.insert("bind", Box::new(NetworkHandler { fd: 0, sockaddr: 1 }));
+        m.insert("connect", Box::new(NetworkHandler { fd: 0, sockaddr: 1 }));
+        m.insert("recvfrom", Box::new(NetworkHandler { fd: 0, sockaddr: 4 }));
+        m.insert("sendto", Box::new(NetworkHandler { fd: 0, sockaddr: 4 }));
         // open
-        (
+        m.insert(
             "open",
-            SyscallArgsIndex::Open {
+            Box::new(OpenHandler {
                 relfd: None,
                 path: 0,
                 flags: 1,
-            },
-        ),
-        (
+            }),
+        );
+        m.insert(
             "openat",
-            SyscallArgsIndex::Open {
+            Box::new(OpenHandler {
                 relfd: Some(0),
                 path: 1,
                 flags: 2,
-            },
-        ),
+            }),
+        );
         // rename
-        (
+        m.insert(
             "rename",
-            SyscallArgsIndex::Rename {
+            Box::new(RenameHandler {
                 relfd_src: None,
                 path_src: 0,
                 relfd_dst: None,
                 path_dst: 1,
                 flags: None,
-            },
-        ),
-        (
+            }),
+        );
+        m.insert(
             "renameat",
-            SyscallArgsIndex::Rename {
+            Box::new(RenameHandler {
                 relfd_src: Some(0),
                 path_src: 1,
                 relfd_dst: Some(2),
                 path_dst: 3,
                 flags: None,
-            },
-        ),
-        (
+            }),
+        );
+        m.insert(
             "renameat2",
-            SyscallArgsIndex::Rename {
+            Box::new(RenameHandler {
                 relfd_src: Some(0),
                 path_src: 1,
                 relfd_dst: Some(2),
                 path_dst: 3,
                 flags: Some(4),
-            },
-        ),
+            }),
+        );
         // set scheduler
-        (
+        m.insert(
             "sched_setscheduler",
-            SyscallArgsIndex::SetScheduler { policy: 1 },
-        ),
+            Box::new(SetSchedulerHandler { policy: 1 }),
+        );
         // shmctl
-        ("shmctl", SyscallArgsIndex::ShmCtl { op: 1 }),
+        m.insert("shmctl", Box::new(ShmCtlHandler { op: 1 }));
         // socket
-        ("socket", SyscallArgsIndex::Socket { af: 0, flags: 1 }),
+        m.insert("socket", Box::new(SocketHandler { af: 0, flags: 1 }));
         // stat fd
-        ("fstat", SyscallArgsIndex::StatFd { fd: 0 }),
-        ("getdents", SyscallArgsIndex::StatFd { fd: 0 }),
+        m.insert("fstat", Box::new(StatFdHandler { fd: 0 }));
+        m.insert("getdents", Box::new(StatFdHandler { fd: 0 }));
         // stat path
-        (
+        m.insert(
             "stat",
-            SyscallArgsIndex::StatPath {
+            Box::new(StatPathHandler {
                 relfd: None,
                 path: 0,
-            },
-        ),
-        (
+            }),
+        );
+        m.insert(
             "lstat",
-            SyscallArgsIndex::StatPath {
+            Box::new(StatPathHandler {
                 relfd: None,
                 path: 0,
-            },
-        ),
-        (
+            }),
+        );
+        m.insert(
             "newfstatat",
-            SyscallArgsIndex::StatPath {
+            Box::new(StatPathHandler {
                 relfd: Some(0),
                 path: 1,
-            },
-        ),
+            }),
+        );
         // timer_create
-        ("timer_create", SyscallArgsIndex::TimerCreate { clockid: 0 }),
-    ])
-});
+        m.insert("timer_create", Box::new(TimerCreateHandler { clockid: 0 }));
+        m
+    });
 
 /// Information that persists between syscalls and that we need to handle
 /// Obviously, keeping this to a minimum is a goal
@@ -619,9 +459,9 @@ where
             .or_insert(1);
         let name = syscall.name.as_str();
 
-        if let Some(arg_indexes) = SYSCALL_MAP.get(name) {
-            let args = arg_indexes.extract_args(&syscall)?;
-            handlers::summarize_syscall(&syscall, args, &mut actions, &mut program_state)
+        if let Some(handler) = SYSCALL_MAP.get(name) {
+            handler
+                .handle(&syscall, &mut actions, &mut program_state)
                 .with_context(|| format!("Failed to summarize syscall {syscall:?}"))?;
         }
     }

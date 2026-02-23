@@ -45,7 +45,7 @@ fn sd_options(
         "Enabled support for systemd options: {}",
         sd_opts
             .iter()
-            .map(ToString::to_string)
+            .map(|o| format!("{o}")) // workaround clippy::str_to_string false positive
             .collect::<Vec<_>>()
             .join(", ")
     );

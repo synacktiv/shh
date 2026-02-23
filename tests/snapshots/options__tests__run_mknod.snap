@@ -2,7 +2,7 @@
 source: tests/options.rs
 expression: "shh_run_options(&[\"mknod\", pipe_path.as_os_str().to_str().unwrap(), \"p\"])"
 ---
-ProtectSystem=strict
+ProtectSystem=full
 ProtectHome=true
 PrivateTmp=disconnected
 PrivateDevices=true

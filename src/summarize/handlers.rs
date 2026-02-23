@@ -24,15 +24,23 @@ use nix::libc::{pid_t, uid_t};
 use path_clean::PathClean as _;
 
 use super::{
-    BufferExpression, BufferType, Expression, FdOrPath, IntegerExpression, IntegerExpressionValue,
-    NetworkActivity, NetworkActivityKind, NetworkAddress, NetworkPort, ProgramAction, ProgramState,
-    SetSpecifier, SocketFamily, SocketProtocol, Syscall, SyscallArgs, SyscallArgsInfo,
+    FdOrPath, NetworkActivity, NetworkActivityKind, NetworkAddress, NetworkPort, ProgramAction,
+    ProgramState, SetSpecifier,
+};
+use crate::{
+    strace::{
+        BufferExpression, BufferType, Expression, IntegerExpression, IntegerExpressionValue,
+        Syscall,
+    },
+    systemd::{SocketFamily, SocketProtocol},
 };
 
 #[derive(thiserror::Error, Debug)]
 pub(crate) enum HandlerError {
     #[error("Unexpected {sc_name:?} argument type: {arg:?}")]
     ArgTypeMismatch { sc_name: String, arg: Expression },
+    #[error("Missing argument at index {index} for syscall {sc_name:?}")]
+    ArgIndexOutOfBounds { sc_name: String, index: usize },
     #[error("Failed to parse {src:?} as {type_}")]
     ParsingFailed { src: String, type_: &'static str },
     #[error("Failed to convert value {src:?} (type_src) into {type_dst}")]
@@ -50,900 +58,1091 @@ pub(crate) enum HandlerError {
     SystemError(#[from] io::Error),
 }
 
-pub(crate) fn summarize_syscall(
-    sc: &Syscall,
-    args: SyscallArgs,
-    actions: &mut Vec<ProgramAction>,
-    state: &mut ProgramState,
-) -> Result<(), HandlerError> {
-    match args {
-        SyscallArgsInfo::Chdir(p) => handle_chdir(&sc.name, p, actions, state),
-        SyscallArgsInfo::EpollCtl { op, event } => handle_epoll_ctl(&sc.name, op, event, actions),
-        SyscallArgsInfo::Exec { relfd, path } => handle_exec(&sc.name, relfd, path, actions, state),
-        SyscallArgsInfo::Kill { pid, sig } => handle_kill(&sc.name, sc.pid, pid, sig, actions),
-        SyscallArgsInfo::MemfdCreate { flags } => handle_memfd_create(&sc.name, flags, actions),
-        SyscallArgsInfo::Mkdir { relfd, path } => {
-            handle_mkdir(&sc.name, relfd, path, actions, state)
-        }
-        SyscallArgsInfo::Mknod { mode } => handle_mknod(&sc.name, mode, actions),
-        SyscallArgsInfo::Mmap { prot, flags, fd } => {
-            handle_mmap(&sc.name, prot, flags, fd, actions)
-        }
-        SyscallArgsInfo::Mount { flags } => handle_mount(&sc.name, flags, actions),
-        SyscallArgsInfo::Network { fd, sockaddr } => {
-            handle_network(&sc.name, sc.pid, fd, sockaddr, actions, state)
-        }
-        SyscallArgsInfo::Open { relfd, path, flags } => {
-            handle_open(&sc.name, relfd, path, flags, &sc.ret_val, actions, state)
-        }
-        SyscallArgsInfo::Rename {
-            relfd_src,
-            path_src,
-            relfd_dst,
-            path_dst,
-            flags,
-        } => handle_rename(
-            &sc.name, relfd_src, path_src, relfd_dst, path_dst, flags, actions, state,
-        ),
-        SyscallArgsInfo::SetScheduler { policy } => handle_setscheduler(&sc.name, policy, actions),
-        SyscallArgsInfo::ShmCtl { op } => handle_shmctl(&sc.name, op, actions),
-        SyscallArgsInfo::Socket { af, flags } => {
-            handle_socket(&sc.name, sc.pid, &sc.ret_val, af, flags, actions, state)
-        }
-        SyscallArgsInfo::StatFd { fd } => handle_stat_fd(&sc.name, fd, actions, state),
-        SyscallArgsInfo::StatPath { relfd, path } => {
-            handle_stat_path(&sc.name, relfd, path, actions, state)
-        }
-        SyscallArgsInfo::TimerCreate { clockid } => handle_timer_create(&sc.name, clockid, actions),
+/// Trait for handling a syscall and producing summary actions
+pub(crate) trait SyscallHandler: Send + Sync {
+    /// Handle a syscall and append resulting actions
+    fn handle(
+        &self,
+        sc: &Syscall,
+        actions: &mut Vec<ProgramAction>,
+        state: &mut ProgramState,
+    ) -> Result<(), HandlerError>;
+}
+
+/// Trait for extracting a syscall argument from an index
+trait ExtractArg {
+    type Output<'a>;
+
+    fn extract<'a>(&self, sc: &'a Syscall) -> Result<Self::Output<'a>, HandlerError>;
+}
+
+impl ExtractArg for usize {
+    type Output<'a> = &'a Expression;
+
+    fn extract<'a>(&self, sc: &'a Syscall) -> Result<&'a Expression, HandlerError> {
+        sc.args
+            .get(*self)
+            .ok_or_else(|| HandlerError::ArgIndexOutOfBounds {
+                sc_name: sc.name.clone(),
+                index: *self,
+            })
     }
 }
 
-/// Handle chdir-like syscall
-#[expect(clippy::needless_pass_by_value)]
-fn handle_chdir(
-    name: &str,
-    path: FdOrPath<&Expression>,
-    actions: &mut Vec<ProgramAction>,
-    state: &mut ProgramState,
-) -> Result<(), HandlerError> {
-    let dir = match path {
-        FdOrPath::Fd(fd) => resolve_path(Path::new(""), Some(fd), state.cur_dir.as_ref()),
-        FdOrPath::Path(Expression::Buffer(BufferExpression {
-            value: b,
-            type_: BufferType::Unknown,
-        })) => {
-            let p = Path::new(OsStr::from_bytes(b));
-            resolve_path(p, None, state.cur_dir.as_ref())
-        }
-        FdOrPath::Path(e) => {
-            return Err(HandlerError::ArgTypeMismatch {
-                sc_name: name.to_owned(),
-                arg: e.to_owned(),
-            });
-        }
-    };
-    if let Some(mut dir) = dir {
-        traverse_symlinks(&mut dir, actions);
-        debug_assert!(dir.is_absolute());
-        state.cur_dir = dir;
+impl ExtractArg for Option<usize> {
+    type Output<'a> = Option<&'a Expression>;
+
+    fn extract<'a>(&self, sc: &'a Syscall) -> Result<Option<&'a Expression>, HandlerError> {
+        self.map(|i| i.extract(sc)).transpose()
     }
-    Ok(())
+}
+
+impl ExtractArg for FdOrPath<usize> {
+    type Output<'a> = FdOrPath<&'a Expression>;
+
+    fn extract<'a>(&self, sc: &'a Syscall) -> Result<FdOrPath<&'a Expression>, HandlerError> {
+        match self {
+            FdOrPath::Fd(i) => Ok(FdOrPath::Fd(i.extract(sc)?)),
+            FdOrPath::Path(i) => Ok(FdOrPath::Path(i.extract(sc)?)),
+        }
+    }
+}
+
+/// Handle chdir-like syscalls
+pub(crate) struct ChdirHandler {
+    pub path: FdOrPath<usize>,
+}
+
+impl SyscallHandler for ChdirHandler {
+    fn handle(
+        &self,
+        sc: &Syscall,
+        actions: &mut Vec<ProgramAction>,
+        state: &mut ProgramState,
+    ) -> Result<(), HandlerError> {
+        let path = self.path.extract(sc)?;
+        let dir = match path {
+            FdOrPath::Fd(fd) => resolve_path(Path::new(""), Some(fd), state.cur_dir.as_ref()),
+            FdOrPath::Path(Expression::Buffer(BufferExpression {
+                value: b,
+                type_: BufferType::Unknown,
+            })) => {
+                let p = Path::new(OsStr::from_bytes(b));
+                resolve_path(p, None, state.cur_dir.as_ref())
+            }
+            FdOrPath::Path(e) => {
+                return Err(HandlerError::ArgTypeMismatch {
+                    sc_name: sc.name.clone(),
+                    arg: e.to_owned(),
+                });
+            }
+        };
+        if let Some(mut dir) = dir {
+            traverse_symlinks(&mut dir, actions);
+            debug_assert!(dir.is_absolute());
+            state.cur_dir = dir;
+        }
+        Ok(())
+    }
 }
 
 /// Handle `epoll_ctl` syscall
-fn handle_epoll_ctl(
-    name: &str,
-    op: &Expression,
-    event: &Expression,
-    actions: &mut Vec<ProgramAction>,
-) -> Result<(), HandlerError> {
-    let Expression::Integer(IntegerExpression {
-        value: IntegerExpressionValue::NamedSymbol(op_name),
-        ..
-    }) = op
-    else {
-        return Err(HandlerError::ArgTypeMismatch {
-            sc_name: name.to_owned(),
-            arg: op.to_owned(),
-        });
-    };
+pub(crate) struct EpollCtlHandler {
+    pub op: usize,
+    pub event: usize,
+}
 
-    if op_name == "EPOLL_CTL_ADD" {
-        let evt_flags = if let Expression::Struct(evt_struct) = event {
-            let evt_member =
-                evt_struct
-                    .get("events")
-                    .ok_or_else(|| HandlerError::MissingStructMember {
-                        member: "events",
-                        struct_: evt_struct.to_owned(),
-                    })?;
-            if let Expression::Integer(ie) = evt_member {
-                ie
-            } else {
-                return Err(HandlerError::ArgTypeMismatch {
-                    sc_name: name.to_owned(),
-                    arg: evt_member.to_owned(),
-                });
-            }
-        } else {
+impl SyscallHandler for EpollCtlHandler {
+    fn handle(
+        &self,
+        sc: &Syscall,
+        actions: &mut Vec<ProgramAction>,
+        _state: &mut ProgramState,
+    ) -> Result<(), HandlerError> {
+        let op = self.op.extract(sc)?;
+        let event = self.event.extract(sc)?;
+
+        let Expression::Integer(IntegerExpression {
+            value: IntegerExpressionValue::NamedSymbol(op_name),
+            ..
+        }) = op
+        else {
             return Err(HandlerError::ArgTypeMismatch {
-                sc_name: name.to_owned(),
-                arg: event.to_owned(),
+                sc_name: sc.name.clone(),
+                arg: op.to_owned(),
             });
         };
-        if evt_flags.value.is_flag_set("EPOLLWAKEUP") {
-            actions.push(ProgramAction::Wakeup);
+
+        if op_name == "EPOLL_CTL_ADD" {
+            let evt_flags = if let Expression::Struct(evt_struct) = event {
+                let evt_member =
+                    evt_struct
+                        .get("events")
+                        .ok_or_else(|| HandlerError::MissingStructMember {
+                            member: "events",
+                            struct_: evt_struct.to_owned(),
+                        })?;
+                if let Expression::Integer(ie) = evt_member {
+                    ie
+                } else {
+                    return Err(HandlerError::ArgTypeMismatch {
+                        sc_name: sc.name.clone(),
+                        arg: evt_member.to_owned(),
+                    });
+                }
+            } else {
+                return Err(HandlerError::ArgTypeMismatch {
+                    sc_name: sc.name.clone(),
+                    arg: event.to_owned(),
+                });
+            };
+            if evt_flags.value.is_flag_set("EPOLLWAKEUP") {
+                actions.push(ProgramAction::Wakeup);
+            }
         }
+        Ok(())
     }
-    Ok(())
 }
 
 /// Handle exec-like syscalls
-fn handle_exec(
-    name: &str,
-    relfd: Option<&Expression>,
-    path: &Expression,
-    actions: &mut Vec<ProgramAction>,
-    state: &ProgramState,
-) -> Result<(), HandlerError> {
-    let path = if let Expression::Buffer(BufferExpression {
-        value: b,
-        type_: BufferType::Unknown,
-    }) = path
-    {
-        PathBuf::from(OsStr::from_bytes(b))
-    } else {
-        return Err(HandlerError::ArgTypeMismatch {
-            sc_name: name.to_owned(),
-            arg: path.to_owned(),
-        });
-    };
-    if let Some(mut path) = resolve_path(&path, relfd, state.cur_dir.as_ref()) {
-        traverse_symlinks(&mut path, actions);
-        actions.push(ProgramAction::Exec(path.clone()));
-        let mut cur_path_opt = Some(path);
-        while let Some(cur_path) = cur_path_opt {
-            if let Some(mut elf_interpreter) = read_elf_interpreter(&cur_path) {
-                traverse_symlinks(&mut elf_interpreter, actions);
-                actions.push(ProgramAction::Exec(elf_interpreter.clone()));
-                cur_path_opt = Some(elf_interpreter);
-            } else if let Some(mut shebang_interpreter) = read_shebang_interpreter(&cur_path) {
-                traverse_symlinks(&mut shebang_interpreter, actions);
-                actions.push(ProgramAction::Exec(shebang_interpreter.clone()));
-                cur_path_opt = Some(shebang_interpreter);
-            } else {
-                cur_path_opt = None;
+pub(crate) struct ExecHandler {
+    pub relfd: Option<usize>,
+    pub path: usize,
+}
+
+impl SyscallHandler for ExecHandler {
+    fn handle(
+        &self,
+        sc: &Syscall,
+        actions: &mut Vec<ProgramAction>,
+        state: &mut ProgramState,
+    ) -> Result<(), HandlerError> {
+        let relfd = self.relfd.extract(sc)?;
+        let path_expr = self.path.extract(sc)?;
+
+        let path = if let Expression::Buffer(BufferExpression {
+            value: b,
+            type_: BufferType::Unknown,
+        }) = path_expr
+        {
+            PathBuf::from(OsStr::from_bytes(b))
+        } else {
+            return Err(HandlerError::ArgTypeMismatch {
+                sc_name: sc.name.clone(),
+                arg: path_expr.to_owned(),
+            });
+        };
+        if let Some(mut path) = resolve_path(&path, relfd, state.cur_dir.as_ref()) {
+            traverse_symlinks(&mut path, actions);
+            actions.push(ProgramAction::Exec(path.clone()));
+            let mut cur_path_opt = Some(path);
+            while let Some(cur_path) = cur_path_opt {
+                if let Some(mut elf_interpreter) = read_elf_interpreter(&cur_path) {
+                    traverse_symlinks(&mut elf_interpreter, actions);
+                    actions.push(ProgramAction::Exec(elf_interpreter.clone()));
+                    cur_path_opt = Some(elf_interpreter);
+                } else if let Some(mut shebang_interpreter) = read_shebang_interpreter(&cur_path) {
+                    traverse_symlinks(&mut shebang_interpreter, actions);
+                    actions.push(ProgramAction::Exec(shebang_interpreter.clone()));
+                    cur_path_opt = Some(shebang_interpreter);
+                } else {
+                    cur_path_opt = None;
+                }
             }
         }
+        Ok(())
     }
-    Ok(())
 }
 
 /// Handle kill syscall
-fn handle_kill(
-    name: &str,
-    caller_pid: pid_t,
-    pid: &Expression,
-    sig: &Expression,
-    actions: &mut Vec<ProgramAction>,
-) -> Result<(), HandlerError> {
-    let pid_val = match pid {
-        Expression::Integer(IntegerExpression {
-            value: IntegerExpressionValue::Literal(pid_val),
-            ..
-        }) => pid_t::try_from(*pid_val).map_err(|_| HandlerError::ConversionFailed {
-            src: format!("{pid_val:?}"),
-            type_src: type_name_of_val(pid_val),
-            type_dst: type_name::<pid_t>(),
-        })?,
-        _ => {
-            return Err(HandlerError::ArgTypeMismatch {
-                sc_name: name.to_owned(),
-                arg: pid.to_owned(),
-            });
-        }
-    };
-    let sig_name = match sig {
-        Expression::Integer(IntegerExpression {
-            value: IntegerExpressionValue::NamedSymbol(sig_name),
-            ..
-        }) => Some(sig_name),
-        Expression::Integer(IntegerExpression {
-            value: IntegerExpressionValue::Literal(0),
-            ..
-        }) => None,
-        _ => {
-            return Err(HandlerError::ArgTypeMismatch {
-                sc_name: name.to_owned(),
-                arg: pid.to_owned(),
-            });
-        }
-    };
-    // https://man7.org/linux/man-pages/man2/kill.2.html
-    if pid_val > 0 {
-        if sig_name.is_some_and(|s| s == "SIGCONT")
-            && (nix::unistd::getsid(Some(nix::unistd::Pid::from_raw(pid_val)))
-                .and_then(|s| {
-                    nix::unistd::getsid(Some(nix::unistd::Pid::from_raw(caller_pid)))
-                        .map(|cs| s == cs)
+pub(crate) struct KillHandler {
+    pub pid: usize,
+    pub sig: usize,
+}
+
+impl SyscallHandler for KillHandler {
+    fn handle(
+        &self,
+        sc: &Syscall,
+        actions: &mut Vec<ProgramAction>,
+        _state: &mut ProgramState,
+    ) -> Result<(), HandlerError> {
+        let pid = self.pid.extract(sc)?;
+        let sig = self.sig.extract(sc)?;
+
+        let pid_val = match pid {
+            Expression::Integer(IntegerExpression {
+                value: IntegerExpressionValue::Literal(pid_val),
+                ..
+            }) => pid_t::try_from(*pid_val).map_err(|_| HandlerError::ConversionFailed {
+                src: format!("{pid_val:?}"),
+                type_src: type_name_of_val(pid_val),
+                type_dst: type_name::<pid_t>(),
+            })?,
+            _ => {
+                return Err(HandlerError::ArgTypeMismatch {
+                    sc_name: sc.name.clone(),
+                    arg: pid.to_owned(),
+                });
+            }
+        };
+        let sig_name = match sig {
+            Expression::Integer(IntegerExpression {
+                value: IntegerExpressionValue::NamedSymbol(sig_name),
+                ..
+            }) => Some(sig_name),
+            Expression::Integer(IntegerExpression {
+                value: IntegerExpressionValue::Literal(0),
+                ..
+            }) => None,
+            _ => {
+                return Err(HandlerError::ArgTypeMismatch {
+                    sc_name: sc.name.clone(),
+                    arg: pid.to_owned(),
+                });
+            }
+        };
+        // https://man7.org/linux/man-pages/man2/kill.2.html
+        if pid_val > 0 {
+            if sig_name.is_some_and(|s| s == "SIGCONT")
+                && (nix::unistd::getsid(Some(nix::unistd::Pid::from_raw(pid_val)))
+                    .and_then(|s| {
+                        nix::unistd::getsid(Some(nix::unistd::Pid::from_raw(sc.pid)))
+                            .map(|cs| s == cs)
+                    })
+                    .unwrap_or_default())
+            {
+                return Ok(());
+            }
+            // Note: for signals that stop the target process, most of the time we will
+            // fail to parse target UIDs here because it is already dead,
+            // which will lead to "under" hardening
+            if process_uids(pid_val)
+                .and_then(|u| {
+                    process_uids(sc.pid).map(|cu| {
+                        (cu.real == u.real)
+                            || (cu.real == u.saved)
+                            || (cu.effective == u.real)
+                            || (cu.effective == u.saved)
+                    })
                 })
-                .unwrap_or_default())
-        {
-            return Ok(());
+                .unwrap_or_default()
+            {
+                return Ok(());
+            }
         }
-        // Note: for signals that stop the target process, most of the time we will
-        // fail to parse target UIDs here because it is already dead,
-        // which will lead to "under" hardening
-        if process_uids(pid_val)
-            .and_then(|u| {
-                process_uids(caller_pid).map(|cu| {
-                    (cu.real == u.real)
-                        || (cu.real == u.saved)
-                        || (cu.effective == u.real)
-                        || (cu.effective == u.saved)
-                })
-            })
-            .unwrap_or_default()
-        {
-            return Ok(());
-        }
+        actions.push(ProgramAction::KillOther);
+        Ok(())
     }
-    actions.push(ProgramAction::KillOther);
-    Ok(())
 }
 
-fn handle_memfd_create(
-    name: &str,
-    flags: &Expression,
-    actions: &mut Vec<ProgramAction>,
-) -> Result<(), HandlerError> {
-    let Expression::Integer(IntegerExpression { value: flags, .. }) = flags else {
-        return Err(HandlerError::ArgTypeMismatch {
-            sc_name: name.to_owned(),
-            arg: flags.to_owned(),
-        });
-    };
-    if flags.is_flag_set("MFD_HUGETLB") {
-        actions.push(ProgramAction::HugePageMemoryMapping);
-    }
-    Ok(())
+/// Handle `memfd_create` syscall
+pub(crate) struct MemfdCreateHandler {
+    pub flags: usize,
 }
 
-/// Handle mkdir-like syscalls
-fn handle_mkdir(
-    name: &str,
-    relfd: Option<&Expression>,
-    path: &Expression,
-    actions: &mut Vec<ProgramAction>,
-    state: &ProgramState,
-) -> Result<(), HandlerError> {
-    let path = if let Expression::Buffer(BufferExpression {
-        value: b,
-        type_: BufferType::Unknown,
-    }) = path
-    {
-        PathBuf::from(OsStr::from_bytes(b))
-    } else {
-        return Err(HandlerError::ArgTypeMismatch {
-            sc_name: name.to_owned(),
-            arg: path.to_owned(),
-        });
-    };
-    if let Some(mut path) = resolve_path(&path, relfd, state.cur_dir.as_ref()) {
-        traverse_symlinks(&mut path, actions);
-        actions.push(ProgramAction::Create(path));
-    }
-    Ok(())
-}
+impl SyscallHandler for MemfdCreateHandler {
+    fn handle(
+        &self,
+        sc: &Syscall,
+        actions: &mut Vec<ProgramAction>,
+        _state: &mut ProgramState,
+    ) -> Result<(), HandlerError> {
+        let flags = self.flags.extract(sc)?;
 
-/// Handle mknod-like syscalls
-fn handle_mknod(
-    name: &str,
-    mode: &Expression,
-    actions: &mut Vec<ProgramAction>,
-) -> Result<(), HandlerError> {
-    const PRIVILEGED_ST_MODES: [&str; 2] = ["S_IFBLK", "S_IFCHR"];
-    let Expression::Integer(mode) = mode else {
-        return Err(HandlerError::ArgTypeMismatch {
-            sc_name: name.to_owned(),
-            arg: mode.to_owned(),
-        });
-    };
-    if PRIVILEGED_ST_MODES
-        .iter()
-        .any(|pm| mode.value.is_flag_set(pm))
-    {
-        actions.push(ProgramAction::MknodSpecial);
-    }
-    Ok(())
-}
-
-/// Handle mmap-like syscalls
-fn handle_mmap(
-    name: &str,
-    prot: &Expression,
-    flags: Option<&Expression>,
-    fd: Option<&Expression>,
-    actions: &mut Vec<ProgramAction>,
-) -> Result<(), HandlerError> {
-    let Expression::Integer(IntegerExpression {
-        value: prot_val, ..
-    }) = prot
-    else {
-        return Err(HandlerError::ArgTypeMismatch {
-            sc_name: name.to_owned(),
-            arg: prot.to_owned(),
-        });
-    };
-    if let Some(flags) = flags {
         let Expression::Integer(IntegerExpression { value: flags, .. }) = flags else {
             return Err(HandlerError::ArgTypeMismatch {
-                sc_name: name.to_owned(),
+                sc_name: sc.name.clone(),
                 arg: flags.to_owned(),
             });
         };
-        if flags.is_flag_set("MAP_HUGETLB") {
+        if flags.is_flag_set("MFD_HUGETLB") {
             actions.push(ProgramAction::HugePageMemoryMapping);
         }
-        if flags.is_flag_set("MAP_LOCKED") {
-            actions.push(ProgramAction::LockMemoryMapping);
-        }
+        Ok(())
     }
-    let path = fd
-        .and_then(|e| e.metadata())
-        .map(|m| PathBuf::from(OsStr::from_bytes(m)));
-    if prot_val.is_flag_set("PROT_EXEC") {
-        if let Some(mut path) = path {
-            traverse_symlinks(&mut path, actions);
-            actions.push(ProgramAction::Exec(path));
-        }
-        if name.ends_with("mprotect") || prot_val.is_flag_set("PROT_WRITE") {
-            actions.push(ProgramAction::WriteExecuteMemoryMapping);
-        }
-    }
-    Ok(())
 }
 
-/// Handle mount
-fn handle_mount(
-    name: &str,
-    flags: &Expression,
-    actions: &mut Vec<ProgramAction>,
-) -> Result<(), HandlerError> {
-    let Expression::Integer(IntegerExpression {
-        value: mount_flags, ..
-    }) = flags
-    else {
-        return Err(HandlerError::ArgTypeMismatch {
-            sc_name: name.to_owned(),
-            arg: flags.to_owned(),
-        });
-    };
-    if mount_flags.is_flag_set("MS_SHARED") {
-        actions.push(ProgramAction::MountToHost);
+/// Handle mkdir-like syscalls
+pub(crate) struct MkdirHandler {
+    pub relfd: Option<usize>,
+    pub path: usize,
+}
+
+impl SyscallHandler for MkdirHandler {
+    fn handle(
+        &self,
+        sc: &Syscall,
+        actions: &mut Vec<ProgramAction>,
+        state: &mut ProgramState,
+    ) -> Result<(), HandlerError> {
+        let relfd = self.relfd.extract(sc)?;
+        let path = self.path.extract(sc)?;
+
+        let path = if let Expression::Buffer(BufferExpression {
+            value: b,
+            type_: BufferType::Unknown,
+        }) = path
+        {
+            PathBuf::from(OsStr::from_bytes(b))
+        } else {
+            return Err(HandlerError::ArgTypeMismatch {
+                sc_name: sc.name.clone(),
+                arg: path.to_owned(),
+            });
+        };
+        if let Some(mut path) = resolve_path(&path, relfd, state.cur_dir.as_ref()) {
+            traverse_symlinks(&mut path, actions);
+            actions.push(ProgramAction::Create(path));
+        }
+        Ok(())
     }
-    Ok(())
+}
+
+/// Handle mknod-like syscalls
+pub(crate) struct MknodHandler {
+    pub path: FdOrPath<usize>,
+    pub mode: usize,
+}
+
+impl SyscallHandler for MknodHandler {
+    fn handle(
+        &self,
+        sc: &Syscall,
+        actions: &mut Vec<ProgramAction>,
+        state: &mut ProgramState,
+    ) -> Result<(), HandlerError> {
+        const PRIVILEGED_ST_MODES: [&str; 2] = ["S_IFBLK", "S_IFCHR"];
+        let mode = self.mode.extract(sc)?;
+        let Expression::Integer(mode) = mode else {
+            return Err(HandlerError::ArgTypeMismatch {
+                sc_name: sc.name.clone(),
+                arg: mode.to_owned(),
+            });
+        };
+        let path = match self.path.extract(sc)? {
+            FdOrPath::Fd(fd) => resolve_path(Path::new(""), Some(fd), state.cur_dir.as_ref()),
+            FdOrPath::Path(Expression::Buffer(BufferExpression {
+                value: b,
+                type_: BufferType::Unknown,
+            })) => {
+                let p = Path::new(OsStr::from_bytes(b));
+                resolve_path(p, None, state.cur_dir.as_ref())
+            }
+            FdOrPath::Path(e) => {
+                return Err(HandlerError::ArgTypeMismatch {
+                    sc_name: sc.name.clone(),
+                    arg: e.to_owned(),
+                });
+            }
+        };
+
+        if PRIVILEGED_ST_MODES
+            .iter()
+            .any(|pm| mode.value.is_flag_set(pm))
+        {
+            actions.push(ProgramAction::MknodSpecial);
+        }
+        if let Some(path) = path {
+            actions.push(ProgramAction::Create(path));
+        }
+        Ok(())
+    }
+}
+
+/// Handle mmap-like syscalls
+pub(crate) struct MmapHandler {
+    pub prot: usize,
+    pub flags: Option<usize>,
+    pub fd: Option<usize>,
+}
+
+impl SyscallHandler for MmapHandler {
+    fn handle(
+        &self,
+        sc: &Syscall,
+        actions: &mut Vec<ProgramAction>,
+        _state: &mut ProgramState,
+    ) -> Result<(), HandlerError> {
+        let prot = self.prot.extract(sc)?;
+        let flags = self.flags.extract(sc)?;
+        let fd = self.fd.extract(sc)?;
+
+        let Expression::Integer(IntegerExpression {
+            value: prot_val, ..
+        }) = prot
+        else {
+            return Err(HandlerError::ArgTypeMismatch {
+                sc_name: sc.name.clone(),
+                arg: prot.to_owned(),
+            });
+        };
+        if let Some(flags) = flags {
+            let Expression::Integer(IntegerExpression { value: flags, .. }) = flags else {
+                return Err(HandlerError::ArgTypeMismatch {
+                    sc_name: sc.name.clone(),
+                    arg: flags.to_owned(),
+                });
+            };
+            if flags.is_flag_set("MAP_HUGETLB") {
+                actions.push(ProgramAction::HugePageMemoryMapping);
+            }
+            if flags.is_flag_set("MAP_LOCKED") {
+                actions.push(ProgramAction::LockMemoryMapping);
+            }
+        }
+        let path = fd
+            .and_then(|e| e.metadata())
+            .map(|m| PathBuf::from(OsStr::from_bytes(m)));
+        if prot_val.is_flag_set("PROT_EXEC") {
+            if let Some(mut path) = path {
+                traverse_symlinks(&mut path, actions);
+                actions.push(ProgramAction::Exec(path));
+            }
+            if sc.name.ends_with("mprotect") || prot_val.is_flag_set("PROT_WRITE") {
+                actions.push(ProgramAction::WriteExecuteMemoryMapping);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Handle mount syscall
+pub(crate) struct MountHandler {
+    pub flags: usize,
+}
+
+impl SyscallHandler for MountHandler {
+    fn handle(
+        &self,
+        sc: &Syscall,
+        actions: &mut Vec<ProgramAction>,
+        _state: &mut ProgramState,
+    ) -> Result<(), HandlerError> {
+        let flags = self.flags.extract(sc)?;
+
+        let Expression::Integer(IntegerExpression {
+            value: mount_flags, ..
+        }) = flags
+        else {
+            return Err(HandlerError::ArgTypeMismatch {
+                sc_name: sc.name.clone(),
+                arg: flags.to_owned(),
+            });
+        };
+        if mount_flags.is_flag_set("MS_SHARED") {
+            actions.push(ProgramAction::MountToHost);
+        }
+        Ok(())
+    }
 }
 
 /// Handle network syscalls
-fn handle_network(
-    name: &str,
-    pid: pid_t,
-    fd: &Expression,
-    sockaddr: &Expression,
-    actions: &mut Vec<ProgramAction>,
-    state: &mut ProgramState,
-) -> Result<(), HandlerError> {
-    let (af_str, addr_struct) = if let Expression::Struct(members) = sockaddr {
-        let Some(Expression::Integer(IntegerExpression {
-            value: IntegerExpressionValue::NamedSymbol(af),
+pub(crate) struct NetworkHandler {
+    pub fd: usize,
+    pub sockaddr: usize,
+}
+
+impl SyscallHandler for NetworkHandler {
+    fn handle(
+        &self,
+        sc: &Syscall,
+        actions: &mut Vec<ProgramAction>,
+        state: &mut ProgramState,
+    ) -> Result<(), HandlerError> {
+        let fd = self.fd.extract(sc)?;
+        let sockaddr = self.sockaddr.extract(sc)?;
+
+        let (af_str, addr_struct) = if let Expression::Struct(members) = sockaddr {
+            let Some(Expression::Integer(IntegerExpression {
+                value: IntegerExpressionValue::NamedSymbol(af),
+                ..
+            })) = members.get("sa_family")
+            else {
+                return Err(HandlerError::MissingStructMember {
+                    member: "sa_family",
+                    struct_: members.to_owned(),
+                });
+            };
+            (af.as_str(), members)
+        } else {
+            // Can be NULL in some cases, ie AF_NETLINK sockets
+            return Ok(());
+        };
+        #[expect(clippy::single_match)]
+        match af_str {
+            "AF_UNIX" => {
+                if let Some(path) = socket_address_uds_path(addr_struct, &state.cur_dir) {
+                    actions.push(ProgramAction::Read(path));
+                }
+            }
+            _ => (),
+        }
+        let af = af_str.parse().map_err(|()| HandlerError::ParsingFailed {
+            src: af_str.to_owned(),
+            type_: type_name::<SocketFamily>(),
+        })?;
+
+        let Expression::Integer(IntegerExpression {
+            value: IntegerExpressionValue::Literal(fd_val),
             ..
-        })) = members.get("sa_family")
+        }) = fd
         else {
-            return Err(HandlerError::MissingStructMember {
-                member: "sa_family",
-                struct_: members.to_owned(),
+            return Err(HandlerError::ArgTypeMismatch {
+                sc_name: sc.name.clone(),
+                arg: fd.to_owned(),
             });
         };
-        (af.as_str(), members)
-    } else {
-        // Can be NULL in some cases, ie AF_NETLINK sockets
-        return Ok(());
-    };
-    #[expect(clippy::single_match)]
-    match af_str {
-        "AF_UNIX" => {
-            if let Some(path) = socket_address_uds_path(addr_struct, &state.cur_dir) {
-                actions.push(ProgramAction::Read(path));
-            }
-        }
-        _ => (),
-    }
-    let af = af_str.parse().map_err(|()| HandlerError::ParsingFailed {
-        src: af_str.to_owned(),
-        type_: type_name::<SocketFamily>(),
-    })?;
 
-    let Expression::Integer(IntegerExpression {
-        value: IntegerExpressionValue::Literal(fd_val),
-        ..
-    }) = fd
-    else {
-        return Err(HandlerError::ArgTypeMismatch {
-            sc_name: name.to_owned(),
-            arg: fd.to_owned(),
-        });
-    };
-
-    let ip_addr: SetSpecifier<NetworkAddress> = match addr_struct
-        .iter()
-        .find_map(|(k, v)| ["sin_addr", "sin6_addr"].contains(&k.as_str()).then_some(v))
-    {
-        Some(Expression::Integer(IntegerExpression {
-            value:
-                IntegerExpressionValue::Macro {
-                    name: macro_name,
-                    args,
-                },
-            ..
-        })) if macro_name == "inet_addr" => match args.first() {
-            Some(Expression::Buffer(BufferExpression { value, .. })) => {
-                let ip_str = str::from_utf8(value).map_err(|_| HandlerError::ConversionFailed {
-                    src: format!("{value:?}"),
-                    type_src: type_name_of_val(value),
-                    type_dst: type_name::<&str>(),
-                })?;
-                let ip = ip_str
-                    .parse::<IpAddr>()
-                    .map_err(|_| HandlerError::ConversionFailed {
-                        src: ip_str.to_owned(),
-                        type_src: type_name_of_val(ip_str),
-                        type_dst: type_name::<IpAddr>(),
-                    })?;
-                SetSpecifier::One(ip.into())
-            }
-            _ => unreachable!(),
-        },
-        Some(Expression::Integer(IntegerExpression {
-            value:
-                IntegerExpressionValue::Macro {
-                    name: macro_name,
-                    args,
-                },
-            ..
-        })) if macro_name == "inet_pton" => match args.get(1) {
-            Some(Expression::Buffer(BufferExpression { value, .. })) => {
-                let ip_str = str::from_utf8(value).map_err(|_| HandlerError::ConversionFailed {
-                    src: format!("{value:?}"),
-                    type_src: type_name_of_val(value),
-                    type_dst: type_name::<&str>(),
-                })?;
-                let ip = ip_str
-                    .parse::<IpAddr>()
-                    .map_err(|_| HandlerError::ConversionFailed {
-                        src: ip_str.to_owned(),
-                        type_src: type_name_of_val(ip_str),
-                        type_dst: type_name::<IpAddr>(),
-                    })?;
-                SetSpecifier::One(ip.into())
-            }
-            _ => unreachable!(),
-        },
-        _ => SetSpecifier::None,
-    };
-
-    let local_port = if name == "bind" {
-        match addr_struct
-            .iter()
-            .find_map(|(k, v)| k.ends_with("_port").then_some(v))
-        {
-            Some(Expression::Integer(IntegerExpression {
-                value:
-                    IntegerExpressionValue::Macro {
-                        name: macro_name,
-                        args,
-                    },
-                ..
-            })) if macro_name == "htons" => match args.first() {
+        let ip_addr: SetSpecifier<NetworkAddress> =
+            match addr_struct
+                .iter()
+                .find_map(|(k, v)| ["sin_addr", "sin6_addr"].contains(&k.as_str()).then_some(v))
+            {
                 Some(Expression::Integer(IntegerExpression {
-                    value: IntegerExpressionValue::Literal(port_val),
+                    value:
+                        IntegerExpressionValue::Macro {
+                            name: macro_name,
+                            args,
+                        },
                     ..
-                })) => {
-                    if *port_val == 0 {
-                        // 0 means bind random port, we don't know which one, but this is not
-                        // denied by SocketBindDeny
-                        SetSpecifier::None
-                    } else {
-                        SetSpecifier::One(NetworkPort(
-                            TryInto::<u16>::try_into(*port_val)
-                                .ok()
-                                .and_then(|i| i.try_into().ok())
-                                .ok_or_else(|| HandlerError::ConversionFailed {
-                                    src: port_val.to_string(),
-                                    type_src: type_name_of_val(port_val),
-                                    type_dst: type_name::<NetworkPort>(),
-                                })?,
-                        ))
+                })) if macro_name == "inet_addr" => match args.first() {
+                    Some(Expression::Buffer(BufferExpression { value, .. })) => {
+                        let ip_str =
+                            str::from_utf8(value).map_err(|_| HandlerError::ConversionFailed {
+                                src: format!("{value:?}"),
+                                type_src: type_name_of_val(value),
+                                type_dst: type_name::<&str>(),
+                            })?;
+                        let ip = ip_str.parse::<IpAddr>().map_err(|_| {
+                            HandlerError::ConversionFailed {
+                                src: ip_str.to_owned(),
+                                type_src: type_name_of_val(ip_str),
+                                type_dst: type_name::<IpAddr>(),
+                            }
+                        })?;
+                        SetSpecifier::One(ip.into())
                     }
-                }
-                _ => unreachable!(),
-            },
-            _ => SetSpecifier::None,
-        }
-    } else {
-        SetSpecifier::All
-    };
+                    _ => unreachable!(),
+                },
+                Some(Expression::Integer(IntegerExpression {
+                    value:
+                        IntegerExpressionValue::Macro {
+                            name: macro_name,
+                            args,
+                        },
+                    ..
+                })) if macro_name == "inet_pton" => match args.get(1) {
+                    Some(Expression::Buffer(BufferExpression { value, .. })) => {
+                        let ip_str =
+                            str::from_utf8(value).map_err(|_| HandlerError::ConversionFailed {
+                                src: format!("{value:?}"),
+                                type_src: type_name_of_val(value),
+                                type_dst: type_name::<&str>(),
+                            })?;
+                        let ip = ip_str.parse::<IpAddr>().map_err(|_| {
+                            HandlerError::ConversionFailed {
+                                src: ip_str.to_owned(),
+                                type_src: type_name_of_val(ip_str),
+                                type_dst: type_name::<IpAddr>(),
+                            }
+                        })?;
+                        SetSpecifier::One(ip.into())
+                    }
+                    _ => unreachable!(),
+                },
+                _ => SetSpecifier::None,
+            };
 
-    if let Some(proto) = state.known_sockets_proto.get(&(
-        pid,
-        TryInto::<RawFd>::try_into(*fd_val).map_err(|_| HandlerError::ConversionFailed {
-            src: fd_val.to_string(),
-            type_src: type_name_of_val(fd_val),
-            type_dst: type_name::<RawFd>(),
-        })?,
-    )) {
-        let kind = SetSpecifier::One(NetworkActivityKind::from_sc_name(name));
+        let local_port = if sc.name == "bind" {
+            match addr_struct
+                .iter()
+                .find_map(|(k, v)| k.ends_with("_port").then_some(v))
+            {
+                Some(Expression::Integer(IntegerExpression {
+                    value:
+                        IntegerExpressionValue::Macro {
+                            name: macro_name,
+                            args,
+                        },
+                    ..
+                })) if macro_name == "htons" => match args.first() {
+                    Some(Expression::Integer(IntegerExpression {
+                        value: IntegerExpressionValue::Literal(port_val),
+                        ..
+                    })) => {
+                        if *port_val == 0 {
+                            // 0 means bind random port, we don't know which one, but this is not
+                            // denied by SocketBindDeny
+                            SetSpecifier::None
+                        } else {
+                            SetSpecifier::One(NetworkPort(
+                                TryInto::<u16>::try_into(*port_val)
+                                    .ok()
+                                    .and_then(|i| i.try_into().ok())
+                                    .ok_or_else(|| HandlerError::ConversionFailed {
+                                        src: port_val.to_string(),
+                                        type_src: type_name_of_val(port_val),
+                                        type_dst: type_name::<NetworkPort>(),
+                                    })?,
+                            ))
+                        }
+                    }
+                    _ => unreachable!(),
+                },
+                _ => SetSpecifier::None,
+            }
+        } else {
+            SetSpecifier::All
+        };
 
-        // When binding to [::] (IPv6 unspecified), the socket is typically dual-stack
-        // and also serves IPv4 traffic, so emit an IPv4 bind action too
-        let is_ipv6_unspecified_bind = name == "bind"
-            && af == SocketFamily::Ipv6
-            && matches!(&ip_addr,
-                SetSpecifier::One(addr) if addr.is_ipv6_unspecified());
-        if is_ipv6_unspecified_bind {
+        if let Some(proto) = state.known_sockets_proto.get(&(
+            sc.pid,
+            TryInto::<RawFd>::try_into(*fd_val).map_err(|_| HandlerError::ConversionFailed {
+                src: fd_val.to_string(),
+                type_src: type_name_of_val(fd_val),
+                type_dst: type_name::<RawFd>(),
+            })?,
+        )) {
+            let kind = SetSpecifier::One(NetworkActivityKind::from_sc_name(&sc.name));
+
+            // When binding to [::] (IPv6 unspecified), the socket is typically dual-stack
+            // and also serves IPv4 traffic, so emit an IPv4 bind action too
+            let is_ipv6_unspecified_bind = sc.name == "bind"
+                && af == SocketFamily::Ipv6
+                && matches!(&ip_addr,
+                    SetSpecifier::One(addr) if addr.is_ipv6_unspecified());
+            if is_ipv6_unspecified_bind {
+                actions.push(ProgramAction::NetworkActivity(
+                    NetworkActivity {
+                        af: SetSpecifier::One(SocketFamily::Ipv4),
+                        proto: SetSpecifier::One(proto.to_owned()),
+                        kind: kind.clone(),
+                        local_port: local_port.clone(),
+                        address: ip_addr.clone(),
+                    }
+                    .into(),
+                ));
+            }
+
             actions.push(ProgramAction::NetworkActivity(
                 NetworkActivity {
-                    af: SetSpecifier::One(SocketFamily::Ipv4),
+                    af: SetSpecifier::One(af),
                     proto: SetSpecifier::One(proto.to_owned()),
-                    kind: kind.clone(),
-                    local_port: local_port.clone(),
-                    address: ip_addr.clone(),
+                    kind,
+                    local_port,
+                    address: ip_addr,
                 }
                 .into(),
             ));
         }
 
-        actions.push(ProgramAction::NetworkActivity(
-            NetworkActivity {
-                af: SetSpecifier::One(af),
-                proto: SetSpecifier::One(proto.to_owned()),
-                kind,
-                local_port,
-                address: ip_addr,
-            }
-            .into(),
-        ));
+        Ok(())
     }
-
-    Ok(())
 }
 
 /// Handle open-like syscalls
-fn handle_open(
-    name: &str,
-    relfd: Option<&Expression>,
-    path: &Expression,
-    flags: &Expression,
-    ret_val: &IntegerExpression,
-    actions: &mut Vec<ProgramAction>,
-    state: &ProgramState,
-) -> Result<(), HandlerError> {
-    let mut path = if let Expression::Buffer(BufferExpression {
-        value: b,
-        type_: BufferType::Unknown,
-    }) = path
-    {
-        PathBuf::from(OsStr::from_bytes(b))
-    } else {
-        return Err(HandlerError::ArgTypeMismatch {
-            sc_name: name.to_owned(),
-            arg: path.to_owned(),
-        });
-    };
-    let Expression::Integer(IntegerExpression {
-        value: flags_val, ..
-    }) = flags
-    else {
-        return Err(HandlerError::ArgTypeMismatch {
-            sc_name: name.to_owned(),
-            arg: flags.to_owned(),
-        });
-    };
+pub(crate) struct OpenHandler {
+    pub relfd: Option<usize>,
+    pub path: usize,
+    pub flags: usize,
+}
 
-    path = if let Some(path) = resolve_path(&path, relfd, state.cur_dir.as_ref()) {
-        path
-    } else {
-        return Ok(());
-    };
+impl SyscallHandler for OpenHandler {
+    fn handle(
+        &self,
+        sc: &Syscall,
+        actions: &mut Vec<ProgramAction>,
+        state: &mut ProgramState,
+    ) -> Result<(), HandlerError> {
+        let relfd = self.relfd.extract(sc)?;
+        let path_expr = self.path.extract(sc)?;
+        let flags = self.flags.extract(sc)?;
 
-    // Add actions for traversed symlinks
-    traverse_symlinks(&mut path, actions);
-
-    if ret_val.value().is_some_and(|v| v != -1) {
-        // Returned fd has normalized path, use it if we can
-        let ret_path = ret_val
-            .metadata
-            .as_ref()
-            .map(|b| PathBuf::from(OsStr::from_bytes(b)));
-        path = ret_path.unwrap_or(path);
-    }
-
-    if !is_pseudo_path(&path) {
-        // Set actions from flags
-        if flags_val.is_flag_set("O_CREAT") {
-            actions.push(ProgramAction::Create(path.clone()));
-        }
-        if (flags_val.is_flag_set("O_WRONLY")
-        || flags_val.is_flag_set("O_RDWR")
-        || flags_val.is_flag_set("O_TRUNC"))
-        // char devices can be written to, even if filesystem is mounted read only
-        && !path.metadata().ok().is_some_and(|m| m.file_type().is_char_device())
+        let mut path = if let Expression::Buffer(BufferExpression {
+            value: b,
+            type_: BufferType::Unknown,
+        }) = path_expr
         {
-            actions.push(ProgramAction::Write(path.clone()));
-        }
-        if flags_val.is_flag_set("O_RDONLY") || !flags_val.is_flag_set("O_WRONLY") {
-            assert!(!path.to_str().is_some_and(|p| p.starts_with("net:")));
-            actions.push(ProgramAction::Read(path.clone()));
-        }
-    }
+            PathBuf::from(OsStr::from_bytes(b))
+        } else {
+            return Err(HandlerError::ArgTypeMismatch {
+                sc_name: sc.name.clone(),
+                arg: path_expr.to_owned(),
+            });
+        };
+        let Expression::Integer(IntegerExpression {
+            value: flags_val, ..
+        }) = flags
+        else {
+            return Err(HandlerError::ArgTypeMismatch {
+                sc_name: sc.name.clone(),
+                arg: flags.to_owned(),
+            });
+        };
 
-    Ok(())
+        path = if let Some(path) = resolve_path(&path, relfd, state.cur_dir.as_ref()) {
+            path
+        } else {
+            return Ok(());
+        };
+
+        // Add actions for traversed symlinks
+        traverse_symlinks(&mut path, actions);
+
+        if sc.ret_val.value().is_some_and(|v| v != -1) {
+            // Returned fd has normalized path, use it if we can
+            let ret_path = sc
+                .ret_val
+                .metadata
+                .as_ref()
+                .map(|b| PathBuf::from(OsStr::from_bytes(b)));
+            path = ret_path.unwrap_or(path);
+        }
+
+        if !is_pseudo_path(&path) {
+            // Set actions from flags
+            if flags_val.is_flag_set("O_CREAT") {
+                actions.push(ProgramAction::Create(path.clone()));
+            }
+            if (flags_val.is_flag_set("O_WRONLY")
+            || flags_val.is_flag_set("O_RDWR")
+            || flags_val.is_flag_set("O_TRUNC"))
+            // char devices can be written to, even if filesystem is mounted read only
+            && !path.metadata().ok().is_some_and(|m| m.file_type().is_char_device())
+            {
+                actions.push(ProgramAction::Write(path.clone()));
+            }
+            if flags_val.is_flag_set("O_RDONLY") || !flags_val.is_flag_set("O_WRONLY") {
+                assert!(!path.to_str().is_some_and(|p| p.starts_with("net:")));
+                actions.push(ProgramAction::Read(path.clone()));
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// Handle rename-like syscalls
-#[expect(clippy::too_many_arguments)]
-fn handle_rename(
-    name: &str,
-    relfd_src: Option<&Expression>,
-    path_src: &Expression,
-    relfd_dst: Option<&Expression>,
-    path_dst: &Expression,
-    flags: Option<&Expression>,
-    actions: &mut Vec<ProgramAction>,
-    state: &ProgramState,
-) -> Result<(), HandlerError> {
-    let path_src = if let Expression::Buffer(BufferExpression {
-        value: b1,
-        type_: BufferType::Unknown,
-    }) = path_src
-    {
-        PathBuf::from(OsStr::from_bytes(b1))
-    } else {
-        return Err(HandlerError::ArgTypeMismatch {
-            sc_name: name.to_owned(),
-            arg: path_src.to_owned(),
-        });
-    };
-    let path_dst = if let Expression::Buffer(BufferExpression {
-        value: b2,
-        type_: BufferType::Unknown,
-    }) = path_dst
-    {
-        PathBuf::from(OsStr::from_bytes(b2))
-    } else {
-        return Err(HandlerError::ArgTypeMismatch {
-            sc_name: name.to_owned(),
-            arg: path_dst.to_owned(),
-        });
-    };
+pub(crate) struct RenameHandler {
+    pub relfd_src: Option<usize>,
+    pub path_src: usize,
+    pub relfd_dst: Option<usize>,
+    pub path_dst: usize,
+    pub flags: Option<usize>,
+}
 
-    let (Some(mut path_src), Some(mut path_dst)) = (
-        resolve_path(&path_src, relfd_src, state.cur_dir.as_ref()),
-        resolve_path(&path_dst, relfd_dst, state.cur_dir.as_ref()),
-    ) else {
-        return Ok(());
-    };
+impl SyscallHandler for RenameHandler {
+    fn handle(
+        &self,
+        sc: &Syscall,
+        actions: &mut Vec<ProgramAction>,
+        state: &mut ProgramState,
+    ) -> Result<(), HandlerError> {
+        let relfd_src = self.relfd_src.extract(sc)?;
+        let path_src_expr = self.path_src.extract(sc)?;
+        let relfd_dst = self.relfd_dst.extract(sc)?;
+        let path_dst_expr = self.path_dst.extract(sc)?;
+        let flags = self.flags.extract(sc)?;
 
-    let exchange = match flags {
-        Some(Expression::Integer(IntegerExpression { value, .. })) => {
-            value.is_flag_set("RENAME_EXCHANGE")
-        }
-        Some(other) => {
+        let path_src = if let Expression::Buffer(BufferExpression {
+            value: b1,
+            type_: BufferType::Unknown,
+        }) = path_src_expr
+        {
+            PathBuf::from(OsStr::from_bytes(b1))
+        } else {
             return Err(HandlerError::ArgTypeMismatch {
-                sc_name: name.to_owned(),
-                arg: other.to_owned(),
+                sc_name: sc.name.clone(),
+                arg: path_src_expr.to_owned(),
             });
-        }
-        None => false,
-    };
+        };
+        let path_dst = if let Expression::Buffer(BufferExpression {
+            value: b2,
+            type_: BufferType::Unknown,
+        }) = path_dst_expr
+        {
+            PathBuf::from(OsStr::from_bytes(b2))
+        } else {
+            return Err(HandlerError::ArgTypeMismatch {
+                sc_name: sc.name.clone(),
+                arg: path_dst_expr.to_owned(),
+            });
+        };
 
-    traverse_symlinks(&mut path_src, actions);
-    traverse_symlinks(&mut path_dst, actions);
-    actions.push(ProgramAction::Read(path_src.clone()));
-    actions.push(ProgramAction::Write(path_src.clone()));
-    if exchange {
-        actions.push(ProgramAction::Read(path_dst.clone()));
-    } else {
-        actions.push(ProgramAction::Create(path_dst.clone()));
+        let (Some(mut path_src), Some(mut path_dst)) = (
+            resolve_path(&path_src, relfd_src, state.cur_dir.as_ref()),
+            resolve_path(&path_dst, relfd_dst, state.cur_dir.as_ref()),
+        ) else {
+            return Ok(());
+        };
+
+        let exchange = match flags {
+            Some(Expression::Integer(IntegerExpression { value, .. })) => {
+                value.is_flag_set("RENAME_EXCHANGE")
+            }
+            Some(other) => {
+                return Err(HandlerError::ArgTypeMismatch {
+                    sc_name: sc.name.clone(),
+                    arg: other.to_owned(),
+                });
+            }
+            None => false,
+        };
+
+        traverse_symlinks(&mut path_src, actions);
+        traverse_symlinks(&mut path_dst, actions);
+        actions.push(ProgramAction::Read(path_src.clone()));
+        actions.push(ProgramAction::Write(path_src.clone()));
+        if exchange {
+            actions.push(ProgramAction::Read(path_dst.clone()));
+        } else {
+            actions.push(ProgramAction::Create(path_dst.clone()));
+        }
+        actions.push(ProgramAction::Write(path_dst.clone()));
+        Ok(())
     }
-    actions.push(ProgramAction::Write(path_dst.clone()));
-    Ok(())
 }
 
 /// Handle `sched_setscheduler` syscall
-fn handle_setscheduler(
-    name: &str,
-    policy: &Expression,
-    actions: &mut Vec<ProgramAction>,
-) -> Result<(), HandlerError> {
-    const RT_SCHEDULERS: [&str; 2] = ["SCHED_FIFO", "SCHED_RR"];
-    let Expression::Integer(IntegerExpression {
-        value: policy_val, ..
-    }) = policy
-    else {
-        return Err(HandlerError::ArgTypeMismatch {
-            sc_name: name.to_owned(),
-            arg: policy.to_owned(),
-        });
-    };
-    if RT_SCHEDULERS.iter().any(|s| policy_val.is_flag_set(s)) {
-        actions.push(ProgramAction::SetRealtimeScheduler);
-    }
-    Ok(())
+pub(crate) struct SetSchedulerHandler {
+    pub policy: usize,
 }
 
-fn handle_shmctl(
-    name: &str,
-    op: &Expression,
-    actions: &mut Vec<ProgramAction>,
-) -> Result<(), HandlerError> {
-    let Expression::Integer(IntegerExpression { value: op, .. }) = op else {
-        return Err(HandlerError::ArgTypeMismatch {
-            sc_name: name.to_owned(),
-            arg: op.to_owned(),
-        });
-    };
-    if op.is_flag_set("SHM_LOCK") || op.is_flag_set("SHM_UNLOCK") {
-        actions.push(ProgramAction::LockMemoryMapping);
+impl SyscallHandler for SetSchedulerHandler {
+    fn handle(
+        &self,
+        sc: &Syscall,
+        actions: &mut Vec<ProgramAction>,
+        _state: &mut ProgramState,
+    ) -> Result<(), HandlerError> {
+        const RT_SCHEDULERS: [&str; 2] = ["SCHED_FIFO", "SCHED_RR"];
+        let policy = self.policy.extract(sc)?;
+        let Expression::Integer(IntegerExpression {
+            value: policy_val, ..
+        }) = policy
+        else {
+            return Err(HandlerError::ArgTypeMismatch {
+                sc_name: sc.name.clone(),
+                arg: policy.to_owned(),
+            });
+        };
+        if RT_SCHEDULERS.iter().any(|s| policy_val.is_flag_set(s)) {
+            actions.push(ProgramAction::SetRealtimeScheduler);
+        }
+        Ok(())
     }
-    Ok(())
+}
+
+/// Handle `shmctl` syscall
+pub(crate) struct ShmCtlHandler {
+    pub op: usize,
+}
+
+impl SyscallHandler for ShmCtlHandler {
+    fn handle(
+        &self,
+        sc: &Syscall,
+        actions: &mut Vec<ProgramAction>,
+        _state: &mut ProgramState,
+    ) -> Result<(), HandlerError> {
+        let op = self.op.extract(sc)?;
+
+        let Expression::Integer(IntegerExpression { value: op, .. }) = op else {
+            return Err(HandlerError::ArgTypeMismatch {
+                sc_name: sc.name.clone(),
+                arg: op.to_owned(),
+            });
+        };
+        if op.is_flag_set("SHM_LOCK") || op.is_flag_set("SHM_UNLOCK") {
+            actions.push(ProgramAction::LockMemoryMapping);
+        }
+        Ok(())
+    }
 }
 
 /// Handle socket syscall
-fn handle_socket(
-    name: &str,
-    pid: pid_t,
-    ret_val: &IntegerExpression,
-    af: &Expression,
-    flags: &Expression,
-    actions: &mut Vec<ProgramAction>,
-    state: &mut ProgramState,
-) -> Result<(), HandlerError> {
-    let af = if let Expression::Integer(IntegerExpression {
-        value: IntegerExpressionValue::NamedSymbol(af_name),
-        ..
-    }) = af
-    {
-        af_name.parse().map_err(|()| HandlerError::ParsingFailed {
-            src: af_name.to_owned(),
-            type_: type_name::<SocketFamily>(),
-        })?
-    } else {
-        return Err(HandlerError::ArgTypeMismatch {
-            sc_name: name.to_owned(),
-            arg: af.to_owned(),
-        });
-    };
+pub(crate) struct SocketHandler {
+    pub af: usize,
+    pub flags: usize,
+}
 
-    let flags = if let Expression::Integer(IntegerExpression { value, .. }) = flags {
-        value.flags()
-    } else {
-        return Err(HandlerError::ArgTypeMismatch {
-            sc_name: name.to_owned(),
-            arg: flags.to_owned(),
-        });
-    };
-    let proto_flag = flags
-        .iter()
-        .find(|f| f.starts_with("SOCK_"))
-        .ok_or_else(|| HandlerError::ParsingFailed {
-            src: format!("{flags:?}"),
-            type_: type_name::<SocketProtocol>(),
-        })?;
-    let proto = proto_flag
-        .parse::<SocketProtocol>()
-        .map_err(|_e| HandlerError::ParsingFailed {
-            src: proto_flag.to_owned(),
-            type_: type_name::<SocketProtocol>(),
-        })?;
-    let ret_fd = ret_val.value().ok_or_else(|| HandlerError::ParsingFailed {
-        src: format!("{ret_val:?}"),
-        type_: type_name::<i128>(),
-    })?;
+impl SyscallHandler for SocketHandler {
+    fn handle(
+        &self,
+        sc: &Syscall,
+        actions: &mut Vec<ProgramAction>,
+        state: &mut ProgramState,
+    ) -> Result<(), HandlerError> {
+        let af = self.af.extract(sc)?;
+        let flags = self.flags.extract(sc)?;
 
-    if ret_fd != -1 {
-        state.known_sockets_proto.insert(
-            (
-                pid,
-                TryInto::<RawFd>::try_into(ret_fd).map_err(|_| HandlerError::ConversionFailed {
-                    src: ret_fd.to_string(),
-                    type_src: type_name_of_val(&ret_val),
-                    type_dst: type_name::<RawFd>(),
-                })?,
-            ),
-            proto.clone(),
-        );
-    }
+        let af = if let Expression::Integer(IntegerExpression {
+            value: IntegerExpressionValue::NamedSymbol(af_name),
+            ..
+        }) = af
+        {
+            af_name.parse().map_err(|()| HandlerError::ParsingFailed {
+                src: af_name.to_owned(),
+                type_: type_name::<SocketFamily>(),
+            })?
+        } else {
+            return Err(HandlerError::ArgTypeMismatch {
+                sc_name: sc.name.clone(),
+                arg: af.to_owned(),
+            });
+        };
 
-    actions.push(ProgramAction::NetworkActivity(
-        NetworkActivity {
-            af: SetSpecifier::One(af),
-            proto: SetSpecifier::One(proto),
-            kind: SetSpecifier::One(NetworkActivityKind::SocketCreation),
-            local_port: SetSpecifier::All,
-            address: SetSpecifier::All,
+        let flags = if let Expression::Integer(IntegerExpression { value, .. }) = flags {
+            value.flags()
+        } else {
+            return Err(HandlerError::ArgTypeMismatch {
+                sc_name: sc.name.clone(),
+                arg: flags.to_owned(),
+            });
+        };
+        let proto_flag = flags
+            .iter()
+            .find(|f| f.starts_with("SOCK_"))
+            .ok_or_else(|| HandlerError::ParsingFailed {
+                src: format!("{flags:?}"),
+                type_: type_name::<SocketProtocol>(),
+            })?;
+        let proto =
+            proto_flag
+                .parse::<SocketProtocol>()
+                .map_err(|_e| HandlerError::ParsingFailed {
+                    src: proto_flag.to_owned(),
+                    type_: type_name::<SocketProtocol>(),
+                })?;
+        let ret_fd = sc
+            .ret_val
+            .value()
+            .ok_or_else(|| HandlerError::ParsingFailed {
+                src: format!("{:?}", sc.ret_val),
+                type_: type_name::<i128>(),
+            })?;
+
+        if ret_fd != -1 {
+            state.known_sockets_proto.insert(
+                (
+                    sc.pid,
+                    TryInto::<RawFd>::try_into(ret_fd).map_err(|_| {
+                        HandlerError::ConversionFailed {
+                            src: ret_fd.to_string(),
+                            type_src: type_name_of_val(&sc.ret_val),
+                            type_dst: type_name::<RawFd>(),
+                        }
+                    })?,
+                ),
+                proto.clone(),
+            );
         }
-        .into(),
-    ));
-    Ok(())
+
+        actions.push(ProgramAction::NetworkActivity(
+            NetworkActivity {
+                af: SetSpecifier::One(af),
+                proto: SetSpecifier::One(proto),
+                kind: SetSpecifier::One(NetworkActivityKind::SocketCreation),
+                local_port: SetSpecifier::All,
+                address: SetSpecifier::All,
+            }
+            .into(),
+        ));
+        Ok(())
+    }
 }
 
 /// Handle stat-like syscalls operating on file descriptors
-#[expect(clippy::unnecessary_wraps)]
-fn handle_stat_fd(
-    _name: &str,
-    fd: &Expression,
-    actions: &mut Vec<ProgramAction>,
-    state: &ProgramState,
-) -> Result<(), HandlerError> {
-    let Some(path) = fd.metadata().map(|m| PathBuf::from(OsStr::from_bytes(m))) else {
-        return Ok(());
-    };
-    if let Some(mut path) = resolve_path(&path, None, state.cur_dir.as_ref()) {
-        traverse_symlinks(&mut path, actions);
-        actions.push(ProgramAction::Read(path));
+pub(crate) struct StatFdHandler {
+    pub fd: usize,
+}
+
+impl SyscallHandler for StatFdHandler {
+    fn handle(
+        &self,
+        sc: &Syscall,
+        actions: &mut Vec<ProgramAction>,
+        state: &mut ProgramState,
+    ) -> Result<(), HandlerError> {
+        let fd = self.fd.extract(sc)?;
+
+        let Some(path) = fd.metadata().map(|m| PathBuf::from(OsStr::from_bytes(m))) else {
+            return Ok(());
+        };
+        if let Some(mut path) = resolve_path(&path, None, state.cur_dir.as_ref()) {
+            traverse_symlinks(&mut path, actions);
+            actions.push(ProgramAction::Read(path));
+        }
+        Ok(())
     }
-    Ok(())
 }
 
 /// Handle stat-like syscalls operating on a path possibly relative to a file descriptor
-fn handle_stat_path(
-    name: &str,
-    relfd: Option<&Expression>,
-    path: &Expression,
-    actions: &mut Vec<ProgramAction>,
-    state: &ProgramState,
-) -> Result<(), HandlerError> {
-    let path = if let Expression::Buffer(BufferExpression {
-        value: b,
-        type_: BufferType::Unknown,
-    }) = path
-    {
-        PathBuf::from(OsStr::from_bytes(b))
-    } else {
-        return Err(HandlerError::ArgTypeMismatch {
-            sc_name: name.to_owned(),
-            arg: path.to_owned(),
-        });
-    };
-    if let Some(mut path) = resolve_path(&path, relfd, state.cur_dir.as_ref()) {
-        traverse_symlinks(&mut path, actions);
-        actions.push(ProgramAction::Read(path));
+pub(crate) struct StatPathHandler {
+    pub relfd: Option<usize>,
+    pub path: usize,
+}
+
+impl SyscallHandler for StatPathHandler {
+    fn handle(
+        &self,
+        sc: &Syscall,
+        actions: &mut Vec<ProgramAction>,
+        state: &mut ProgramState,
+    ) -> Result<(), HandlerError> {
+        let relfd = self.relfd.extract(sc)?;
+        let path = self.path.extract(sc)?;
+
+        let path = if let Expression::Buffer(BufferExpression {
+            value: b,
+            type_: BufferType::Unknown,
+        }) = path
+        {
+            PathBuf::from(OsStr::from_bytes(b))
+        } else {
+            return Err(HandlerError::ArgTypeMismatch {
+                sc_name: sc.name.clone(),
+                arg: path.to_owned(),
+            });
+        };
+        if let Some(mut path) = resolve_path(&path, relfd, state.cur_dir.as_ref()) {
+            traverse_symlinks(&mut path, actions);
+            actions.push(ProgramAction::Read(path));
+        }
+        Ok(())
     }
-    Ok(())
 }
 
 /// Handle `timer_create` syscall
-fn handle_timer_create(
-    name: &str,
-    clockid: &Expression,
-    actions: &mut Vec<ProgramAction>,
-) -> Result<(), HandlerError> {
-    const PRIVILEGED_CLOCK_NAMES: [&str; 2] = ["CLOCK_REALTIME_ALARM", "CLOCK_BOOTTIME_ALARM"];
-    let Expression::Integer(IntegerExpression {
-        value: IntegerExpressionValue::NamedSymbol(clock_name),
-        ..
-    }) = clockid
-    else {
-        return Err(HandlerError::ArgTypeMismatch {
-            sc_name: name.to_owned(),
-            arg: clockid.to_owned(),
-        });
-    };
-    if PRIVILEGED_CLOCK_NAMES.contains(&clock_name.as_str()) {
-        actions.push(ProgramAction::SetAlarm);
+pub(crate) struct TimerCreateHandler {
+    pub clockid: usize,
+}
+
+impl SyscallHandler for TimerCreateHandler {
+    fn handle(
+        &self,
+        sc: &Syscall,
+        actions: &mut Vec<ProgramAction>,
+        _state: &mut ProgramState,
+    ) -> Result<(), HandlerError> {
+        const PRIVILEGED_CLOCK_NAMES: [&str; 2] = ["CLOCK_REALTIME_ALARM", "CLOCK_BOOTTIME_ALARM"];
+        let clockid = self.clockid.extract(sc)?;
+        let Expression::Integer(IntegerExpression {
+            value: IntegerExpressionValue::NamedSymbol(clock_name),
+            ..
+        }) = clockid
+        else {
+            return Err(HandlerError::ArgTypeMismatch {
+                sc_name: sc.name.clone(),
+                arg: clockid.to_owned(),
+            });
+        };
+        if PRIVILEGED_CLOCK_NAMES.contains(&clock_name.as_str()) {
+            actions.push(ProgramAction::SetAlarm);
+        }
+        Ok(())
     }
-    Ok(())
 }
 
 /// Extract path for socket address structure if it's a non abstract one
@@ -1266,5 +1465,1273 @@ x86_Thread_features_locked:
                 _fs: 1004
             }
         );
+    }
+
+    // Helper to create a basic Syscall
+    fn make_syscall(name: &str, args: Vec<Expression>, ret_val: i128) -> Syscall {
+        Syscall {
+            pid: 1000,
+            rel_ts: 0.0,
+            name: name.to_owned(),
+            args,
+            ret_val: IntegerExpression {
+                value: IntegerExpressionValue::Literal(ret_val),
+                metadata: None,
+            },
+        }
+    }
+
+    // Helper to create a buffer expression
+    fn buf_expr(content: &[u8]) -> Expression {
+        Expression::Buffer(BufferExpression {
+            value: content.to_vec(),
+            type_: BufferType::Unknown,
+        })
+    }
+
+    // Helper to create an integer expression from a literal
+    fn int_literal(val: i128) -> Expression {
+        Expression::Integer(IntegerExpression {
+            value: IntegerExpressionValue::Literal(val),
+            metadata: None,
+        })
+    }
+
+    // Helper to create a named symbol integer expression
+    fn named_symbol(name: &str) -> Expression {
+        Expression::Integer(IntegerExpression {
+            value: IntegerExpressionValue::NamedSymbol(name.to_owned()),
+            metadata: None,
+        })
+    }
+
+    // Helper to create a BinaryOr flag expression
+    fn binary_or_flags(flags: &[&str]) -> Expression {
+        Expression::Integer(IntegerExpression {
+            value: IntegerExpressionValue::BinaryOr(
+                flags
+                    .iter()
+                    .map(|f| IntegerExpressionValue::NamedSymbol(f.to_string()))
+                    .collect(),
+            ),
+            metadata: None,
+        })
+    }
+
+    #[test]
+    fn chdir_handler_with_path() {
+        let handler = ChdirHandler {
+            path: FdOrPath::Path(0),
+        };
+        let sc = make_syscall("chdir", vec![buf_expr(b"/tmp")], 0);
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(state.cur_dir.to_str(), Some("/tmp"));
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn chdir_handler_wrong_arg_type() {
+        let handler = ChdirHandler {
+            path: FdOrPath::Path(0),
+        };
+        let sc = make_syscall("chdir", vec![int_literal(42)], 0);
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn chdir_handler_missing_arg() {
+        let handler = ChdirHandler {
+            path: FdOrPath::Path(0),
+        };
+        let sc = make_syscall("chdir", vec![], 0);
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(matches!(
+            result,
+            Err(HandlerError::ArgIndexOutOfBounds { .. })
+        ));
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn epoll_ctl_handler_add_with_wakeup() {
+        let handler = EpollCtlHandler { op: 1, event: 3 };
+        let event_struct = HashMap::from([(
+            "events".to_owned(),
+            Expression::Integer(IntegerExpression {
+                value: IntegerExpressionValue::BinaryOr(vec![IntegerExpressionValue::NamedSymbol(
+                    "EPOLLWAKEUP".to_owned(),
+                )]),
+                metadata: None,
+            }),
+        )]);
+        let sc = make_syscall(
+            "epoll_ctl",
+            vec![
+                int_literal(5),
+                named_symbol("EPOLL_CTL_ADD"),
+                int_literal(10),
+                Expression::Struct(event_struct),
+            ],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(actions, vec![ProgramAction::Wakeup]);
+    }
+
+    #[test]
+    fn epoll_ctl_handler_add_without_wakeup() {
+        let handler = EpollCtlHandler { op: 1, event: 3 };
+        let event_struct = HashMap::from([(
+            "events".to_owned(),
+            Expression::Integer(IntegerExpression {
+                value: IntegerExpressionValue::NamedSymbol("EPOLLIN".to_owned()),
+                metadata: None,
+            }),
+        )]);
+        let sc = make_syscall(
+            "epoll_ctl",
+            vec![
+                int_literal(5),
+                named_symbol("EPOLL_CTL_ADD"),
+                int_literal(10),
+                Expression::Struct(event_struct),
+            ],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn epoll_ctl_handler_del_no_wakeup() {
+        let handler = EpollCtlHandler { op: 1, event: 3 };
+        let event_struct = HashMap::from([(
+            "events".to_owned(),
+            Expression::Integer(IntegerExpression {
+                value: IntegerExpressionValue::NamedSymbol("EPOLLWAKEUP".to_owned()),
+                metadata: None,
+            }),
+        )]);
+        let sc = make_syscall(
+            "epoll_ctl",
+            vec![
+                int_literal(5),
+                named_symbol("EPOLL_CTL_DEL"),
+                int_literal(10),
+                Expression::Struct(event_struct),
+            ],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn epoll_ctl_handler_missing_events_field() {
+        let handler = EpollCtlHandler { op: 1, event: 3 };
+        let event_struct = HashMap::from([]);
+        let sc = make_syscall(
+            "epoll_ctl",
+            vec![
+                int_literal(5),
+                named_symbol("EPOLL_CTL_ADD"),
+                int_literal(10),
+                Expression::Struct(event_struct),
+            ],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(matches!(
+            result,
+            Err(HandlerError::MissingStructMember { .. })
+        ));
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn epoll_ctl_handler_wrong_op_type() {
+        let handler = EpollCtlHandler { op: 1, event: 3 };
+        let event_struct = HashMap::from([(
+            "events".to_owned(),
+            Expression::Integer(IntegerExpression {
+                value: IntegerExpressionValue::NamedSymbol("EPOLLIN".to_owned()),
+                metadata: None,
+            }),
+        )]);
+        let sc = make_syscall(
+            "epoll_ctl",
+            vec![
+                int_literal(5),
+                int_literal(1),
+                int_literal(10),
+                Expression::Struct(event_struct),
+            ],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn epoll_ctl_handler_wrong_event_type() {
+        let handler = EpollCtlHandler { op: 1, event: 3 };
+        let sc = make_syscall(
+            "epoll_ctl",
+            vec![
+                int_literal(5),
+                named_symbol("EPOLL_CTL_ADD"),
+                int_literal(10),
+                int_literal(999),
+            ],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn memfd_create_handler_with_hugetlb() {
+        let handler = MemfdCreateHandler { flags: 1 };
+        let sc = make_syscall(
+            "memfd_create",
+            vec![buf_expr(b"test"), named_symbol("MFD_HUGETLB")],
+            3,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(actions, vec![ProgramAction::HugePageMemoryMapping]);
+    }
+
+    #[test]
+    fn memfd_create_handler_without_hugetlb() {
+        let handler = MemfdCreateHandler { flags: 1 };
+        let sc = make_syscall(
+            "memfd_create",
+            vec![buf_expr(b"test"), named_symbol("MFD_CLOEXEC")],
+            3,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn memfd_create_handler_wrong_flags_index() {
+        let handler = MemfdCreateHandler { flags: 5 }; // Wrong index
+        let sc = make_syscall("memfd_create", vec![buf_expr(b"test"), int_literal(4)], 3);
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(matches!(
+            result,
+            Err(HandlerError::ArgIndexOutOfBounds { .. })
+        ));
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn memfd_create_handler_missing_flags() {
+        let handler = MemfdCreateHandler { flags: 1 };
+        let sc = make_syscall("memfd_create", vec![buf_expr(b"test")], 3);
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(matches!(
+            result,
+            Err(HandlerError::ArgIndexOutOfBounds { .. })
+        ));
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn mkdir_handler() {
+        let handler = MkdirHandler {
+            relfd: None,
+            path: 0,
+        };
+        let sc = make_syscall("mkdir", vec![buf_expr(b"/tmp/newdir")], 0);
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(actions, vec![ProgramAction::Create("/tmp/newdir".into())]);
+    }
+
+    #[test]
+    fn mkdirat_handler() {
+        let handler = MkdirHandler {
+            relfd: Some(0),
+            path: 1,
+        };
+        let sc = make_syscall("mkdirat", vec![int_literal(3), buf_expr(b"subdir")], 0);
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(actions, vec![ProgramAction::Create("/subdir".into())]);
+    }
+
+    #[test]
+    fn mkdir_handler_wrong_path_type() {
+        let handler = MkdirHandler {
+            relfd: None,
+            path: 0,
+        };
+        let sc = make_syscall("mkdir", vec![int_literal(42)], 0);
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn mknod_handler_regular_file() {
+        let handler = MknodHandler {
+            path: FdOrPath::Path(0),
+            mode: 1,
+        };
+        let sc = make_syscall(
+            "mknod",
+            vec![buf_expr(b"/tmp/file"), int_literal(0o100_644)],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(actions, vec![ProgramAction::Create("/tmp/file".into())]);
+    }
+
+    #[test]
+    fn mknod_handler_block_device() {
+        let handler = MknodHandler {
+            path: FdOrPath::Path(0),
+            mode: 1,
+        };
+        let sc = make_syscall(
+            "mknod",
+            vec![buf_expr(b"/tmp/dev"), named_symbol("S_IFBLK")],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(
+            actions,
+            vec![
+                ProgramAction::MknodSpecial,
+                ProgramAction::Create("/tmp/dev".into())
+            ]
+        );
+    }
+
+    #[test]
+    fn mknod_handler_char_device() {
+        let handler = MknodHandler {
+            path: FdOrPath::Path(0),
+            mode: 1,
+        };
+        let sc = make_syscall(
+            "mknod",
+            vec![buf_expr(b"/tmp/dev"), named_symbol("S_IFCHR")],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(
+            actions,
+            vec![
+                ProgramAction::MknodSpecial,
+                ProgramAction::Create("/tmp/dev".into())
+            ]
+        );
+    }
+
+    #[test]
+    fn mmap_handler_exec_only_prot() {
+        let handler = MmapHandler {
+            prot: 0,
+            flags: None,
+            fd: None,
+        };
+        let sc = make_syscall(
+            "mmap",
+            vec![named_symbol("PROT_EXEC"), int_literal(0), int_literal(4096)],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn mmap_handler_exec_write_prot() {
+        let handler = MmapHandler {
+            prot: 0,
+            flags: None,
+            fd: None,
+        };
+        let sc = make_syscall(
+            "mmap",
+            vec![
+                binary_or_flags(&["PROT_EXEC", "PROT_WRITE"]),
+                int_literal(0),
+                int_literal(4096),
+            ],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(actions, vec![ProgramAction::WriteExecuteMemoryMapping]);
+    }
+
+    #[test]
+    fn mmap_handler_hugetlb_flag() {
+        let handler = MmapHandler {
+            prot: 0,
+            flags: Some(3),
+            fd: None,
+        };
+        let sc = make_syscall(
+            "mmap",
+            vec![
+                named_symbol("PROT_READ"),
+                int_literal(0),
+                int_literal(4096),
+                binary_or_flags(&["MAP_HUGETLB"]),
+            ],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(actions, vec![ProgramAction::HugePageMemoryMapping]);
+    }
+
+    #[test]
+    fn mmap_handler_exec_hugetlb_flag() {
+        let handler = MmapHandler {
+            prot: 0,
+            flags: Some(3),
+            fd: None,
+        };
+        let sc = make_syscall(
+            "mmap",
+            vec![
+                binary_or_flags(&["PROT_EXEC", "PROT_WRITE"]),
+                int_literal(0),
+                int_literal(4096),
+                binary_or_flags(&["MAP_HUGETLB"]),
+            ],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(
+            actions,
+            vec![
+                ProgramAction::HugePageMemoryMapping,
+                ProgramAction::WriteExecuteMemoryMapping
+            ]
+        );
+    }
+
+    #[test]
+    fn mmap_handler_locked_flag() {
+        let handler = MmapHandler {
+            prot: 0,
+            flags: Some(3),
+            fd: None,
+        };
+        let sc = make_syscall(
+            "mmap",
+            vec![
+                named_symbol("PROT_READ"),
+                int_literal(0),
+                int_literal(4096),
+                binary_or_flags(&["MAP_LOCKED"]),
+            ],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(actions, vec![ProgramAction::LockMemoryMapping]);
+    }
+
+    #[test]
+    fn mmap_handler_wrong_prot_index() {
+        let handler = MmapHandler {
+            prot: 5, // Wrong index
+            flags: None,
+            fd: None,
+        };
+        let sc = make_syscall(
+            "mmap",
+            vec![int_literal(0), int_literal(4096), named_symbol("PROT_READ")],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(matches!(
+            result,
+            Err(HandlerError::ArgIndexOutOfBounds { .. })
+        ));
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn mmap_handler_wrong_flags_type() {
+        let handler = MmapHandler {
+            prot: 0,
+            flags: Some(3),
+            fd: None,
+        };
+        let sc = make_syscall(
+            "mmap",
+            vec![
+                named_symbol("PROT_READ"),
+                int_literal(0),
+                int_literal(4096),
+                buf_expr(b"invalid"),
+            ],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn mprotect_handler_write() {
+        let handler = MmapHandler {
+            prot: 0,
+            flags: None,
+            fd: None,
+        };
+        let sc = make_syscall(
+            "mprotect",
+            vec![
+                binary_or_flags(&["PROT_WRITE"]),
+                int_literal(0x1000),
+                int_literal(4096),
+            ],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn mprotect_handler_exec_write() {
+        let handler = MmapHandler {
+            prot: 0,
+            flags: None,
+            fd: None,
+        };
+        let sc = make_syscall(
+            "mprotect",
+            vec![
+                binary_or_flags(&["PROT_EXEC", "PROT_WRITE"]),
+                int_literal(0x1000),
+                int_literal(4096),
+            ],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(actions, vec![ProgramAction::WriteExecuteMemoryMapping]);
+    }
+
+    #[test]
+    fn mount_handler_ms_shared() {
+        let handler = MountHandler { flags: 3 };
+        let sc = make_syscall(
+            "mount",
+            vec![
+                buf_expr(b"source"),
+                buf_expr(b"/mnt"),
+                buf_expr(b"tmpfs"),
+                named_symbol("MS_SHARED"),
+            ],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(actions, vec![ProgramAction::MountToHost]);
+    }
+
+    #[test]
+    fn mount_handler_no_shared() {
+        let handler = MountHandler { flags: 3 };
+        let sc = make_syscall(
+            "mount",
+            vec![
+                buf_expr(b"source"),
+                buf_expr(b"/mnt"),
+                buf_expr(b"tmpfs"),
+                binary_or_flags(&["MS_NODEV", "MS_NOEXEC"]),
+            ],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn mount_handler_wrong_flags_type() {
+        let handler = MountHandler { flags: 3 };
+        let sc = make_syscall(
+            "mount",
+            vec![
+                buf_expr(b"source"),
+                buf_expr(b"/mnt"),
+                buf_expr(b"tmpfs"),
+                buf_expr(b"invalid"),
+            ],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn sched_setscheduler_handler_fifo() {
+        let handler = SetSchedulerHandler { policy: 1 };
+        let sc = make_syscall(
+            "sched_setscheduler",
+            vec![int_literal(0), named_symbol("SCHED_FIFO")],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(actions, vec![ProgramAction::SetRealtimeScheduler]);
+    }
+
+    #[test]
+    fn sched_setscheduler_handler_rr() {
+        let handler = SetSchedulerHandler { policy: 1 };
+        let sc = make_syscall(
+            "sched_setscheduler",
+            vec![int_literal(0), named_symbol("SCHED_RR")],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(actions, vec![ProgramAction::SetRealtimeScheduler]);
+    }
+
+    #[test]
+    fn sched_setscheduler_handler_other() {
+        let handler = SetSchedulerHandler { policy: 1 };
+        let sc = make_syscall(
+            "sched_setscheduler",
+            vec![int_literal(0), named_symbol("SCHED_OTHER")],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn sched_setscheduler_handler_wrong_type() {
+        let handler = SetSchedulerHandler { policy: 1 };
+        let sc = make_syscall(
+            "sched_setscheduler",
+            vec![int_literal(0), buf_expr(b"invalid")],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn shmctl_handler_shm_lock() {
+        let handler = ShmCtlHandler { op: 1 };
+        let sc = make_syscall("shmctl", vec![int_literal(1), named_symbol("SHM_LOCK")], 0);
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(actions, vec![ProgramAction::LockMemoryMapping]);
+    }
+
+    #[test]
+    fn shmctl_handler_shm_unlock() {
+        let handler = ShmCtlHandler { op: 1 };
+        let sc = make_syscall(
+            "shmctl",
+            vec![int_literal(1), named_symbol("SHM_UNLOCK")],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(actions, vec![ProgramAction::LockMemoryMapping]);
+    }
+
+    #[test]
+    fn shmctl_handler_no_lock() {
+        let handler = ShmCtlHandler { op: 1 };
+        let sc = make_syscall("shmctl", vec![int_literal(1), named_symbol("SHM_STAT")], 0);
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn shmctl_handler_wrong_type() {
+        let handler = ShmCtlHandler { op: 1 };
+        let sc = make_syscall("shmctl", vec![int_literal(1), buf_expr(b"invalid")], 0);
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn socket_handler_tcp() {
+        let handler = SocketHandler { af: 0, flags: 1 };
+        let sc = make_syscall(
+            "socket",
+            vec![
+                named_symbol("AF_INET"),
+                binary_or_flags(&["SOCK_STREAM", "SOCK_CLOEXEC"]),
+            ],
+            3,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(
+            state.known_sockets_proto.get(&(1000, 3)),
+            Some(SocketProtocol::Tcp).as_ref()
+        );
+        assert_eq!(
+            actions,
+            vec![ProgramAction::NetworkActivity(
+                NetworkActivity {
+                    af: SetSpecifier::One(SocketFamily::Ipv4),
+                    proto: SetSpecifier::One(SocketProtocol::Tcp),
+                    kind: SetSpecifier::One(NetworkActivityKind::SocketCreation),
+                    local_port: SetSpecifier::All,
+                    address: SetSpecifier::All
+                }
+                .into()
+            )]
+        );
+    }
+
+    #[test]
+    fn socket_handler_udp() {
+        let handler = SocketHandler { af: 0, flags: 1 };
+        let sc = make_syscall(
+            "socket",
+            vec![
+                named_symbol("AF_INET6"),
+                binary_or_flags(&["SOCK_DGRAM", "SOCK_CLOEXEC"]),
+            ],
+            5,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(
+            state.known_sockets_proto.get(&(1000, 5)),
+            Some(SocketProtocol::Udp).as_ref()
+        );
+        assert_eq!(
+            actions,
+            vec![ProgramAction::NetworkActivity(
+                NetworkActivity {
+                    af: SetSpecifier::One(SocketFamily::Ipv6),
+                    proto: SetSpecifier::One(SocketProtocol::Udp),
+                    kind: SetSpecifier::One(NetworkActivityKind::SocketCreation),
+                    local_port: SetSpecifier::All,
+                    address: SetSpecifier::All
+                }
+                .into()
+            )]
+        );
+    }
+
+    #[test]
+    fn socket_handler_bad_af() {
+        let handler = SocketHandler { af: 0, flags: 1 };
+        let sc = make_syscall(
+            "socket",
+            vec![int_literal(999), binary_or_flags(&["SOCK_STREAM"])],
+            -1,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
+        assert!(state.known_sockets_proto.is_empty());
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn socket_handler_bad_flags() {
+        let handler = SocketHandler { af: 0, flags: 1 };
+        let sc = make_syscall(
+            "socket",
+            vec![named_symbol("AF_INET"), buf_expr(b"invalid")],
+            -1,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
+        assert!(state.known_sockets_proto.is_empty());
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn socket_handler_no_sock_flag() {
+        let handler = SocketHandler { af: 0, flags: 1 };
+        let sc = make_syscall("socket", vec![named_symbol("AF_INET"), int_literal(0)], -1);
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(matches!(result, Err(HandlerError::ParsingFailed { .. })));
+        assert!(state.known_sockets_proto.is_empty());
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn socket_handler_bad_proto() {
+        let handler = SocketHandler { af: 0, flags: 1 };
+        let sc = make_syscall("socket", vec![named_symbol("AF_INET"), int_literal(123)], 3);
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(matches!(result, Err(HandlerError::ParsingFailed { .. })));
+        assert!(state.known_sockets_proto.is_empty());
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn stat_fd_handler() {
+        let handler = StatFdHandler { fd: 0 };
+        let sc = Syscall {
+            pid: 1000,
+            rel_ts: 0.0,
+            name: "fstat".to_owned(),
+            args: vec![Expression::Integer(IntegerExpression {
+                value: IntegerExpressionValue::Literal(3),
+                metadata: Some(b"/etc/passwd".to_vec()),
+            })],
+            ret_val: IntegerExpression {
+                value: IntegerExpressionValue::Literal(0),
+                metadata: None,
+            },
+        };
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(actions, vec![ProgramAction::Read("/etc/passwd".into())]);
+    }
+
+    #[test]
+    fn stat_fd_handler_no_metadata() {
+        let handler = StatFdHandler { fd: 0 };
+        let sc = make_syscall("fstat", vec![int_literal(3)], 0);
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn stat_path_handler() {
+        let handler = StatPathHandler {
+            relfd: None,
+            path: 0,
+        };
+        let sc = make_syscall("stat", vec![buf_expr(b"/etc/passwd")], 0);
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(actions, vec![ProgramAction::Read("/etc/passwd".into())]);
+    }
+
+    #[test]
+    fn statat_handler() {
+        let handler = StatPathHandler {
+            relfd: Some(0),
+            path: 1,
+        };
+        let sc = make_syscall("statat", vec![int_literal(3), buf_expr(b"file")], 0);
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(actions, vec![ProgramAction::Read("/file".into())]);
+    }
+
+    #[test]
+    fn stat_path_handler_wrong_type() {
+        let handler = StatPathHandler {
+            relfd: None,
+            path: 0,
+        };
+        let sc = make_syscall("stat", vec![int_literal(42)], 0);
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn timer_create_handler_monotonic() {
+        let handler = TimerCreateHandler { clockid: 0 };
+        let sc = make_syscall(
+            "timer_create",
+            vec![named_symbol("CLOCK_MONOTONIC"), int_literal(0)],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn timer_create_handler_realtime() {
+        let handler = TimerCreateHandler { clockid: 0 };
+        let sc = make_syscall(
+            "timer_create",
+            vec![named_symbol("CLOCK_REALTIME"), int_literal(0)],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn timer_create_handler_realtime_alarm() {
+        let handler = TimerCreateHandler { clockid: 0 };
+        let sc = make_syscall(
+            "timer_create",
+            vec![named_symbol("CLOCK_REALTIME_ALARM"), int_literal(0)],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(actions, vec![ProgramAction::SetAlarm]);
+    }
+
+    #[test]
+    fn timer_create_handler_boottime_alarm() {
+        let handler = TimerCreateHandler { clockid: 0 };
+        let sc = make_syscall(
+            "timer_create",
+            vec![named_symbol("CLOCK_BOOTTIME_ALARM"), int_literal(0)],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(actions, vec![ProgramAction::SetAlarm]);
+    }
+
+    #[test]
+    fn rename_handler_normal() {
+        let handler = RenameHandler {
+            relfd_src: None,
+            path_src: 0,
+            relfd_dst: None,
+            path_dst: 1,
+            flags: None,
+        };
+        let sc = make_syscall(
+            "rename",
+            vec![buf_expr(b"/tmp/old"), buf_expr(b"/tmp/new")],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(
+            actions,
+            vec![
+                ProgramAction::Read("/tmp/old".into()),
+                ProgramAction::Write("/tmp/old".into()),
+                ProgramAction::Create("/tmp/new".into()),
+                ProgramAction::Write("/tmp/new".into())
+            ]
+        );
+    }
+
+    #[test]
+    fn renameat_handler() {
+        let handler = RenameHandler {
+            relfd_src: Some(0),
+            path_src: 1,
+            relfd_dst: Some(2),
+            path_dst: 3,
+            flags: None,
+        };
+        let sc = make_syscall(
+            "renameat",
+            vec![
+                int_literal(3),
+                buf_expr(b"old"),
+                int_literal(4),
+                buf_expr(b"new"),
+            ],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(
+            actions,
+            vec![
+                ProgramAction::Read("/old".into()),
+                ProgramAction::Write("/old".into()),
+                ProgramAction::Create("/new".into()),
+                ProgramAction::Write("/new".into())
+            ]
+        );
+    }
+
+    #[test]
+    fn rename_handler_exchange_flag() {
+        let handler = RenameHandler {
+            relfd_src: None,
+            path_src: 0,
+            relfd_dst: None,
+            path_dst: 1,
+            flags: Some(2),
+        };
+        let sc = make_syscall(
+            "renameat2",
+            vec![
+                buf_expr(b"/tmp/a"),
+                buf_expr(b"/tmp/b"),
+                named_symbol("RENAME_EXCHANGE"),
+            ],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(
+            actions,
+            vec![
+                ProgramAction::Read("/tmp/a".into()),
+                ProgramAction::Write("/tmp/a".into()),
+                ProgramAction::Read("/tmp/b".into()),
+                ProgramAction::Write("/tmp/b".into())
+            ]
+        );
+    }
+
+    #[test]
+    fn kill_handler_wrong_pid_type() {
+        let handler = KillHandler { pid: 0, sig: 1 };
+        let sc = make_syscall(
+            "kill",
+            vec![buf_expr(b"invalid"), named_symbol("SIGTERM")],
+            0,
+        );
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/");
+
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn extract_arg_missing_usize() {
+        let sc = make_syscall("test", vec![], 0);
+        let idx: usize = 0;
+        let result: Result<&Expression, _> = idx.extract(&sc);
+        assert!(matches!(
+            result,
+            Err(HandlerError::ArgIndexOutOfBounds { .. })
+        ));
+    }
+
+    #[test]
+    fn extract_arg_option_usize_none() {
+        let sc = make_syscall("test", vec![int_literal(42)], 0);
+        let idx: Option<usize> = None;
+        let result: Result<Option<&Expression>, _> = idx.extract(&sc);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn extract_arg_option_usize_some() {
+        let sc = make_syscall("test", vec![int_literal(42)], 0);
+        let idx: Option<usize> = Some(0);
+        let result: Result<Option<&Expression>, _> = idx.extract(&sc);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_some());
+    }
+
+    #[test]
+    fn extract_arg_fd_or_path_fd() {
+        let sc = make_syscall("test", vec![int_literal(42)], 0);
+        let fd_or_path: FdOrPath<usize> = FdOrPath::Fd(0);
+        let result: Result<FdOrPath<&Expression>, _> = fd_or_path.extract(&sc);
+        assert_eq!(result.unwrap(), FdOrPath::Fd(&int_literal(42)));
+    }
+
+    #[test]
+    fn extract_arg_fd_or_path_path() {
+        let sc = make_syscall("test", vec![buf_expr(b"/tmp")], 0);
+        let fd_or_path: FdOrPath<usize> = FdOrPath::Path(0);
+        let result: Result<FdOrPath<&Expression>, _> = fd_or_path.extract(&sc);
+        assert_eq!(result.unwrap(), FdOrPath::Path(&buf_expr(b"/tmp")));
     }
 }
