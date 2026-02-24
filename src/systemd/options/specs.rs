@@ -16,9 +16,10 @@ use crate::{
     systemd::{
         ListOptionValue, OptionDescription, SocketFamily, SocketProtocol,
         options::{
-            DenySyscalls, EmptyPathDescription, ListMode, OptionContext, OptionEffect,
-            OptionUpdater, OptionValue, OptionValueDescription, OptionValueEffect, OptionWithValue,
-            PathDescription, SYSCALL_CLASSES, action_path_exception, merge_similar_paths,
+            DeniableAction, DenySyscalls, EmptyPathDescription, ListMode, OptionContext,
+            OptionEffect, OptionUpdater, OptionValue, OptionValueDescription, OptionValueEffect,
+            OptionWithValue, PathDescription, SYSCALL_CLASSES, action_path_exception,
+            merge_similar_paths,
         },
     },
 };
@@ -49,8 +50,9 @@ impl OptionSpec for ProtectSystem {
         let mut protect_system_full_nowrite = protect_system_yes_nowrite.clone();
         protect_system_full_nowrite
             .push(OptionValueEffect::DenyWrite(PathDescription::base("/etc/")));
-        protect_system_yes_nowrite.push(OptionValueEffect::DenyAction(ProgramAction::MountToHost));
-        protect_system_full_nowrite.push(OptionValueEffect::DenyAction(ProgramAction::MountToHost));
+        protect_system_yes_nowrite.push(OptionValueEffect::DenyAction(DeniableAction::MountToHost));
+        protect_system_full_nowrite
+            .push(OptionValueEffect::DenyAction(DeniableAction::MountToHost));
         OptionDescription {
             name: "ProtectSystem",
             possible_values: vec![
@@ -73,7 +75,7 @@ impl OptionSpec for ProtectSystem {
                             base: "/".into(),
                             exceptions: vec!["/dev/".into(), "/proc/".into(), "/sys/".into()],
                         }),
-                        OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                        OptionValueEffect::DenyAction(DeniableAction::MountToHost),
                     ])),
                 },
             ],
@@ -102,7 +104,7 @@ impl OptionSpec for ProtectHome {
                             .iter()
                             .map(|p| OptionValueEffect::EmptyPath(EmptyPathDescription::base(p)))
                             .chain(iter::once(OptionValueEffect::DenyAction(
-                                ProgramAction::MountToHost,
+                                DeniableAction::MountToHost,
                             )))
                             .collect(),
                     )),
@@ -114,7 +116,7 @@ impl OptionSpec for ProtectHome {
                             .iter()
                             .map(|p| OptionValueEffect::EmptyPath(EmptyPathDescription::base_ro(p)))
                             .chain(iter::once(OptionValueEffect::DenyAction(
-                                ProgramAction::MountToHost,
+                                DeniableAction::MountToHost,
                             )))
                             .collect(),
                     )),
@@ -126,7 +128,7 @@ impl OptionSpec for ProtectHome {
                             .iter()
                             .map(|p| OptionValueEffect::RemovePath(PathDescription::base(p)))
                             .chain(iter::once(OptionValueEffect::DenyAction(
-                                ProgramAction::MountToHost,
+                                DeniableAction::MountToHost,
                             )))
                             .collect(),
                     )),
@@ -157,7 +159,7 @@ impl OptionSpec for PrivateTmp {
                 desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
                     OptionValueEffect::EmptyPath(EmptyPathDescription::base("/tmp")),
                     OptionValueEffect::EmptyPath(EmptyPathDescription::base("/var/tmp")),
-                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                    OptionValueEffect::DenyAction(DeniableAction::MountToHost),
                 ])),
             }],
             updater: None,
@@ -203,9 +205,9 @@ impl OptionSpec for PrivateDevices {
                         .collect(),
                     }),
                     OptionValueEffect::DenySyscalls(DenySyscalls::Class("raw-io")),
-                    OptionValueEffect::DenyAction(ProgramAction::MknodSpecial),
+                    OptionValueEffect::DenyAction(DeniableAction::MknodSpecial),
                     OptionValueEffect::DenyExec(PathDescription::base("/dev")),
-                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                    OptionValueEffect::DenyAction(DeniableAction::MountToHost),
                 ])),
             }],
             updater: None,
@@ -227,7 +229,7 @@ impl OptionSpec for PrivateMounts {
             possible_values: vec![OptionValueDescription {
                 value: OptionValue::Boolean(true),
                 desc: OptionEffect::Simple(OptionValueEffect::DenyAction(
-                    ProgramAction::MountToHost,
+                    DeniableAction::MountToHost,
                 )),
             }],
             updater: None,
@@ -282,7 +284,7 @@ impl OptionSpec for ProtectKernelTunables {
                         iter::once(OptionValueEffect::DenyWrite(PathDescription::base("/sys"))),
                     )
                     .chain(iter::once(OptionValueEffect::DenyAction(
-                        ProgramAction::MountToHost,
+                        DeniableAction::MountToHost,
                     )))
                     .collect(),
                 )),
@@ -310,7 +312,7 @@ impl OptionSpec for ProtectKernelModules {
                     OptionValueEffect::RemovePath(PathDescription::base("/lib/modules/")),
                     OptionValueEffect::RemovePath(PathDescription::base("/usr/lib/modules/")),
                     OptionValueEffect::DenySyscalls(DenySyscalls::Class("module")),
-                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                    OptionValueEffect::DenyAction(DeniableAction::MountToHost),
                 ])),
             }],
             updater: None,
@@ -337,7 +339,7 @@ impl OptionSpec for ProtectKernelLogs {
                     OptionValueEffect::RemovePath(PathDescription::base("/dev/kmsg")),
                     OptionValueEffect::DenySyscalls(DenySyscalls::Single("syslog")),
                     // TODO figure out about this one, systemd doc says it doesn't but tests seem to say otherwise?
-                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                    OptionValueEffect::DenyAction(DeniableAction::MountToHost),
                 ])),
             }],
             updater: None,
@@ -361,7 +363,7 @@ impl OptionSpec for ProtectControlGroups {
                 value: OptionValue::Boolean(true),
                 desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
                     OptionValueEffect::DenyWrite(PathDescription::base("/sys/fs/cgroup/")),
-                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                    OptionValueEffect::DenyAction(DeniableAction::MountToHost),
                 ])),
             }],
             updater: None,
@@ -391,7 +393,7 @@ impl OptionSpec for ProtectProc {
                 value: OptionValue::String("ptraceable".to_owned()),
                 desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
                     OptionValueEffect::RemovePath(PathDescription::pattern("^/proc/[0-9]+(/|$)")),
-                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                    OptionValueEffect::DenyAction(DeniableAction::MountToHost),
                 ])),
             }],
             updater: None,
@@ -418,7 +420,7 @@ impl OptionSpec for ProcSubset {
                     OptionValueEffect::RemovePath(PathDescription::pattern(
                         "^/proc/[^/]*[^0-9/]+[^/]*",
                     )),
-                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                    OptionValueEffect::DenyAction(DeniableAction::MountToHost),
                 ])),
             }],
             updater: None,
@@ -457,7 +459,7 @@ impl OptionSpec for RestrictRealtime {
             possible_values: vec![OptionValueDescription {
                 value: OptionValue::Boolean(true),
                 desc: OptionEffect::Simple(OptionValueEffect::DenyAction(
-                    ProgramAction::SetRealtimeScheduler,
+                    DeniableAction::SetRealtimeScheduler,
                 )),
             }],
             updater: None,
@@ -484,7 +486,7 @@ impl OptionSpec for ProtectClock {
                     OptionValueEffect::DenySyscalls(DenySyscalls::Single("stime")),
                     OptionValueEffect::DenySyscalls(DenySyscalls::Class("clock")),
                     // See handling of CAP_WAKE_ALARM
-                    OptionValueEffect::DenyAction(ProgramAction::SetAlarm),
+                    OptionValueEffect::DenyAction(DeniableAction::SetAlarm),
                 ])),
             }],
             updater: None,
@@ -503,7 +505,7 @@ impl OptionSpec for MemoryDenyWriteExecute {
             possible_values: vec![OptionValueDescription {
                 value: OptionValue::Boolean(true),
                 desc: OptionEffect::Simple(OptionValueEffect::DenyAction(
-                    ProgramAction::WriteExecuteMemoryMapping,
+                    DeniableAction::WriteExecuteMemoryMapping,
                 )),
             }],
             updater: None,
@@ -558,7 +560,7 @@ impl OptionSpec for ReadOnlyPaths {
                 }),
                 desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
                     OptionValueEffect::DenyWrite(PathDescription::base("/")),
-                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                    OptionValueEffect::DenyAction(DeniableAction::MountToHost),
                 ])),
             }],
             updater: Some(self),
@@ -628,7 +630,7 @@ impl OptionUpdater for ReadOnlyPaths {
                     },
                 ]
             }
-            OptionValueEffect::DenyAction(ProgramAction::MountToHost) => {
+            OptionValueEffect::DenyAction(DeniableAction::MountToHost) => {
                 vec![OptionWithValue {
                     name: "PrivateMounts",
                     value: OptionValue::Boolean(true),
@@ -665,7 +667,7 @@ impl OptionSpec for InaccessiblePaths {
             }),
             desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
                 OptionValueEffect::RemovePath(PathDescription::base("/")),
-                OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                OptionValueEffect::DenyAction(DeniableAction::MountToHost),
             ])),
         }];
         // To avoid InaccessiblePaths being completely disabled simply because of the equivalent of 'ls /',
@@ -706,7 +708,7 @@ impl OptionSpec for InaccessiblePaths {
                             .map(|p| {
                                 OptionValueEffect::Multiple(vec![
                                     OptionValueEffect::RemovePath(PathDescription::base(p)),
-                                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                                    OptionValueEffect::DenyAction(DeniableAction::MountToHost),
                                 ])
                             })
                             .collect(),
@@ -884,7 +886,7 @@ impl OptionUpdater for InaccessiblePaths {
                 }
                 new_opts
             }
-            OptionValueEffect::DenyAction(ProgramAction::MountToHost) => {
+            OptionValueEffect::DenyAction(DeniableAction::MountToHost) => {
                 vec![OptionWithValue {
                     name: "PrivateMounts",
                     value: OptionValue::Boolean(true),
@@ -944,7 +946,7 @@ impl OptionSpec for NoExecPaths {
                 }),
                 desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
                     OptionValueEffect::DenyExec(PathDescription::base("/")),
-                    OptionValueEffect::DenyAction(ProgramAction::MountToHost),
+                    OptionValueEffect::DenyAction(DeniableAction::MountToHost),
                 ])),
             }],
             updater: Some(self),
@@ -1012,7 +1014,7 @@ impl OptionUpdater for NoExecPaths {
                     },
                 ]
             }
-            OptionValueEffect::DenyAction(ProgramAction::MountToHost) => {
+            OptionValueEffect::DenyAction(DeniableAction::MountToHost) => {
                 vec![OptionWithValue {
                     name: "PrivateMounts",
                     value: OptionValue::Boolean(true),
@@ -1048,7 +1050,7 @@ impl OptionSpec for RestrictAddressFamilies {
                     ADDRESS_FAMILIES
                         .iter()
                         .map(|af| {
-                            OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(
+                            OptionValueEffect::DenyAction(DeniableAction::NetworkActivity(
                                 NetworkActivity {
                                     #[expect(clippy::unwrap_used)]
                                     af: SetSpecifier::One(af.parse().unwrap()),
@@ -1085,7 +1087,7 @@ impl OptionSpec for PrivateNetwork {
             possible_values: vec![OptionValueDescription {
                 value: OptionValue::Boolean(true),
                 desc: OptionEffect::Simple(OptionValueEffect::DenyAction(
-                    ProgramAction::NetworkActivity(
+                    DeniableAction::NetworkActivity(
                         NetworkActivity {
                             af: SetSpecifier::All,
                             proto: SetSpecifier::All,
@@ -1131,7 +1133,7 @@ impl OptionSpec for SocketBindDeny {
                     deny_binds
                         .into_iter()
                         .map(|(af, proto)| {
-                            OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(
+                            OptionValueEffect::DenyAction(DeniableAction::NetworkActivity(
                                 NetworkActivity {
                                     af: SetSpecifier::One(af),
                                     proto: SetSpecifier::One(proto),
@@ -1157,7 +1159,7 @@ impl OptionUpdater for SocketBindDeny {
         action: &ProgramAction,
         _opts: &HardeningOptions,
     ) -> Option<OptionValueEffect> {
-        let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(effect_na)) = cur_effect
+        let OptionValueEffect::DenyAction(DeniableAction::NetworkActivity(effect_na)) = cur_effect
         else {
             return None;
         };
@@ -1173,7 +1175,7 @@ impl OptionUpdater for SocketBindDeny {
         let mut new_eff_local_port = effect_na.local_port.clone();
         new_eff_local_port.remove(local_port);
         Some(OptionValueEffect::DenyAction(
-            ProgramAction::NetworkActivity(
+            DeniableAction::NetworkActivity(
                 NetworkActivity {
                     af: effect_na.af.clone(),
                     proto: effect_na.proto.clone(),
@@ -1187,22 +1189,24 @@ impl OptionUpdater for SocketBindDeny {
     }
 
     fn options(&self, new_effect: &OptionValueEffect) -> Vec<OptionWithValue<&'static str>> {
-        let (af, proto, local_port) =
-            if let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(na)) = new_effect {
-                if let NetworkActivity {
-                    af: SetSpecifier::One(af),
-                    proto: SetSpecifier::One(proto),
-                    local_port,
-                    ..
-                } = na.as_ref()
-                {
-                    (af, proto, local_port)
-                } else {
-                    unreachable!()
-                }
+        let (af, proto, local_port) = if let OptionValueEffect::DenyAction(
+            DeniableAction::NetworkActivity(na),
+        ) = new_effect
+        {
+            if let NetworkActivity {
+                af: SetSpecifier::One(af),
+                proto: SetSpecifier::One(proto),
+                local_port,
+                ..
+            } = na.as_ref()
+            {
+                (af, proto, local_port)
             } else {
-                unreachable!();
-            };
+                unreachable!()
+            }
+        } else {
+            unreachable!();
+        };
         let port_exceptions = local_port.excluded_elements();
         let mut opts = Vec::with_capacity(1 + port_exceptions.len());
         opts.push(OptionWithValue {
@@ -1240,7 +1244,7 @@ impl OptionSpec for IpAddressDeny {
             possible_values: vec![OptionValueDescription {
                 value: OptionValue::String("any".into()),
                 desc: OptionEffect::Simple(OptionValueEffect::DenyAction(
-                    ProgramAction::NetworkActivity(
+                    DeniableAction::NetworkActivity(
                         NetworkActivity {
                             af: SetSpecifier::Some(vec![SocketFamily::Ipv4, SocketFamily::Ipv6]),
                             proto: SetSpecifier::All,
@@ -1264,7 +1268,7 @@ impl OptionUpdater for IpAddressDeny {
         action: &ProgramAction,
         _opts: &HardeningOptions,
     ) -> Option<OptionValueEffect> {
-        let OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(effect_na)) = cur_effect
+        let OptionValueEffect::DenyAction(DeniableAction::NetworkActivity(effect_na)) = cur_effect
         else {
             return None;
         };
@@ -1284,7 +1288,7 @@ impl OptionUpdater for IpAddressDeny {
         let mut new_effect_address = effect_na.address.clone();
         new_effect_address.remove(action_addr);
         Some(OptionValueEffect::DenyAction(
-            ProgramAction::NetworkActivity(
+            DeniableAction::NetworkActivity(
                 NetworkActivity {
                     address: new_effect_address,
                     ..*effect_na.to_owned()
@@ -1296,7 +1300,7 @@ impl OptionUpdater for IpAddressDeny {
 
     fn options(&self, new_effect: &OptionValueEffect) -> Vec<OptionWithValue<&'static str>> {
         match new_effect {
-            OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(na)) => {
+            OptionValueEffect::DenyAction(DeniableAction::NetworkActivity(na)) => {
                 let NetworkActivity { address, .. } = na.as_ref();
                 vec![
                     OptionWithValue {
@@ -1348,7 +1352,7 @@ impl OptionSpec for CapabilityBoundingSet {
                 "CAP_BLOCK_SUSPEND",
                 OptionValueEffect::Multiple(vec![
                     OptionValueEffect::DenyWrite(PathDescription::base("/proc/sys/wake_lock")),
-                    OptionValueEffect::DenyAction(ProgramAction::Wakeup),
+                    OptionValueEffect::DenyAction(DeniableAction::Wakeup),
                 ]),
             ),
             (
@@ -1368,15 +1372,15 @@ impl OptionSpec for CapabilityBoundingSet {
                 "CAP_IPC_LOCK",
                 OptionValueEffect::Multiple(vec![
                     OptionValueEffect::DenySyscalls(DenySyscalls::Class("memlock")),
-                    OptionValueEffect::DenyAction(ProgramAction::LockMemoryMapping),
-                    OptionValueEffect::DenyAction(ProgramAction::HugePageMemoryMapping),
+                    OptionValueEffect::DenyAction(DeniableAction::LockMemoryMapping),
+                    OptionValueEffect::DenyAction(DeniableAction::HugePageMemoryMapping),
                 ]),
             ),
             // CAP_IPC_OWNER: too complex?
             (
                 "CAP_KILL",
                 OptionValueEffect::Multiple(vec![
-                    OptionValueEffect::DenyAction(ProgramAction::KillOther),
+                    OptionValueEffect::DenyAction(DeniableAction::KillOther),
                     OptionValueEffect::DenySyscalls(DenySyscalls::Single("ioctl")),
                 ]),
             ),
@@ -1386,7 +1390,7 @@ impl OptionSpec for CapabilityBoundingSet {
             // CAP_MAC_OVERRIDE: too complex?
             (
                 "CAP_MKNOD",
-                OptionValueEffect::DenyAction(ProgramAction::MknodSpecial),
+                OptionValueEffect::DenyAction(DeniableAction::MknodSpecial),
             ),
             // CAP_NET_ADMIN: too complex?
             // CAP_NET_BIND_SERVICE would be too complex/unreliable to handle:
@@ -1397,7 +1401,7 @@ impl OptionSpec for CapabilityBoundingSet {
                 "CAP_NET_RAW",
                 OptionValueEffect::Multiple(
                     iter::once(OptionValueEffect::DenyAction(
-                        ProgramAction::NetworkActivity(
+                        DeniableAction::NetworkActivity(
                             NetworkActivity {
                                 af: SetSpecifier::One(SocketFamily::Other("AF_PACKET".into())),
                                 proto: SetSpecifier::All,
@@ -1414,7 +1418,7 @@ impl OptionSpec for CapabilityBoundingSet {
                             // AF_NETLINK sockets use SOCK_RAW, but does not require CAP_NET_RAW
                             .filter(|af| **af != "AF_NETLINK")
                             .map(|af| {
-                                OptionValueEffect::DenyAction(ProgramAction::NetworkActivity(
+                                OptionValueEffect::DenyAction(DeniableAction::NetworkActivity(
                                     NetworkActivity {
                                         #[expect(clippy::unwrap_used)]
                                         af: SetSpecifier::One(af.parse().unwrap()),
@@ -1499,12 +1503,12 @@ impl OptionSpec for CapabilityBoundingSet {
                 "CAP_SYSLOG",
                 OptionValueEffect::Multiple(vec![
                     OptionValueEffect::DenySyscalls(DenySyscalls::Single("syslog")),
-                    OptionValueEffect::DenyAction(ProgramAction::Read("/dev/kmsg".into())),
+                    OptionValueEffect::DenyAction(DeniableAction::Read("/dev/kmsg".into())),
                 ]),
             ),
             (
                 "CAP_WAKE_ALARM",
-                OptionValueEffect::DenyAction(ProgramAction::SetAlarm),
+                OptionValueEffect::DenyAction(DeniableAction::SetAlarm),
             ),
         ];
         OptionDescription {

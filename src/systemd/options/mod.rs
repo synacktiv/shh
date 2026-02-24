@@ -13,7 +13,7 @@ use std::{
 
 use crate::{
     cl::HardeningOptions,
-    summarize::ProgramAction,
+    summarize::{NetworkActivity, ProgramAction},
     sysctl,
     systemd::{self, KernelVersion, SystemdVersion, options::specs::OPTION_SPECS},
 };
@@ -251,10 +251,59 @@ impl EmptyPathDescription {
     }
 }
 
+/// A program action that can be directly denied by a systemd option.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum DeniableAction {
+    HugePageMemoryMapping,
+    KillOther,
+    LockMemoryMapping,
+    MknodSpecial,
+    MountToHost,
+    NetworkActivity(Box<NetworkActivity>),
+    Read(PathBuf),
+    SetAlarm,
+    SetRealtimeScheduler,
+    Wakeup,
+    WriteExecuteMemoryMapping,
+}
+
+impl DeniableAction {
+    /// Returns true if this denied action would block the given program action
+    pub(crate) fn denies(&self, action: &ProgramAction) -> bool {
+        match self {
+            Self::NetworkActivity(denied) => {
+                if let ProgramAction::NetworkActivity(action_na) = action {
+                    denied.af.intersects(&action_na.af)
+                        && denied.proto.intersects(&action_na.proto)
+                        && denied.kind.intersects(&action_na.kind)
+                        && denied.local_port.intersects(&action_na.local_port)
+                        && denied.address.intersects(&action_na.address)
+                } else {
+                    false
+                }
+            }
+            Self::HugePageMemoryMapping => {
+                matches!(action, ProgramAction::HugePageMemoryMapping)
+            }
+            Self::KillOther => matches!(action, ProgramAction::KillOther),
+            Self::LockMemoryMapping => matches!(action, ProgramAction::LockMemoryMapping),
+            Self::MknodSpecial => matches!(action, ProgramAction::MknodSpecial),
+            Self::MountToHost => matches!(action, ProgramAction::MountToHost),
+            Self::Read(path) => matches!(action, ProgramAction::Read(p) if p == path),
+            Self::SetAlarm => matches!(action, ProgramAction::SetAlarm),
+            Self::SetRealtimeScheduler => matches!(action, ProgramAction::SetRealtimeScheduler),
+            Self::Wakeup => matches!(action, ProgramAction::Wakeup),
+            Self::WriteExecuteMemoryMapping => {
+                matches!(action, ProgramAction::WriteExecuteMemoryMapping)
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) enum OptionValueEffect {
     /// Deny an action
-    DenyAction(ProgramAction),
+    DenyAction(DeniableAction),
     /// Mount path as noexec
     DenyExec(PathDescription),
     /// Deny syscall(s)

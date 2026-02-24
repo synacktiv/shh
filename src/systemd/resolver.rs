@@ -17,6 +17,62 @@ use crate::{
 };
 
 impl OptionValueEffect {
+    /// Check if a single (non-`Multiple`) effect is compatible with an action
+    fn is_compatible_with(&self, action: &ProgramAction, prev_actions: &[ProgramAction]) -> bool {
+        match self {
+            OptionValueEffect::DenyAction(denied) => !denied.denies(action),
+            OptionValueEffect::DenyWrite(ro_paths) => match action {
+                ProgramAction::Write(path_action) | ProgramAction::Create(path_action) => {
+                    !ro_paths.matches(path_action)
+                }
+                _ => true,
+            },
+            OptionValueEffect::DenyExec(noexec_paths) => match action {
+                ProgramAction::Exec(path_action) => !noexec_paths.matches(path_action),
+                _ => true,
+            },
+            OptionValueEffect::EmptyPath(empty_paths) => match action {
+                ProgramAction::Read(path_action) | ProgramAction::Exec(path_action) => {
+                    !empty_paths.matches(path_action, true)
+                        || prev_actions.contains(&ProgramAction::Create(path_action.clone()))
+                }
+                ProgramAction::Write(path_action) => {
+                    !empty_paths.matches(path_action, false)
+                        || prev_actions.contains(&ProgramAction::Create(path_action.clone()))
+                }
+                ProgramAction::Create(path_action) => {
+                    !empty_paths.matches(path_action, false)
+                        || (!empty_paths.base_ro
+                            && path_action.parent().is_some_and(|pap| {
+                                (pap == empty_paths.base)
+                                    || prev_actions
+                                        .contains(&ProgramAction::Create(pap.to_path_buf()))
+                            }))
+                }
+                _ => true,
+            },
+            OptionValueEffect::RemovePath(removed_paths) => match action {
+                ProgramAction::Read(path_action)
+                | ProgramAction::Write(path_action)
+                | ProgramAction::Exec(path_action)
+                | ProgramAction::Create(path_action) => !removed_paths.matches(path_action),
+                _ => true,
+            },
+            OptionValueEffect::DenySyscalls(denied) => {
+                if let ProgramAction::Syscalls(syscalls) = action {
+                    let denied_syscalls = denied.syscalls();
+                    let syscalls = syscalls.iter().map(String::as_str).collect();
+                    denied_syscalls.intersection(&syscalls).next().is_none()
+                } else {
+                    true
+                }
+            }
+            OptionValueEffect::Multiple(_) => {
+                unreachable!()
+            }
+        }
+    }
+
     fn compatible(
         &self,
         action: &ProgramAction,
@@ -24,147 +80,43 @@ impl OptionValueEffect {
         updater: Option<&dyn OptionUpdater>,
         hardening_opts: &HardeningOptions,
     ) -> ActionOptionEffectCompatibility {
-        let compatible: Vec<bool> = match self {
-            OptionValueEffect::DenyAction(denied) => match denied {
-                ProgramAction::NetworkActivity(denied) => {
-                    if let ProgramAction::NetworkActivity(action_na) = action {
-                        let af_match = denied.af.intersects(&action_na.af);
-                        let proto_match = denied.proto.intersects(&action_na.proto);
-                        let kind_match = denied.kind.intersects(&action_na.kind);
-                        let local_port_match = denied.local_port.intersects(&action_na.local_port);
-                        let addr_match = denied.address.intersects(&action_na.address);
-                        vec![
-                            !af_match
-                                || !proto_match
-                                || !kind_match
-                                || !local_port_match
-                                || !addr_match,
-                        ]
-                    } else {
-                        vec![true]
-                    }
-                }
-                ProgramAction::Read(_)
-                | ProgramAction::WriteExecuteMemoryMapping
-                | ProgramAction::SetRealtimeScheduler
-                | ProgramAction::Wakeup
-                | ProgramAction::MknodSpecial
-                | ProgramAction::SetAlarm
-                | ProgramAction::MountToHost
-                | ProgramAction::KillOther
-                | ProgramAction::HugePageMemoryMapping
-                | ProgramAction::LockMemoryMapping => vec![action != denied],
-                ProgramAction::Syscalls(_)
-                | ProgramAction::Write(_)
-                | ProgramAction::Create(_)
-                | ProgramAction::Exec(_) => {
-                    // Handled via different effects, see below
-                    unreachable!()
-                }
-            },
-            OptionValueEffect::DenyWrite(ro_paths) => match action {
-                ProgramAction::Write(path_action) | ProgramAction::Create(path_action) => {
-                    vec![!ro_paths.matches(path_action)]
-                }
-                _ => vec![true],
-            },
-            OptionValueEffect::DenyExec(noexec_paths) => match action {
-                ProgramAction::Exec(path_action) => vec![!noexec_paths.matches(path_action)],
-                _ => vec![true],
-            },
-            OptionValueEffect::EmptyPath(empty_paths) => match action {
-                ProgramAction::Read(path_action) | ProgramAction::Exec(path_action) => {
-                    vec![
-                        !empty_paths.matches(path_action, true)
-                            || prev_actions.contains(&ProgramAction::Create(path_action.clone())),
-                    ]
-                }
-                ProgramAction::Write(path_action) => {
-                    vec![
-                        !empty_paths.matches(path_action, false)
-                            || prev_actions.contains(&ProgramAction::Create(path_action.clone())),
-                    ]
-                }
-                ProgramAction::Create(path_action) => {
-                    vec![
-                        !empty_paths.matches(path_action, false)
-                            || (!empty_paths.base_ro
-                                && path_action.parent().is_some_and(|pap| {
-                                    (pap == empty_paths.base)
-                                        || prev_actions
-                                            .contains(&ProgramAction::Create(pap.to_path_buf()))
-                                })),
-                    ]
-                }
-                _ => vec![true],
-            },
-            OptionValueEffect::RemovePath(removed_paths) => match action {
-                ProgramAction::Read(path_action)
-                | ProgramAction::Write(path_action)
-                | ProgramAction::Exec(path_action)
-                | ProgramAction::Create(path_action) => vec![!removed_paths.matches(path_action)],
-                _ => vec![true],
-            },
-            OptionValueEffect::DenySyscalls(denied) => {
-                if let ProgramAction::Syscalls(syscalls) = action {
-                    let denied_syscalls = denied.syscalls();
-                    let syscalls = syscalls.iter().map(String::as_str).collect();
-                    vec![denied_syscalls.intersection(&syscalls).next().is_none()]
-                } else {
-                    vec![true]
-                }
-            }
-            OptionValueEffect::Multiple(effects) => effects
-                .iter()
-                .map(
-                    |e| match e.compatible(action, prev_actions, None, hardening_opts) {
-                        ActionOptionEffectCompatibility::Compatible => true,
-                        ActionOptionEffectCompatibility::CompatibleIfChanged(_) => unimplemented!(),
-                        ActionOptionEffectCompatibility::Incompatible => false,
-                    },
-                )
-                .collect(),
-        };
-        if compatible.iter().all(|c| *c) {
-            ActionOptionEffectCompatibility::Compatible
-        } else if let Some(updater) = updater {
-            let mut changed_opt_desc = None;
-            for (subeff, subeff_compatible) in self.iter().zip(compatible) {
-                if subeff_compatible {
-                    let newopt_desc = ChangedOptionValueDescription {
-                        new_options: updater.options(subeff),
-                        effect: subeff.to_owned(),
-                    };
-                    changed_opt_desc = Some(changed_opt_desc.map_or_else(
-                        || newopt_desc.clone(),
-                        |mut prev: ChangedOptionValueDescription| {
-                            prev.merge(&newopt_desc);
-                            prev
-                        },
-                    ));
-                } else if let Some(new_subeff) = updater.effect(subeff, action, hardening_opts) {
-                    let newopt_desc = ChangedOptionValueDescription {
-                        new_options: updater.options(&new_subeff),
-                        effect: new_subeff,
-                    };
-                    changed_opt_desc = Some(changed_opt_desc.map_or_else(
-                        || newopt_desc.clone(),
-                        |mut prev: ChangedOptionValueDescription| {
-                            prev.merge(&newopt_desc);
-                            prev
-                        },
-                    ));
-                } else {
-                    changed_opt_desc = None;
-                    break;
-                }
-            }
-            changed_opt_desc.map_or(ActionOptionEffectCompatibility::Incompatible, |o| {
-                ActionOptionEffectCompatibility::CompatibleIfChanged(o.into())
-            })
-        } else {
-            ActionOptionEffectCompatibility::Incompatible
+        if self
+            .iter()
+            .all(|e| e.is_compatible_with(action, prev_actions))
+        {
+            return ActionOptionEffectCompatibility::Compatible;
         }
+
+        let Some(updater) = updater else {
+            return ActionOptionEffectCompatibility::Incompatible;
+        };
+
+        let mut changed_opt_desc = None;
+        for subeff in self.iter() {
+            let newopt_desc = if subeff.is_compatible_with(action, prev_actions) {
+                ChangedOptionValueDescription {
+                    new_options: updater.options(subeff),
+                    effect: subeff.to_owned(),
+                }
+            } else if let Some(new_subeff) = updater.effect(subeff, action, hardening_opts) {
+                ChangedOptionValueDescription {
+                    new_options: updater.options(&new_subeff),
+                    effect: new_subeff,
+                }
+            } else {
+                return ActionOptionEffectCompatibility::Incompatible;
+            };
+            changed_opt_desc = Some(changed_opt_desc.map_or_else(
+                || newopt_desc.clone(),
+                |mut prev: ChangedOptionValueDescription| {
+                    prev.merge(&newopt_desc);
+                    prev
+                },
+            ));
+        }
+        changed_opt_desc.map_or(ActionOptionEffectCompatibility::Incompatible, |o| {
+            ActionOptionEffectCompatibility::CompatibleIfChanged(o.into())
+        })
     }
 }
 
