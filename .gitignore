@@ -1,5 +1,7 @@
 *.snap.new
 /.aider.*
+/.claude
+/CLAUDE.md
 /target
 /test-env/target/*/
 /test-env/.vmtest-*
