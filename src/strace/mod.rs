@@ -6,6 +6,7 @@ mod parser;
 mod run;
 
 use nix::libc::pid_t;
+pub(crate) use parser::SyscallItem;
 pub(crate) use run::Strace;
 
 const STRACE_BIN: &str = if let Some(p) = option_env!("SHH_STRACE_BIN_PATH") {
@@ -28,6 +29,10 @@ pub(crate) struct Syscall {
 
 impl Syscall {
     pub(crate) fn is_successful_or_pending(&self) -> bool {
+        Self::is_successful_or_pending_ret_val(&self.ret_val)
+    }
+
+    pub(crate) fn is_successful_or_pending_ret_val(rv: &IntegerExpression) -> bool {
         // Strace `--successful-only` argument can make us miss interesting stuff,
         // so identify "successful" syscalls with our own logic
 
@@ -41,9 +46,8 @@ impl Syscall {
         const SUCCESSFUL_ERRNO_VALUES: [&str; 4] =
             ["EAGAIN", "EEXIST", "EINPROGRESS", "EWOULDBLOCK"];
 
-        self.ret_val.value().is_some_and(|v| v != -1)
-            || self
-                .ret_val
+        rv.value().is_some_and(|v| v != -1)
+            || rv
                 .metadata
                 .as_ref()
                 .and_then(|m| str::from_utf8(m).ok())

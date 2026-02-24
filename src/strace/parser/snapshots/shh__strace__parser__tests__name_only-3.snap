@@ -1,30 +1,30 @@
 ---
 source: src/strace/parser/mod.rs
-expression: "parse_line(\"215947      0.000022 read(3, \\\"\\\\x12\\\\xef\\\"..., 832) = 832\",\n&HashSet::from([\"read\"]),).unwrap()"
+expression: result
 ---
 Parsed(Syscall(Syscall(
-  pid: 215947,
+  pid: 641342,
   rel_ts: 0.000022,
-  name: "read",
+  name: "openat",
   args: [
     Integer(IntegerExpression(
-      value: Literal(3),
+      value: NamedSymbol("AT_FDCWD"),
       metadata: None,
     )),
     Buffer(BufferExpression(
       value: [
-        18,
-        239,
+        47,
+        97,
       ],
       type_: Unknown,
     )),
     Integer(IntegerExpression(
-      value: Literal(832),
+      value: NamedSymbol("O_RDONLY"),
       metadata: None,
     )),
   ],
   ret_val: IntegerExpression(
-    value: Literal(832),
+    value: Literal(3),
     metadata: None,
   ),
 )))

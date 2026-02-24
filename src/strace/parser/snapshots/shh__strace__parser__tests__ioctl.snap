@@ -1,8 +1,8 @@
 ---
 source: src/strace/parser/mod.rs
-expression: "parse_line(\"34274      0.000058 ioctl(1<\\\\x2f\\\\x64\\\\x65\\\\x76\\\\x2f\\\\x70\\\\x74\\\\x73\\\\x2f\\\\x30>, TCSETSW, {c_iflag=ICRNL|IXON|IUTF8, c_oflag=NL0|CR0|TAB0|BS0|VT0|FF0|OPOST|ONLCR, c_cflag=B38400|CS8|CREAD, c_lflag=ISIG|ICANON|ECHO|ECHOE|ECHOK|IEXTEN|ECHOCTL|ECHOKE, c_line=N_TTY, c_cc=[[VINTR]=0x3, [VQUIT]=0x1c, [VERASE]=0x7f, [VKILL]=0x15, [VEOF]=0x4, [VTIME]=0, [VMIN]=0x1, [VSWTC]=0, [VSTART]=0x11, [VSTOP]=0x13, [VSUSP]=0x1a, [VEOL]=0, [VREPRINT]=0x12, [VDISCARD]=0xf, [VWERASE]=0x17, [VLNEXT]=0x16, [VEOL2]=0, [17]=0, [18]=0]}) = 0\",).unwrap()"
+expression: "parse_line(\"34274      0.000058 ioctl(1<\\\\x2f\\\\x64\\\\x65\\\\x76\\\\x2f\\\\x70\\\\x74\\\\x73\\\\x2f\\\\x30>, TCSETSW, {c_iflag=ICRNL|IXON|IUTF8, c_oflag=NL0|CR0|TAB0|BS0|VT0|FF0|OPOST|ONLCR, c_cflag=B38400|CS8|CREAD, c_lflag=ISIG|ICANON|ECHO|ECHOE|ECHOK|IEXTEN|ECHOCTL|ECHOKE, c_line=N_TTY, c_cc=[[VINTR]=0x3, [VQUIT]=0x1c, [VERASE]=0x7f, [VKILL]=0x15, [VEOF]=0x4, [VTIME]=0, [VMIN]=0x1, [VSWTC]=0, [VSTART]=0x11, [VSTOP]=0x13, [VSUSP]=0x1a, [VEOL]=0, [VREPRINT]=0x12, [VDISCARD]=0xf, [VWERASE]=0x17, [VLNEXT]=0x16, [VEOL2]=0, [17]=0, [18]=0]}) = 0\",\n&HashSet::from([\"ioctl\"]),).unwrap()"
 ---
-Syscall(Syscall(
+Parsed(Syscall(Syscall(
   pid: 34274,
   rel_ts: 0.000058,
   name: "ioctl",
@@ -217,4 +217,4 @@ Syscall(Syscall(
     value: Literal(0),
     metadata: None,
   ),
-))
+)))

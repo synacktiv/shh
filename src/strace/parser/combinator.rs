@@ -1,25 +1,25 @@
 //! Combinator based strace output parser
 
-use std::iter;
+use std::{collections::HashSet, iter};
 
 use nix::libc::pid_t;
 use nom::{
     IResult, Parser as _,
     branch::alt,
-    bytes::complete::{tag, take, take_until},
+    bytes::complete::{is_not, tag, take, take_until},
     character::complete::{
         self, alpha1, alphanumeric1, char, digit1, hex_digit1, oct_digit1, space1,
     },
-    combinator::{map, map_opt, map_res, opt, recognize, rest},
+    combinator::{map, map_opt, map_res, opt, recognize, rest, verify},
     multi::{count, many_till, many0_count, separated_list0, separated_list1},
     number::complete::double,
     sequence::{delimited, pair, preceded, separated_pair, terminated},
 };
 
-use super::ParseResult;
+use super::ParseLineResult;
 use crate::strace::{
     BufferExpression, BufferType, Expression, IntegerExpression, IntegerExpressionValue, Syscall,
-    parser::{SyscallEnd, SyscallStart},
+    parser::{ParsedSyscall, SyscallEnd, SyscallStart},
 };
 
 macro_rules! dbg_parser_entry {
@@ -34,9 +34,13 @@ macro_rules! dbg_parser_success {
     };
 }
 
-pub(crate) fn parse_line(line: &str) -> anyhow::Result<ParseResult> {
-    match parse_syscall_line(line).map(|s| s.1) {
-        Err(nom::Err::Incomplete(_) | nom::Err::Error(_)) => Ok(ParseResult::IgnoredLine),
+/// Parse a strace line
+pub(crate) fn parse_line(
+    line: &str,
+    names_complete: &HashSet<&str>,
+) -> anyhow::Result<ParseLineResult> {
+    match parse_syscall_line(line, names_complete).map(|s| s.1) {
+        Err(nom::Err::Incomplete(_) | nom::Err::Error(_)) => Ok(ParseLineResult::Ignored),
         Err(nom::Err::Failure(e)) => Err(anyhow::anyhow!("{e}")),
         Ok(res) => Ok(res),
     }
@@ -45,52 +49,77 @@ pub(crate) fn parse_line(line: &str) -> anyhow::Result<ParseResult> {
 // Main line token parsers
 
 #[function_name::named]
-fn parse_syscall_line(i: &str) -> IResult<&str, ParseResult> {
-    dbg_parser_entry!(i);
+fn parse_syscall_line<'a>(
+    i: &'a str,
+    names_complete: &HashSet<&str>,
+) -> IResult<&'a str, ParseLineResult> {
+    // Parse common prefix (pid + timestamp)
+    let (i, (pid, rel_ts)) = (parse_pid, parse_rel_ts).parse(i)?;
+
     alt((
+        // Finished syscall
+        map(
+            (
+                delimited(tag("<... "), parse_name, (tag(" resumed> )"), space1)),
+                parse_ret_val,
+            ),
+            |(name, ret_val)| {
+                if names_complete.contains(name) {
+                    ParseLineResult::Parsed(ParsedSyscall::SyscallEnd(SyscallEnd {
+                        pid,
+                        rel_ts,
+                        name: name.into(),
+                        ret_val,
+                    }))
+                } else {
+                    ParseLineResult::Parsed(ParsedSyscall::NameOnly {
+                        name: name.into(),
+                        ret_val,
+                    })
+                }
+            },
+        ),
         // Complete syscall
         map(
             (
-                parse_pid,
-                parse_rel_ts,
-                parse_name,
+                verify(parse_name, |name: &str| names_complete.contains(name)),
                 parse_args_complete,
                 parse_ret_val,
             ),
-            |(pid, rel_ts, name, args, ret_val)| {
-                ParseResult::Syscall(Syscall {
+            |(name, args, ret_val)| {
+                ParseLineResult::Parsed(ParsedSyscall::Syscall(Syscall {
                     pid,
                     rel_ts,
                     name: name.into(),
                     args,
                     ret_val,
-                })
+                }))
             },
         ),
-        // Syscall start
+        // Unfinished syscall
         map(
-            (parse_pid, parse_rel_ts, parse_name, parse_args_incomplete),
-            |(pid, rel_ts, name, args)| {
-                ParseResult::SyscallStart(SyscallStart {
+            (
+                verify(parse_name, |name: &str| names_complete.contains(name)),
+                parse_args_incomplete,
+            ),
+            |(name, args)| {
+                ParseLineResult::Parsed(ParsedSyscall::SyscallStart(SyscallStart {
                     pid,
                     rel_ts,
                     name: name.into(),
                     args,
-                })
+                }))
             },
         ),
-        // Syscall end
+        // "name only" syscall
         map(
             (
-                parse_pid,
-                parse_rel_ts,
-                delimited(tag("<... "), parse_name, (tag(" resumed> )"), space1)),
+                verify(parse_name, |name: &str| !names_complete.contains(name)),
+                skip_args,
                 parse_ret_val,
             ),
-            |(pid, rel_ts, name, ret_val)| {
-                ParseResult::SyscallEnd(SyscallEnd {
-                    pid,
-                    rel_ts,
+            |(name, (), ret_val)| {
+                ParseLineResult::Parsed(ParsedSyscall::NameOnly {
                     name: name.into(),
                     ret_val,
                 })
@@ -121,6 +150,25 @@ fn parse_rel_ts(i: &str) -> IResult<&str, f64> {
 fn parse_name(i: &str) -> IResult<&str, &str> {
     dbg_parser_entry!(i);
     parse_symbol(i)
+}
+
+#[function_name::named]
+fn skip_balanced_parens(i: &str) -> IResult<&str, ()> {
+    delimited(
+        char('('),
+        many0_count(alt((map(is_not("()"), |_: &str| ()), skip_balanced_parens))),
+        char(')'),
+    )
+    .map(|_| ())
+    .parse(i)
+    .inspect(|r| dbg_parser_success!(r))
+}
+
+#[function_name::named]
+fn skip_args(i: &str) -> IResult<&str, ()> {
+    terminated(skip_balanced_parens, space1)
+        .parse(i)
+        .inspect(|r| dbg_parser_success!(r))
 }
 
 #[function_name::named]
@@ -796,6 +844,173 @@ mod tests {
                     ]
                 }
             )
+        );
+    }
+
+    #[test]
+    fn skip_args_empty() {
+        // getpid() = 641314
+        assert_eq!(skip_args("() ").unwrap(), ("", ()));
+    }
+
+    #[test]
+    fn skip_args_simple_flat() {
+        // mmap(NULL, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7f52a332e000
+        assert_eq!(
+            skip_args("(NULL, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) ")
+                .unwrap(),
+            ("", ())
+        );
+    }
+
+    #[test]
+    fn skip_args_struct_arg() {
+        // rt_sigaction(SIGTERM, {sa_handler=SIG_DFL, sa_mask=~[RTMIN RT_1], sa_flags=SA_RESTORER, sa_restorer=0x7f6da716c510}, NULL, 8) = 0
+        assert_eq!(
+            skip_args("(SIGTERM, {sa_handler=SIG_DFL, sa_mask=~[RTMIN RT_1], sa_flags=SA_RESTORER, sa_restorer=0x7f6da716c510}, NULL, 8) ").unwrap(),
+            ("", ())
+        );
+    }
+
+    #[test]
+    fn skip_args_nested_macro_calls() {
+        // bind(6<...>, {sa_family=AF_INET, sin_port=htons(8025), sin_addr=inet_addr("\x31\x32\x37\x2e\x30\x2e\x30\x2e\x31")}, 16) = 0
+        assert_eq!(
+            skip_args(r#"(6<...>, {sa_family=AF_INET, sin_port=htons(8025), sin_addr=inet_addr("\x31\x32\x37\x2e\x30\x2e\x30\x2e\x31")}, 16) "#).unwrap(),
+            ("", ())
+        );
+    }
+
+    #[test]
+    fn skip_args_makedev_nested() {
+        // fstat(3<path>, {st_dev=makedev(0, 0x1b), st_ino=1682452, ...}) = 0
+        assert_eq!(
+            skip_args("(3<path>, {st_dev=makedev(0, 0x1b), st_ino=1682452, ...}) ").unwrap(),
+            ("", ())
+        );
+    }
+
+    #[test]
+    fn skip_args_predicate_macros() {
+        // wait4(30247, [{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 30247
+        assert_eq!(
+            skip_args("(30247, [{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) ").unwrap(),
+            ("", ())
+        );
+    }
+
+    #[test]
+    fn skip_args_inet_pton_three_arg_macro() {
+        // connect(93, {inet_pton(AF_INET6, "\x12\x34", &sin6_addr), sin6_scope_id=0}, 28) = 0
+        assert_eq!(
+            skip_args(r#"(93, {sa_family=AF_INET6, sin6_port=htons(0), sin6_flowinfo=htonl(0), inet_pton(AF_INET6, "\x12\x34", &sin6_addr), sin6_scope_id=0}, 28) "#).unwrap(),
+            ("", ())
+        );
+    }
+
+    #[test]
+    fn skip_args_fd_deleted_annotation() {
+        // write(16<\x2f\x6d\x65\x6d\x66\x64\x3a...>(deleted), "\x20\x00"..., 856) = 856
+        // (deleted) is balanced parens inside the outer args
+        assert_eq!(
+            skip_args(r#"(16<\x2f\x6d\x65\x6d\x66\x64>(deleted), "\x20\x00"..., 856) "#).unwrap(),
+            ("", ())
+        );
+    }
+
+    #[test]
+    fn skip_args_clone3_in_out() {
+        // clone3({flags=CLONE_VM|..., stack=0x7f3b7b800000} => {parent_tid=[664773]}, 88) = 664773
+        assert_eq!(
+            skip_args("({flags=CLONE_VM|CLONE_FS, child_tid=0x748ef7218ce8, stack=0x748ef6a18000, stack_size=0x7ff6c0} => {parent_tid=[311668]}, 88) ").unwrap(),
+            ("", ())
+        );
+    }
+
+    #[test]
+    fn skip_args_four_level_nesting() {
+        // sendmsg with msg_control=[{cmsg_data={pid=311662, uid=1000, gid=1000}}]
+        assert_eq!(
+            skip_args("(8<...>, {msg_name=NULL, msg_iov=[{iov_base=\"\\x00\", iov_len=1}], msg_iovlen=1, msg_control=[{cmsg_len=28, cmsg_level=SOL_SOCKET, cmsg_type=SCM_CREDENTIALS, cmsg_data={pid=311662, uid=1000, gid=1000}}], msg_controllen=32, msg_flags=0}, MSG_NOSIGNAL) ").unwrap(),
+            ("", ())
+        );
+    }
+
+    #[test]
+    fn skip_args_epoll_pwait_array_of_structs() {
+        // epoll_pwait(4<...>, [{events=EPOLLOUT, data={u32=833093633, u64=9163493471957811201}}], 128, 0, NULL, 0) = 2
+        assert_eq!(
+            skip_args("(4<...>, [{events=EPOLLOUT, data={u32=833093633, u64=9163493471957811201}}, {events=EPOLLOUT, data={u32=800587777, u64=9163493471925305345}}], 128, 0, NULL, 0) ").unwrap(),
+            ("", ())
+        );
+    }
+
+    #[test]
+    fn skip_args_prlimit64_multiplication() {
+        // prlimit64(0, RLIMIT_NOFILE, {rlim_cur=512*1024, rlim_max=512*1024}, NULL) = 0
+        assert_eq!(
+            skip_args("(0, RLIMIT_NOFILE, {rlim_cur=512*1024, rlim_max=512*1024}, NULL) ").unwrap(),
+            ("", ())
+        );
+    }
+
+    #[test]
+    fn skip_args_leaves_remainder() {
+        // Verify skip_args leaves the return value as remainder
+        assert_eq!(skip_args("(NULL, 8192) = 0").unwrap(), ("= 0", ()));
+    }
+
+    #[test]
+    fn skip_args_no_trailing_space() {
+        // Missing trailing space after closing paren should fail
+        assert!(skip_args("()").is_err());
+    }
+
+    #[test]
+    fn skip_args_unbalanced_open() {
+        // Unbalanced parens should fail
+        assert!(skip_args("((abc) ").is_err());
+    }
+
+    #[test]
+    fn skip_args_no_open_paren() {
+        // No opening paren should fail
+        assert!(skip_args("abc) ").is_err());
+    }
+
+    #[test]
+    fn skip_args_sendto_netlink_mixed_array() {
+        // sendto with [{struct}, "raw bytes"] mixed array
+        assert_eq!(
+            skip_args(r#"(5<...>, [{nlmsg_len=40, nlmsg_type=0x14, nlmsg_flags=NLM_F_REQUEST|NLM_F_ACK|0x600, nlmsg_seq=0, nlmsg_pid=1}, "\x02\x08\x80\xfe"], 40, 0, {sa_family=AF_NETLINK, nl_pid=0, nl_groups=00000000}, 12) "#).unwrap(),
+            ("", ())
+        );
+    }
+
+    #[test]
+    fn skip_args_capset_bitshift() {
+        // capset({version=_LINUX_CAPABILITY_VERSION_3, pid=0}, {effective=1<<CAP_SYS_CHROOT, permitted=1<<CAP_SYS_CHROOT, inheritable=0}) = 0
+        assert_eq!(
+            skip_args("({version=_LINUX_CAPABILITY_VERSION_3, pid=0}, {effective=1<<CAP_SYS_CHROOT, permitted=1<<CAP_SYS_CHROOT, inheritable=0}) ").unwrap(),
+            ("", ())
+        );
+    }
+
+    #[test]
+    fn skip_args_ioctl_double_nested_brackets() {
+        // ioctl with c_cc=[[VINTR]=0x3, [VQUIT]=0x1c, ...]
+        assert_eq!(
+            skip_args("(2<path>, TCGETS2, {c_iflag=ICRNL|IXON|IUTF8, c_cc=[[VINTR]=0x3, [VQUIT]=0x1c, [VERASE]=0x7f], c_ispeed=38400, c_ospeed=38400}) ").unwrap(),
+            ("", ())
+        );
+    }
+
+    #[test]
+    fn skip_args_recvfrom_nested_error_struct() {
+        // recvfrom with nested nlmsg error containing msg={...}
+        assert_eq!(
+            skip_args("(5<...>, [{nlmsg_len=36, nlmsg_type=NLMSG_ERROR, nlmsg_flags=NLM_F_CAPPED}, {error=0, msg={nlmsg_len=40, nlmsg_type=0x14 /* NLMSG_??? */, nlmsg_flags=NLM_F_REQUEST|NLM_F_ACK|0x600}}], 1024, 0, NULL, NULL) ").unwrap(),
+            ("", ())
         );
     }
 }

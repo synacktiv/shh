@@ -1,8 +1,8 @@
 ---
 source: src/strace/parser/mod.rs
-expression: "parse_line(\"601646      0.000011 mmap(0x7f2fce8dc000, 1396736, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0x26000) = 0x7f2fce8dc000\",).unwrap()"
+expression: "parse_line(\"601646      0.000011 mmap(0x7f2fce8dc000, 1396736, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0x26000) = 0x7f2fce8dc000\",\n&HashSet::from([\"mmap\"]),).unwrap()"
 ---
-Syscall(Syscall(
+Parsed(Syscall(Syscall(
   pid: 601646,
   rel_ts: 0.000011,
   name: "mmap",
@@ -43,4 +43,4 @@ Syscall(Syscall(
     value: Literal(139843305586688),
     metadata: None,
   ),
-))
+)))

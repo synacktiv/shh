@@ -1,8 +1,8 @@
 ---
 source: src/strace/parser/mod.rs
-expression: "parse_line(\"30192      0.000010 wait4(30247, [{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 30247\",).unwrap()"
+expression: "parse_line(\"30192      0.000010 wait4(30247, [{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 30247\",\n&HashSet::from([\"wait4\"]),).unwrap()"
 ---
-Syscall(Syscall(
+Parsed(Syscall(Syscall(
   pid: 30192,
   rel_ts: 0.00001,
   name: "wait4",
@@ -50,4 +50,4 @@ Syscall(Syscall(
     value: Literal(30247),
     metadata: None,
   ),
-))
+)))

@@ -1,8 +1,8 @@
 ---
 source: src/strace/parser/mod.rs
-expression: "parse_line(\"246722      0.000003 close(39<\\\\x2f\\\\x6d\\\\x65\\\\x6d\\\\x66\\\\x64\\\\x3a\\\\x6d\\\\x6f\\\\x7a\\\\x69\\\\x6c\\\\x6c\\\\x61\\\\x2d\\\\x69\\\\x70\\\\x63>(deleted)) = 0\").unwrap()"
+expression: "parse_line(\"246722      0.000003 close(39<\\\\x2f\\\\x6d\\\\x65\\\\x6d\\\\x66\\\\x64\\\\x3a\\\\x6d\\\\x6f\\\\x7a\\\\x69\\\\x6c\\\\x6c\\\\x61\\\\x2d\\\\x69\\\\x70\\\\x63>(deleted)) = 0\",\n&HashSet::from([\"close\"]),).unwrap()"
 ---
-Syscall(Syscall(
+Parsed(Syscall(Syscall(
   pid: 246722,
   rel_ts: 0.000003,
   name: "close",
@@ -35,4 +35,4 @@ Syscall(Syscall(
     value: Literal(0),
     metadata: None,
   ),
-))
+)))

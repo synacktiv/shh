@@ -1,8 +1,8 @@
 ---
 source: src/strace/parser/mod.rs
-expression: "parse_line(\"440663      0.002174 rt_sigprocmask(SIG_SETMASK, [], ~[KILL STOP RTMIN RT_1], 8) = 0\").unwrap()"
+expression: "parse_line(\"440663      0.002174 rt_sigprocmask(SIG_SETMASK, [], ~[KILL STOP RTMIN RT_1], 8) = 0\",\n&HashSet::from([\"rt_sigprocmask\"]),).unwrap()"
 ---
-Syscall(Syscall(
+Parsed(Syscall(Syscall(
   pid: 440663,
   rel_ts: 0.002174,
   name: "rt_sigprocmask",
@@ -45,4 +45,4 @@ Syscall(Syscall(
     value: Literal(0),
     metadata: None,
   ),
-))
+)))

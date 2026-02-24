@@ -1,6 +1,7 @@
 //! Strace invocation code
 
 use std::{
+    collections::HashSet,
     env,
     fs::File,
     io::{self, BufReader},
@@ -93,9 +94,12 @@ impl Strace {
         let _ = nix::sys::signal::kill(pgid, nix::sys::signal::Signal::SIGKILL);
     }
 
-    pub(crate) fn log_lines(&self) -> anyhow::Result<LogParser> {
+    pub(crate) fn log_lines(
+        &self,
+        handled_syscalls: HashSet<&'static str>,
+    ) -> anyhow::Result<LogParser> {
         let reader = BufReader::new(File::open(self.pipe_path.path())?);
-        LogParser::new(Box::new(reader), self.log_path.as_deref())
+        LogParser::new(Box::new(reader), self.log_path.as_deref(), handled_syscalls)
     }
 }
 

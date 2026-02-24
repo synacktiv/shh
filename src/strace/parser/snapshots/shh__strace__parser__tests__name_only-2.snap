@@ -1,0 +1,20 @@
+---
+source: src/strace/parser/mod.rs
+expression: result
+---
+Parsed(NameOnly(
+  name: "select",
+  ret_val: IntegerExpression(
+    value: Literal(1),
+    metadata: Some([
+      40,
+      105,
+      110,
+      32,
+      91,
+      51,
+      93,
+      41,
+    ]),
+  ),
+))

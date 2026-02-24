@@ -1,0 +1,11 @@
+---
+source: src/strace/parser/mod.rs
+expression: result
+---
+Parsed(NameOnly(
+  name: "sched_yield",
+  ret_val: IntegerExpression(
+    value: Literal(0),
+    metadata: None,
+  ),
+))

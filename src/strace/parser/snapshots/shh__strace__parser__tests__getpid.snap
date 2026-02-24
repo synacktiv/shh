@@ -1,8 +1,8 @@
 ---
 source: src/strace/parser/mod.rs
-expression: "parse_line(\"641342      0.000022 getpid()           = 641314\").unwrap()"
+expression: "parse_line(\"641342      0.000022 getpid()           = 641314\",\n&HashSet::from([\"getpid\"])).unwrap()"
 ---
-Syscall(Syscall(
+Parsed(Syscall(Syscall(
   pid: 641342,
   rel_ts: 0.000022,
   name: "getpid",
@@ -11,4 +11,4 @@ Syscall(Syscall(
     value: Literal(641314),
     metadata: None,
   ),
-))
+)))

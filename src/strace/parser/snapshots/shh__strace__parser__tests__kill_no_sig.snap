@@ -1,8 +1,8 @@
 ---
 source: src/strace/parser/mod.rs
-expression: "parse_line(\"51667      0.000002 kill(51668, 0)      = 0\").unwrap()"
+expression: "parse_line(\"51667      0.000002 kill(51668, 0)      = 0\",\n&HashSet::from([\"kill\"])).unwrap()"
 ---
-Syscall(Syscall(
+Parsed(Syscall(Syscall(
   pid: 51667,
   rel_ts: 0.000002,
   name: "kill",
@@ -20,4 +20,4 @@ Syscall(Syscall(
     value: Literal(0),
     metadata: None,
   ),
-))
+)))

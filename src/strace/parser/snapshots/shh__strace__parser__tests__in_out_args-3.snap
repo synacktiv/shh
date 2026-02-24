@@ -1,8 +1,8 @@
 ---
 source: src/strace/parser/mod.rs
-expression: "parse_line(\"176051      0.000020 recvmsg(3, {msg_namelen=128 => 16, msg_controllen=56, msg_flags=0}, 0) = 64\").unwrap()"
+expression: "parse_line(\"176051      0.000020 recvmsg(3, {msg_namelen=128 => 16, msg_controllen=56, msg_flags=0}, 0) = 64\",\n&HashSet::from([\"recvmsg\"]),).unwrap()"
 ---
-Syscall(Syscall(
+Parsed(Syscall(Syscall(
   pid: 176051,
   rel_ts: 0.00002,
   name: "recvmsg",
@@ -34,4 +34,4 @@ Syscall(Syscall(
     value: Literal(64),
     metadata: None,
   ),
-))
+)))

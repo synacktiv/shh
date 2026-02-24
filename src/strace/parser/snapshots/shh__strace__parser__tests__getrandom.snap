@@ -1,8 +1,8 @@
 ---
 source: src/strace/parser/mod.rs
-expression: "parse_line(\"815537      0.000017 getrandom(\\\"\\\\x42\\\\x18\\\\x81\\\\x90\\\\x40\\\\x63\\\\x1a\\\\x2c\\\", 8, GRND_NONBLOCK) = 8\",).unwrap()"
+expression: "parse_line(\"815537      0.000017 getrandom(\\\"\\\\x42\\\\x18\\\\x81\\\\x90\\\\x40\\\\x63\\\\x1a\\\\x2c\\\", 8, GRND_NONBLOCK) = 8\",\n&HashSet::from([\"getrandom\"]),).unwrap()"
 ---
-Syscall(Syscall(
+Parsed(Syscall(Syscall(
   pid: 815537,
   rel_ts: 0.000017,
   name: "getrandom",
@@ -33,4 +33,4 @@ Syscall(Syscall(
     value: Literal(8),
     metadata: None,
   ),
-))
+)))

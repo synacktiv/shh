@@ -1,8 +1,8 @@
 ---
 source: src/strace/parser/mod.rs
-expression: "parse_line(r#\"39270      0.000020 connect(11<\\x73\\x6f\\x63\\x6b\\x65\\x74\\x3a\\x5b\\x32\\x31\\x34\\x31\\x30\\x37\\x5d>, {sa_family=AF_INET, sin_port=htons(4321), sin_addr=inet_addr(\"\\x31\\x2e\\x32\\x2e\\x33\\x2e\\x34\")}, 16) = -1 EINPROGRESS (Operation now in progress)\"#,).unwrap()"
+expression: "parse_line(r#\"39270      0.000020 connect(11<\\x73\\x6f\\x63\\x6b\\x65\\x74\\x3a\\x5b\\x32\\x31\\x34\\x31\\x30\\x37\\x5d>, {sa_family=AF_INET, sin_port=htons(4321), sin_addr=inet_addr(\"\\x31\\x2e\\x32\\x2e\\x33\\x2e\\x34\")}, 16) = -1 EINPROGRESS (Operation now in progress)\"#,\n&HashSet::from([\"connect\"]),).unwrap()"
 ---
-Syscall(Syscall(
+Parsed(Syscall(Syscall(
   pid: 39270,
   rel_ts: 0.00002,
   name: "connect",
@@ -114,4 +114,4 @@ Syscall(Syscall(
       41,
     ]),
   ),
-))
+)))

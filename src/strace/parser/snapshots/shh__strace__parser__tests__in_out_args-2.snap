@@ -1,8 +1,8 @@
 ---
 source: src/strace/parser/mod.rs
-expression: "parse_line(\"237494      0.000026 getpeername(3, {sa_family=AF_UNIX, sun_path=@\\\"\\\\x6e\\\\x6f\\\\x70\\\\x65\\\"}, [124 => 20]) = 0\",).unwrap()"
+expression: "parse_line(\"237494      0.000026 getpeername(3, {sa_family=AF_UNIX, sun_path=@\\\"\\\\x6e\\\\x6f\\\\x70\\\\x65\\\"}, [124 => 20]) = 0\",\n&HashSet::from([\"getpeername\"]),).unwrap()"
 ---
-Syscall(Syscall(
+Parsed(Syscall(Syscall(
   pid: 237494,
   rel_ts: 0.000026,
   name: "getpeername",
@@ -35,4 +35,4 @@ Syscall(Syscall(
     value: Literal(0),
     metadata: None,
   ),
-))
+)))

@@ -166,8 +166,9 @@ fn main() -> anyhow::Result<()> {
             );
 
             // Summarize actions
+            let handled = summarize::handled_syscall_names();
             let logs = st
-                .log_lines()
+                .log_lines(handled)
                 .context("Failed to setup strace output reader")?;
             let actions = summarize::summarize(logs, &env_paths, state)
                 .context("Failed to summarize syscalls")?;

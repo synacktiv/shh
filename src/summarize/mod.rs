@@ -14,7 +14,7 @@ use anyhow::Context as _;
 use nix::libc::pid_t;
 
 use crate::{
-    strace::{Syscall, SyscallName},
+    strace::{SyscallItem, SyscallName},
     systemd::{SocketFamily, SocketProtocol},
 };
 
@@ -440,29 +440,41 @@ impl ProgramState {
     }
 }
 
+/// Returns the set of syscall names that have handlers
+pub(crate) fn handled_syscall_names() -> HashSet<&'static str> {
+    SYSCALL_MAP.keys().copied().collect()
+}
+
 pub(crate) fn summarize<I>(
     syscalls: I,
     env_paths: &[PathBuf],
     mut program_state: ProgramState,
 ) -> anyhow::Result<Vec<ProgramAction>>
 where
-    I: IntoIterator<Item = anyhow::Result<Syscall>>,
+    I: IntoIterator<Item = anyhow::Result<SyscallItem>>,
 {
     let mut actions = Vec::new();
     let mut stats: HashMap<SyscallName, u64> = HashMap::new();
-    for syscall in syscalls {
-        let syscall = syscall?;
-        log::trace!("{syscall:?}");
-        stats
-            .entry(syscall.name.clone())
-            .and_modify(|c| *c += 1)
-            .or_insert(1);
-        let name = syscall.name.as_str();
+    for item in syscalls {
+        let item = item?;
+        match item {
+            SyscallItem::NameOnly(name) => {
+                stats.entry(name).and_modify(|c| *c += 1).or_insert(1);
+            }
+            SyscallItem::Complete(syscall) => {
+                log::trace!("{syscall:?}");
+                stats
+                    .entry(syscall.name.clone())
+                    .and_modify(|c| *c += 1)
+                    .or_insert(1);
+                let name = syscall.name.as_str();
 
-        if let Some(handler) = SYSCALL_MAP.get(name) {
-            handler
-                .handle(&syscall, &mut actions, &mut program_state)
-                .with_context(|| format!("Failed to summarize syscall {syscall:?}"))?;
+                if let Some(handler) = SYSCALL_MAP.get(name) {
+                    handler
+                        .handle(syscall.as_ref(), &mut actions, &mut program_state)
+                        .with_context(|| format!("Failed to summarize syscall {syscall:?}"))?;
+                }
+            }
         }
     }
 
@@ -509,7 +521,7 @@ mod tests {
 
         let temp_dir_src = tempfile::tempdir().unwrap();
         let temp_dir_dst = tempfile::tempdir().unwrap();
-        let syscalls = [Ok(Syscall {
+        let syscalls = [Ok(SyscallItem::Complete(Box::new(Syscall {
             pid: 1068781,
             rel_ts: 0.000083,
             name: "renameat".into(),
@@ -539,7 +551,7 @@ mod tests {
                 value: IntegerExpressionValue::Literal(0),
                 metadata: None,
             },
-        })];
+        })))];
         assert_eq!(
             summarize(syscalls, &env_paths, state).unwrap(),
             vec![
@@ -564,7 +576,7 @@ mod tests {
         ];
         let state = ProgramState::new("/");
 
-        let syscalls = [Ok(Syscall {
+        let syscalls = [Ok(SyscallItem::Complete(Box::new(Syscall {
             pid: 598056,
             rel_ts: 0.000036,
             name: "connect".into(),
@@ -598,7 +610,7 @@ mod tests {
                 value: IntegerExpressionValue::Literal(0),
                 metadata: None,
             },
-        })];
+        })))];
         assert_eq!(
             summarize(syscalls, &env_paths, state).unwrap(),
             vec![
@@ -616,7 +628,7 @@ mod tests {
 
         let state = ProgramState::new("/");
 
-        let syscalls = [Ok(Syscall {
+        let syscalls = [Ok(SyscallItem::Complete(Box::new(Syscall {
             pid: 498133,
             rel_ts: 7.5e-5,
             name: "fstat".into(),
@@ -756,7 +768,7 @@ mod tests {
                 value: IntegerExpressionValue::Literal(0),
                 metadata: None,
             },
-        })];
+        })))];
         assert_eq!(
             summarize(syscalls, &[], state).unwrap(),
             vec![ProgramAction::Syscalls(

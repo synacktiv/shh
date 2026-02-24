@@ -1,8 +1,8 @@
 ---
 source: src/strace/parser/mod.rs
-expression: "parse_line(\"3487       0.000130 epoll_pwait(4<\\\\x61\\\\x6e\\\\x6f\\\\x6e\\\\x5f\\\\x69\\\\x6e\\\\x6f\\\\x64\\\\x65\\\\x3a\\\\x5b\\\\x65\\\\x76\\\\x65\\\\x6e\\\\x74\\\\x70\\\\x6f\\\\x6c\\\\x6c\\\\x5d>, [{events=EPOLLOUT, data={u32=833093633, u64=9163493471957811201}}, {events=EPOLLOUT, data={u32=800587777, u64=9163493471925305345}}], 128, 0, NULL, 0) = 2\",).unwrap()"
+expression: "parse_line(\"3487       0.000130 epoll_pwait(4<\\\\x61\\\\x6e\\\\x6f\\\\x6e\\\\x5f\\\\x69\\\\x6e\\\\x6f\\\\x64\\\\x65\\\\x3a\\\\x5b\\\\x65\\\\x76\\\\x65\\\\x6e\\\\x74\\\\x70\\\\x6f\\\\x6c\\\\x6c\\\\x5d>, [{events=EPOLLOUT, data={u32=833093633, u64=9163493471957811201}}, {events=EPOLLOUT, data={u32=800587777, u64=9163493471925305345}}], 128, 0, NULL, 0) = 2\",\n&HashSet::from([\"epoll_pwait\"]),).unwrap()"
 ---
-Syscall(Syscall(
+Parsed(Syscall(Syscall(
   pid: 3487,
   rel_ts: 0.00013,
   name: "epoll_pwait",
@@ -92,4 +92,4 @@ Syscall(Syscall(
     value: Literal(2),
     metadata: None,
   ),
-))
+)))
