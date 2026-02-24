@@ -14,12 +14,14 @@ const STRACE_BIN: &str = if let Some(p) = option_env!("SHH_STRACE_BIN_PATH") {
     "strace"
 };
 
+pub(crate) type SyscallName = ecow::EcoString;
+
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(test, derive(serde::Serialize))]
 pub(crate) struct Syscall {
     pub pid: pid_t,
     pub rel_ts: f64,
-    pub name: String,
+    pub name: SyscallName,
     pub args: Vec<Expression>,
     pub ret_val: IntegerExpression,
 }

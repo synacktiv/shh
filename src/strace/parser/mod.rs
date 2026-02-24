@@ -6,7 +6,7 @@ use std::{
     path::Path,
 };
 
-use crate::strace::Syscall;
+use crate::strace::{Syscall, SyscallName};
 
 mod combinator;
 use combinator::parse_line;
@@ -55,7 +55,7 @@ enum ParseResult {
 pub(crate) struct SyscallStart {
     pub pid: pid_t,
     pub rel_ts: f64,
-    pub name: String,
+    pub name: SyscallName,
     pub args: Vec<Expression>,
 }
 
@@ -80,7 +80,7 @@ impl SyscallStart {
 pub(crate) struct SyscallEnd {
     pub pid: pid_t,
     pub rel_ts: f64,
-    pub name: String,
+    pub name: SyscallName,
     pub ret_val: IntegerExpression,
 }
 

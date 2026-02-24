@@ -10,6 +10,7 @@ use super::{
 };
 use crate::{
     cl::HardeningOptions,
+    strace::SyscallName,
     summarize::ProgramAction,
     systemd::options::{
         ListMode, OptionDescription, OptionEffect, OptionValue, OptionValueEffect, OptionWithValue,
@@ -61,7 +62,7 @@ impl OptionValueEffect {
             OptionValueEffect::DenySyscalls(denied) => {
                 if let ProgramAction::Syscalls(syscalls) = action {
                     let denied_syscalls = denied.syscalls();
-                    let syscalls = syscalls.iter().map(String::as_str).collect();
+                    let syscalls = syscalls.iter().map(SyscallName::as_str).collect();
                     denied_syscalls.intersection(&syscalls).next().is_none()
                 } else {
                     true

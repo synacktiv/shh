@@ -30,7 +30,7 @@ use super::{
 use crate::{
     strace::{
         BufferExpression, BufferType, Expression, IntegerExpression, IntegerExpressionValue,
-        Syscall,
+        Syscall, SyscallName,
     },
     systemd::{SocketFamily, SocketProtocol},
 };
@@ -38,9 +38,12 @@ use crate::{
 #[derive(thiserror::Error, Debug)]
 pub(crate) enum HandlerError {
     #[error("Unexpected {sc_name:?} argument type: {arg:?}")]
-    ArgTypeMismatch { sc_name: String, arg: Expression },
+    ArgTypeMismatch {
+        sc_name: SyscallName,
+        arg: Expression,
+    },
     #[error("Missing argument at index {index} for syscall {sc_name:?}")]
-    ArgIndexOutOfBounds { sc_name: String, index: usize },
+    ArgIndexOutOfBounds { sc_name: SyscallName, index: usize },
     #[error("Failed to parse {src:?} as {type_}")]
     ParsingFailed { src: String, type_: &'static str },
     #[error("Failed to convert value {src:?} (type_src) into {type_dst}")]
@@ -110,7 +113,11 @@ impl ExtractArg for FdOrPath<usize> {
 
 impl FdOrPath<&Expression> {
     /// Resolve an fd-or-path reference to an optional absolute path
-    fn resolve(self, sc_name: &str, cur_dir: &Path) -> Result<Option<PathBuf>, HandlerError> {
+    fn resolve(
+        self,
+        sc_name: &SyscallName,
+        cur_dir: &Path,
+    ) -> Result<Option<PathBuf>, HandlerError> {
         match self {
             FdOrPath::Fd(fd) => Ok(resolve_path(Path::new(""), Some(fd), cur_dir)),
             FdOrPath::Path(Expression::Buffer(BufferExpression {
@@ -1467,7 +1474,7 @@ x86_Thread_features_locked:
         Syscall {
             pid: 1000,
             rel_ts: 0.0,
-            name: name.to_owned(),
+            name: name.into(),
             args,
             ret_val: IntegerExpression {
                 value: IntegerExpressionValue::Literal(ret_val),
@@ -2431,7 +2438,7 @@ x86_Thread_features_locked:
         let sc = Syscall {
             pid: 1000,
             rel_ts: 0.0,
-            name: "fstat".to_owned(),
+            name: "fstat".into(),
             args: vec![Expression::Integer(IntegerExpression {
                 value: IntegerExpressionValue::Literal(3),
                 metadata: Some(b"/etc/passwd".to_vec()),
@@ -2735,7 +2742,7 @@ x86_Thread_features_locked:
     fn resolve_chdir_absolute() {
         let path = FdOrPath::Path(&buf_expr(b"/tmp"));
         assert_eq!(
-            path.resolve("chdir", Path::new("/")).unwrap(),
+            path.resolve(&"chdir".into(), Path::new("/")).unwrap(),
             Some(PathBuf::from("/tmp"))
         );
     }
@@ -2745,7 +2752,8 @@ x86_Thread_features_locked:
     fn resolve_chdir_relative() {
         let path = FdOrPath::Path(&buf_expr(b"subdir"));
         assert_eq!(
-            path.resolve("chdir", Path::new("/home/user")).unwrap(),
+            path.resolve(&"chdir".into(), Path::new("/home/user"))
+                .unwrap(),
             Some(PathBuf::from("/home/user/subdir"))
         );
     }
@@ -2759,7 +2767,7 @@ x86_Thread_features_locked:
         });
         let path = FdOrPath::Fd(&fd);
         assert_eq!(
-            path.resolve("fchdir", Path::new("/")).unwrap(),
+            path.resolve(&"fchdir".into(), Path::new("/")).unwrap(),
             Some(PathBuf::from("/var/log"))
         );
     }
@@ -2769,7 +2777,7 @@ x86_Thread_features_locked:
     fn resolve_mknod_absolute() {
         let path = FdOrPath::Path(&buf_expr(b"/dev/null"));
         assert_eq!(
-            path.resolve("mknod", Path::new("/")).unwrap(),
+            path.resolve(&"mknod".into(), Path::new("/")).unwrap(),
             Some(PathBuf::from("/dev/null"))
         );
     }
@@ -2783,7 +2791,7 @@ x86_Thread_features_locked:
         });
         let path = FdOrPath::Fd(&fd);
         assert_eq!(
-            path.resolve("mknodat", Path::new("/")).unwrap(),
+            path.resolve(&"mknodat".into(), Path::new("/")).unwrap(),
             Some(PathBuf::from("/tmp"))
         );
     }
@@ -2792,7 +2800,7 @@ x86_Thread_features_locked:
     #[test]
     fn resolve_pseudo_path() {
         let path = FdOrPath::Path(&buf_expr(b"pipe:[12345]"));
-        assert_eq!(path.resolve("mknod", Path::new("/")).unwrap(), None);
+        assert_eq!(path.resolve(&"mknod".into(), Path::new("/")).unwrap(), None);
     }
 
     // Fd with pipe pseudo metadata returns None
@@ -2803,7 +2811,10 @@ x86_Thread_features_locked:
             metadata: Some(b"pipe:[12345]".to_vec()),
         });
         let path = FdOrPath::Fd(&fd);
-        assert_eq!(path.resolve("fchdir", Path::new("/")).unwrap(), None);
+        assert_eq!(
+            path.resolve(&"fchdir".into(), Path::new("/")).unwrap(),
+            None
+        );
     }
 
     // Wrong expression type for Path variant returns error
@@ -2811,6 +2822,6 @@ x86_Thread_features_locked:
     fn resolve_path_type_mismatch() {
         let expr = int_literal(42);
         let path = FdOrPath::Path(&expr);
-        assert!(path.resolve("chdir", Path::new("/")).is_err());
+        assert!(path.resolve(&"chdir".into(), Path::new("/")).is_err());
     }
 }

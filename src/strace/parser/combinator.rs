@@ -61,7 +61,7 @@ fn parse_syscall_line(i: &str) -> IResult<&str, ParseResult> {
                 ParseResult::Syscall(Syscall {
                     pid,
                     rel_ts,
-                    name: name.to_owned(),
+                    name: name.into(),
                     args,
                     ret_val,
                 })
@@ -74,7 +74,7 @@ fn parse_syscall_line(i: &str) -> IResult<&str, ParseResult> {
                 ParseResult::SyscallStart(SyscallStart {
                     pid,
                     rel_ts,
-                    name: name.to_owned(),
+                    name: name.into(),
                     args,
                 })
             },
@@ -91,7 +91,7 @@ fn parse_syscall_line(i: &str) -> IResult<&str, ParseResult> {
                 ParseResult::SyscallEnd(SyscallEnd {
                     pid,
                     rel_ts,
-                    name: name.to_owned(),
+                    name: name.into(),
                     ret_val,
                 })
             },

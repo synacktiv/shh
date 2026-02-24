@@ -14,7 +14,7 @@ use anyhow::Context as _;
 use nix::libc::pid_t;
 
 use crate::{
-    strace::Syscall,
+    strace::{Syscall, SyscallName},
     systemd::{SocketFamily, SocketProtocol},
 };
 
@@ -54,7 +54,7 @@ pub(crate) enum ProgramAction {
     /// Set scheduler to a real time one
     SetRealtimeScheduler,
     /// Names of the syscalls made by the program
-    Syscalls(HashSet<String>),
+    Syscalls(HashSet<SyscallName>),
     /// Inhibit suspend
     Wakeup,
     /// Path was written to (data, metadata, path removal...)
@@ -449,7 +449,7 @@ where
     I: IntoIterator<Item = anyhow::Result<Syscall>>,
 {
     let mut actions = Vec::new();
-    let mut stats: HashMap<String, u64> = HashMap::new();
+    let mut stats: HashMap<SyscallName, u64> = HashMap::new();
     for syscall in syscalls {
         let syscall = syscall?;
         log::trace!("{syscall:?}");
@@ -512,7 +512,7 @@ mod tests {
         let syscalls = [Ok(Syscall {
             pid: 1068781,
             rel_ts: 0.000083,
-            name: "renameat".to_owned(),
+            name: "renameat".into(),
             args: vec![
                 Expression::Integer(IntegerExpression {
                     value: IntegerExpressionValue::NamedSymbol("AT_FDCWD".to_owned()),
@@ -547,7 +547,7 @@ mod tests {
                 ProgramAction::Write(temp_dir_src.path().join("a")),
                 ProgramAction::Create(temp_dir_dst.path().join("b")),
                 ProgramAction::Write(temp_dir_dst.path().join("b")),
-                ProgramAction::Syscalls(["renameat".to_owned()].into()),
+                ProgramAction::Syscalls(["renameat".into()].into()),
                 ProgramAction::Read("/path/from/env/1".into()),
                 ProgramAction::Read("/path/from/env/2".into()),
             ]
@@ -567,7 +567,7 @@ mod tests {
         let syscalls = [Ok(Syscall {
             pid: 598056,
             rel_ts: 0.000036,
-            name: "connect".to_owned(),
+            name: "connect".into(),
             args: vec![
                 Expression::Integer(IntegerExpression {
                     value: IntegerExpressionValue::Literal(4),
@@ -603,7 +603,7 @@ mod tests {
             summarize(syscalls, &env_paths, state).unwrap(),
             vec![
                 ProgramAction::Read("/run/user/1000/systemd/private".into()),
-                ProgramAction::Syscalls(["connect".to_owned()].into()),
+                ProgramAction::Syscalls(["connect".into()].into()),
                 ProgramAction::Read("/path/from/env/1".into()),
                 ProgramAction::Read("/path/from/env/2".into()),
             ]
@@ -619,7 +619,7 @@ mod tests {
         let syscalls = [Ok(Syscall {
             pid: 498133,
             rel_ts: 7.5e-5,
-            name: "fstat".to_owned(),
+            name: "fstat".into(),
             args: vec![
                 Expression::Integer(IntegerExpression {
                     value: IntegerExpressionValue::Literal(3),
@@ -760,7 +760,7 @@ mod tests {
         assert_eq!(
             summarize(syscalls, &[], state).unwrap(),
             vec![ProgramAction::Syscalls(
-                ["fstat".to_owned()].into_iter().collect()
+                ["fstat".into()].into_iter().collect()
             )]
         );
     }
