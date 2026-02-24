@@ -53,7 +53,6 @@ ecow = { version = "0.2.3", default-features = false, features = ["serde", "std"
 [dev-dependencies]
 assert_cmd = { version = "2.1.2", default-features = false, features = ["color", "color-auto"] }
 compact_str = { version = "0.8.1", default-features = false }
-backon = { version = "1.6.0", default-features = false, features = ["std-blocking-sleep"] }
 fastrand = { version = "2.3.0", default-features = false, features = ["std"] }
 insta = { version = "1.46.1", default-features = false, features = ["colors", "ron"] }
 nix = { version = "0.31.1", default-features = false, features = ["user"] }

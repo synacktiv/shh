@@ -3,13 +3,18 @@
 #[cfg(test)]
 #[cfg(feature = "test-env-vm")]
 mod tests {
-    use std::{env, fs, process::Command, sync::LazyLock, time::Duration};
-
-    use backon::{BlockingRetryable as _, ConstantBuilder};
+    use std::{
+        env, fs,
+        process::Command,
+        sync::LazyLock,
+        thread,
+        time::{Duration, Instant},
+    };
 
     static ALL_SHH_RUN_OPTS: LazyLock<Vec<Vec<&'static str>>> = LazyLock::new(all_shh_run_opts);
 
     const HARDENING_FRAGMENT_PATH: &str = "/etc/systemd/system/caddy.service.d/zz_shh-harden.conf";
+    const WAIT_ACTIVE_TIMEOUT: Duration = Duration::from_secs(20);
 
     fn shh_bin() -> String {
         env::var("CARGO_BIN_EXE_shh").unwrap_or_else(|_| env!("CARGO_BIN_EXE_shh").to_owned())
@@ -47,6 +52,25 @@ mod tests {
         combinations
     }
 
+    /// Wait for a service to be active (shh uses --no-block starts)
+    fn wait_active(service_name: &str) {
+        let start = Instant::now();
+        loop {
+            let status = Command::new("systemctl")
+                .args(["is-active", "--quiet", service_name])
+                .status()
+                .unwrap();
+            if status.success() {
+                return;
+            }
+            assert!(
+                start.elapsed() < WAIT_ACTIVE_TIMEOUT,
+                "Timed out waiting for {service_name} to become active"
+            );
+            thread::sleep(Duration::from_millis(500));
+        }
+    }
+
     /// Generic function to check hardening workflow for a service
     fn harden_service<F>(service_name: &str, checker: F)
     where
@@ -67,24 +91,26 @@ mod tests {
             // Pre check
             checker();
 
-            // Start profiling
+            // Start profiling (restarts service with --no-block)
             status = Command::new(&bin)
                 .args(["service", "start-profile", service_name])
                 .args(shh_opts)
                 .status()
                 .unwrap();
             assert!(status.success());
+            wait_active(service_name);
 
             // Profiling check
             checker();
 
-            // Finish profiling with auto-apply
+            // Finish profiling with auto-apply (restarts service with --no-block)
             status = Command::new(&bin)
                 .args(["service", "finish-profile", service_name, "-a"])
                 .status()
                 .unwrap();
             assert!(status.success());
             eprintln!("{}", fs::read_to_string(HARDENING_FRAGMENT_PATH).unwrap());
+            wait_active(service_name);
 
             // Log service status for diagnostics
             let journalctl_output = Command::new("journalctl")
@@ -122,20 +148,7 @@ mod tests {
     #[test]
     fn harden_caddy() {
         fn checker() {
-            let response = (|| ureq::get("http://127.0.0.1/").call())
-                .retry(
-                    ConstantBuilder::new()
-                        .with_delay(Duration::from_millis(500))
-                        .with_max_times(10),
-                )
-                .when(|e| {
-                    matches!(
-                        e,
-                        ureq::Error::Io(io_err) if io_err.kind() == std::io::ErrorKind::ConnectionRefused
-                    )
-                })
-                .call()
-                .unwrap();
+            let response = ureq::get("http://127.0.0.1/").call().unwrap();
             assert_eq!(response.status().as_u16(), 200);
             let html = response.into_body().read_to_string().unwrap();
             assert!(html.contains("<html"));
