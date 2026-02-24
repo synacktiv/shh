@@ -224,3 +224,104 @@ impl fmt::Display for StraceVersion {
         write!(f, "{}.{}", self.major, self.minor)
     }
 }
+
+#[cfg(all(feature = "nightly", test))]
+#[expect(clippy::tests_outside_test_module)]
+mod benchs {
+    extern crate test;
+
+    use std::{collections::HashMap, hash::Hash, ops::Deref};
+
+    use test::Bencher;
+
+    /// 32 most common syscall names from a 180MB gimp startup strace log
+    const SC_NAMES: [&str; 32] = [
+        "sched_yield",
+        "futex",
+        "read",
+        "mmap",
+        "openat",
+        "close",
+        "recvmsg",
+        "fstat",
+        "mprotect",
+        "newfstatat",
+        "rt_sigprocmask",
+        "ppoll",
+        "write",
+        "poll",
+        "epoll_ctl",
+        "munmap",
+        "access",
+        "prctl",
+        "statx",
+        "set_robust_list",
+        "rseq",
+        "brk",
+        "clone3",
+        "madvise",
+        "lseek",
+        "fcntl",
+        "writev",
+        "rt_sigaction",
+        "readlink",
+        "recvfrom",
+        "timerfd_settime",
+        "epoll_pwait",
+    ];
+
+    /// Generic benchmark exercising Syscall.name field operations
+    /// (creation, clone, comparison, HashMap keying)
+    /// as done in the summarize path
+    fn bench_syscall_name<S>(b: &mut Bencher)
+    where
+        S: Clone + Eq + Hash + Deref<Target = str> + for<'a> From<&'a str>,
+    {
+        b.iter(|| {
+            // Simulate what summarize() does: create names, clone into HashMap, compare
+            let mut stats: HashMap<S, u64> = HashMap::new();
+            for _ in 0..1000 {
+                for sc_name in &SC_NAMES {
+                    // Simulate parser creating the name (From<&str>)
+                    let sc_name: S = test::black_box(*sc_name).into();
+
+                    // Simulate HashMap entry (clone + hash + eq)
+                    stats
+                        .entry(sc_name.clone())
+                        .and_modify(|c| *c += 1)
+                        .or_insert(1);
+
+                    // Simulate handler lookup (deref + eq)
+                    let _ = test::black_box(&*sc_name == "connect");
+
+                    // Simulate ends_with check (like mprotect handler)
+                    let _ = test::black_box(sc_name.ends_with("mprotect"));
+
+                    // Simulate sc_name clone into action (like handlers do)
+                    let _cloned = test::black_box(sc_name.clone());
+                }
+            }
+            test::black_box(&stats);
+        });
+    }
+
+    #[bench]
+    fn bench_syscall_name_std_string(b: &mut Bencher) {
+        bench_syscall_name::<String>(b);
+    }
+
+    #[bench]
+    fn bench_syscall_name_compact_str(b: &mut Bencher) {
+        bench_syscall_name::<compact_str::CompactString>(b);
+    }
+
+    #[bench]
+    fn bench_syscall_name_smol_str(b: &mut Bencher) {
+        bench_syscall_name::<smol_str::SmolStr>(b);
+    }
+
+    #[bench]
+    fn bench_syscall_name_ecow(b: &mut Bencher) {
+        bench_syscall_name::<ecow::EcoString>(b);
+    }
+}
