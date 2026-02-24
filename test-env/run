@@ -60,7 +60,7 @@ NCPUS=$(nproc 2>/dev/null || echo 1)
 NCPUS=$((NCPUS > 4 ? 4 : NCPUS))
 readonly NCPUS
 
-sudo systemd-vmspawn \
+sudo setsid -w systemd-vmspawn \
     --machine="${EPHEMERAL##*/}" \
     -D "${EPHEMERAL}/merged" \
     --bind="${PROJECT_DIR}:/src" \
