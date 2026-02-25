@@ -273,7 +273,7 @@ mod benchs {
     ];
 
     /// Generic benchmark exercising Syscall.name field operations
-    /// (creation, clone, comparison, HashMap keying)
+    /// (creation, clone, comparison, `HashMap` keying)
     /// as done in the summarize path
     fn bench_syscall_name<S>(b: &mut Bencher)
     where
@@ -325,5 +325,86 @@ mod benchs {
     #[bench]
     fn bench_syscall_name_ecow(b: &mut Bencher) {
         bench_syscall_name::<ecow::EcoString>(b);
+    }
+
+    /// Representative integer values from strace output that fit in i64:
+    /// - small return values (0, -1, 3)
+    /// - errno-like negative values (-11, -38)
+    /// - medium values (flags, modes: 0o100644, 0x80000)
+    /// - large pointer-like values from mmap (0x7f2fce8dc000)
+    /// - `i64::MAX`
+    const INT_VALUES: [i64; 14] = [
+        0,
+        -1,
+        1,
+        3,
+        -11,
+        -38,
+        0o10_0644,
+        0x80000,
+        4096,
+        0x7fff,
+        0x0010_0000,
+        0x7f2f_ce8d_c000,
+        0x7f2b_44c3_31a8_0001, // large epoll data
+        i64::MAX,
+    ];
+
+    /// Benchmark integer literal operations using i128:
+    /// (creation, clone, comparison, arithmetic, conversion)
+    /// as done in the parsing and summarize paths
+    #[bench]
+    fn bench_int_literal_i128(b: &mut Bencher) {
+        let values: Vec<i128> = INT_VALUES.iter().map(|v| i128::from(*v)).collect();
+        b.iter(|| {
+            for _ in 0..1000 {
+                for val in &values {
+                    let v = test::black_box(*val);
+                    let v2 = test::black_box(v);
+
+                    // Comparison with -1 (is_successful_or_pending)
+                    let _ = test::black_box(v != -1);
+                    // Comparison with 0 (BooleanAnd logic)
+                    let _ = test::black_box(v != 0);
+                    // Bitwise OR (BinaryOr variant)
+                    let _ = test::black_box(v | v2);
+                    // Subtraction (Substraction variant)
+                    let _ = test::black_box(v - v2);
+                    // Multiplication (Multiplication variant)
+                    let _ = test::black_box(v * v2);
+                    // Conversion (as done in handlers via try_from)
+                    let _ = test::black_box(i32::try_from(v));
+                    let _ = test::black_box(u16::try_from(v));
+                }
+            }
+        });
+    }
+
+    /// Benchmark integer literal operations using i64
+    #[bench]
+    fn bench_int_literal_i64(b: &mut Bencher) {
+        let values: Vec<i64> = INT_VALUES.to_vec();
+        b.iter(|| {
+            for _ in 0..1000 {
+                for val in &values {
+                    let v = test::black_box(*val);
+                    let v2 = test::black_box(v);
+
+                    // Comparison with -1 (is_successful_or_pending)
+                    let _ = test::black_box(v != -1);
+                    // Comparison with 0 (BooleanAnd logic)
+                    let _ = test::black_box(v != 0);
+                    // Bitwise OR (BinaryOr variant)
+                    let _ = test::black_box(v | v2);
+                    // Subtraction (Substraction variant)
+                    let _ = test::black_box(v - v2);
+                    // Multiplication (Multiplication variant)
+                    let _ = test::black_box(v * v2);
+                    // Conversion (as done in handlers via try_from)
+                    let _ = test::black_box(i32::try_from(v));
+                    let _ = test::black_box(u16::try_from(v));
+                }
+            }
+        });
     }
 }
