@@ -66,7 +66,7 @@ pub(crate) struct IntegerExpression {
 }
 
 impl IntegerExpression {
-    pub(crate) fn value(&self) -> Option<i128> {
+    pub(crate) fn value(&self) -> Option<i64> {
         self.value.value()
     }
 }
@@ -115,7 +115,7 @@ pub(crate) enum IntegerExpressionValue {
         bits: Box<IntegerExpressionValue>,
         shift: Box<IntegerExpressionValue>,
     },
-    Literal(i128), // allows holding both signed and unsigned 64 bit integers
+    Literal(i64),
     Macro {
         name: String,
         args: Vec<Expression>,
@@ -144,7 +144,7 @@ impl IntegerExpressionValue {
         }
     }
 
-    pub(crate) fn value(&self) -> Option<i128> {
+    pub(crate) fn value(&self) -> Option<i64> {
         match self {
             IntegerExpressionValue::BinaryOr(values) => values
                 .iter()
@@ -157,13 +157,13 @@ impl IntegerExpressionValue {
                 .map(Self::value)
                 .collect::<Option<Vec<_>>>()?
                 .into_iter()
-                .reduce(|a, b| i128::from((a != 0) && (b != 0))),
+                .reduce(|a, b| i64::from((a != 0) && (b != 0))),
             IntegerExpressionValue::Equality(values) => values
                 .iter()
                 .map(Self::value)
                 .collect::<Option<Vec<_>>>()?
                 .into_iter()
-                .reduce(|a, b| i128::from(a == b)),
+                .reduce(|a, b| i64::from(a == b)),
             IntegerExpressionValue::LeftBitShift { bits, shift } => {
                 Some(bits.value()? << shift.value()?)
             }

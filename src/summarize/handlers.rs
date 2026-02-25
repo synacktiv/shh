@@ -1022,7 +1022,7 @@ impl SyscallHandler for SocketHandler {
             .value()
             .ok_or_else(|| HandlerError::ParsingFailed {
                 src: format!("{:?}", sc.ret_val),
-                type_: type_name::<i128>(),
+                type_: type_name::<i64>(),
             })?;
 
         if ret_fd != -1 {
@@ -1470,7 +1470,7 @@ x86_Thread_features_locked:
     }
 
     // Helper to create a basic Syscall
-    fn make_syscall(name: &str, args: Vec<Expression>, ret_val: i128) -> Syscall {
+    fn make_syscall(name: &str, args: Vec<Expression>, ret_val: i64) -> Syscall {
         Syscall {
             pid: 1000,
             rel_ts: 0.0,
@@ -1492,7 +1492,7 @@ x86_Thread_features_locked:
     }
 
     // Helper to create an integer expression from a literal
-    fn int_literal(val: i128) -> Expression {
+    fn int_literal(val: i64) -> Expression {
         Expression::Integer(IntegerExpression {
             value: IntegerExpressionValue::Literal(val),
             metadata: None,

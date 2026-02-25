@@ -650,31 +650,35 @@ fn parse_int_metadata(i: &str) -> IResult<&str, Option<Vec<u8>>> {
 // Int literal
 
 #[function_name::named]
-fn parse_int_literal_hexa(i: &str) -> IResult<&str, i128> {
+fn parse_int_literal_hexa(i: &str) -> IResult<&str, i64> {
     dbg_parser_entry!(i);
+    // Parse as u64 and reinterpret bits as i64, so that values above i64::MAX
+    // (eg. pointer addresses like 0xFFFFFFFFFFFFFFFF) are represented as negative i64
     preceded(
         tag("0x"),
-        map_res(hex_digit1, |s| i128::from_str_radix(s, 16)),
+        map_res(hex_digit1, |s| {
+            u64::from_str_radix(s, 16).map(u64::cast_signed)
+        }),
     )
     .parse(i)
     .inspect(|r| dbg_parser_success!(r))
 }
 
 #[function_name::named]
-fn parse_int_literal_oct(i: &str) -> IResult<&str, i128> {
+fn parse_int_literal_oct(i: &str) -> IResult<&str, i64> {
     dbg_parser_entry!(i);
     preceded(
         char('0'),
-        map_res(oct_digit1, |s| i128::from_str_radix(s, 8)),
+        map_res(oct_digit1, |s| i64::from_str_radix(s, 8)),
     )
     .parse(i)
     .inspect(|r| dbg_parser_success!(r))
 }
 
 #[function_name::named]
-fn parse_int_literal_dec(i: &str) -> IResult<&str, i128> {
+fn parse_int_literal_dec(i: &str) -> IResult<&str, i64> {
     dbg_parser_entry!(i);
-    complete::i128(i)
+    complete::i64(i)
 }
 
 // Buffer
