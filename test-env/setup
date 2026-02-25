@@ -19,6 +19,8 @@ readonly TARGET_DISTRIBUTION="${1:?}"
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 readonly PROJECT_DIR
 readonly TARGET_DIR="${TARGET_DIR:-${PROJECT_DIR}/test-env/target/${TARGET_DISTRIBUTION}}"
+MACHINE_NAME="ssh-test-env-setup-$(echo "${TARGET_DIR}" | md5sum | head -c 12)"
+readonly MACHINE_NAME
 
 if [ "${TARGET_DISTRIBUTION}" != "debian-trixie" ]
 then
@@ -29,8 +31,8 @@ fi
 if [ -f "${TARGET_DIR}/etc/os-release" ]
 then
     echo "Target already exists at ${TARGET_DIR}, updating packages" >&2
-    sudo systemd-nspawn -D "${TARGET_DIR}" --bind-ro=/etc/resolv.conf --pipe apt-get update -qq < /dev/null
-    sudo systemd-nspawn -D "${TARGET_DIR}" --bind-ro=/etc/resolv.conf --pipe apt-get upgrade -qq -y < /dev/null
+    sudo systemd-nspawn --machine="${MACHINE_NAME}" -D "${TARGET_DIR}" --bind-ro=/etc/resolv.conf --pipe apt-get update -qq < /dev/null
+    sudo systemd-nspawn --machine="${MACHINE_NAME}" -D "${TARGET_DIR}" --bind-ro=/etc/resolv.conf --pipe apt-get upgrade -qq -y < /dev/null
     exit 0
 fi
 
@@ -56,12 +58,12 @@ sudo debootstrap \
     trixie \
     "${TARGET_DIR}"
 
-sudo systemd-nspawn -D "${TARGET_DIR}" --pipe useradd --create-home --shell /bin/bash testuser < /dev/null
+sudo systemd-nspawn --machine="${MACHINE_NAME}" -D "${TARGET_DIR}" --pipe useradd --create-home --shell /bin/bash testuser < /dev/null
 sudo mkdir -p "${TARGET_DIR}/var/lib/systemd/linger"
 sudo touch "${TARGET_DIR}/var/lib/systemd/linger/testuser"
 
 # has to be done after debootstrap to avoid package resolution errors
-sudo systemd-nspawn -D "${TARGET_DIR}" --bind-ro=/etc/resolv.conf --pipe apt-get install --no-install-recommends gimp polkitd -y < /dev/null
+sudo systemd-nspawn --machine="${MACHINE_NAME}" -D "${TARGET_DIR}" --bind-ro=/etc/resolv.conf --pipe apt-get install --no-install-recommends gimp polkitd -y < /dev/null
 
 sudo ln -sf ../run/systemd/resolve/stub-resolv.conf "${TARGET_DIR}/etc/resolv.conf"
 sudo mkdir -p "${TARGET_DIR}/etc/systemd/network"
