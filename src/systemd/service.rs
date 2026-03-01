@@ -4,9 +4,11 @@ use std::{
     env, fmt,
     fs::{self, File},
     io::{self, BufRead as _, BufWriter, Write},
+    num::ParseIntError,
     ops::RangeInclusive,
     path::PathBuf,
     process::{Command, Stdio},
+    str::FromStr,
     thread::sleep,
     time::{Duration, Instant},
 };
@@ -18,13 +20,13 @@ use rand::Rng as _;
 use super::InstanceKind;
 use crate::{
     cl::HardeningOptions,
-    systemd::{END_OPTION_OUTPUT_SNIPPET, START_OPTION_OUTPUT_SNIPPET, options::OptionWithValue},
+    systemd::{JournalCursor, journal::ProfilingLogError, options::OptionWithValue},
 };
 
 pub(crate) struct Service {
-    name: String,
-    arg: Option<String>,
-    instance: InstanceKind,
+    pub name: String,
+    pub arg: Option<String>,
+    pub instance: InstanceKind,
 }
 
 const PROFILING_FRAGMENT_NAME: &str = "profile";
@@ -59,35 +61,26 @@ impl fmt::Display for ExposureLevel {
     }
 }
 
-pub(crate) struct JournalCursor(String);
+/// Systemd unique instance invocation identifier
+pub(crate) struct InvocationId(u128);
 
-impl JournalCursor {
-    pub(crate) fn current() -> anyhow::Result<Self> {
-        let tmp_file = tempfile::NamedTempFile::new()?;
-        // Note: user instances use the same cursor
-        let status = Command::new("journalctl")
-            .args([
-                "-n",
-                "0",
-                "--cursor-file",
-                tmp_file
-                    .path()
-                    .to_str()
-                    .ok_or_else(|| anyhow::anyhow!("Invalid temporary filepath"))?,
-            ])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()?;
-        anyhow::ensure!(status.success(), "journalctl failed: {status}");
-        let val = fs::read_to_string(tmp_file.path())?;
-        Ok(Self(val))
+impl FromStr for InvocationId {
+    type Err = ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(u128::from_str_radix(s, 16)?))
     }
 }
 
-impl AsRef<str> for JournalCursor {
-    fn as_ref(&self) -> &str {
-        self.0.as_str()
+impl fmt::Display for InvocationId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:032x}", self.0)
+    }
+}
+
+impl InvocationId {
+    pub(crate) fn from_env() -> Option<Self> {
+        env::var("INVOCATION_ID").ok()?.parse::<Self>().ok()
     }
 }
 
@@ -125,7 +118,7 @@ impl Service {
         }
     }
 
-    fn unit_name(&self) -> String {
+    pub(crate) fn unit_name(&self) -> String {
         format!(
             "{}{}.service",
             &self.name,
@@ -415,87 +408,39 @@ impl Service {
         const PROFILING_RESULT_TIMEOUT: Duration = Duration::from_secs(90);
         const PROFILING_RESULT_USLEEP: Duration = Duration::from_millis(300);
         const PROFILING_RESULT_WARN_DELAY: Duration = Duration::from_secs(3);
-        // For user units, sometimes journalctl does not have the logs yet, so retry with a delay
+
+        let invocation = self.invocation_id()?;
+
+        // For user units or under load, sometimes journalctl does not have the logs yet, so retry with a delay
         let time_start = Instant::now();
         let mut slow_result_warned = false;
         loop {
-            match self.profiling_result(cursor) {
+            match cursor.profiling_result(self, &invocation) {
                 Ok(opts) => return Ok(opts),
-                Err(err) => {
-                    let now = Instant::now();
-                    let waited = now.saturating_duration_since(time_start);
-                    if waited > PROFILING_RESULT_TIMEOUT {
-                        return Err(err.context("Timeout waiting for profiling result"));
-                    } else if !slow_result_warned && (waited > PROFILING_RESULT_WARN_DELAY) {
-                        log::warn!(
-                            "Profiling result is not available after {}s ({}), this can be caused by slow service shutdown. Will retry and wait up to {}s",
-                            PROFILING_RESULT_WARN_DELAY.as_secs(),
-                            err,
-                            PROFILING_RESULT_TIMEOUT.as_secs()
-                        );
-                        slow_result_warned = true;
+                Err(err) => match err {
+                    ProfilingLogError::Incomplete { .. } => {
+                        let now = Instant::now();
+                        let waited = now.saturating_duration_since(time_start);
+                        if waited > PROFILING_RESULT_TIMEOUT {
+                            return Err(err).context("Timeout waiting for profiling result");
+                        } else if !slow_result_warned && (waited > PROFILING_RESULT_WARN_DELAY) {
+                            log::warn!(
+                                "Profiling result is not available after {}s ({}), this can be caused by slow service shutdown. Will retry and wait up to {}s",
+                                PROFILING_RESULT_WARN_DELAY.as_secs(),
+                                err,
+                                PROFILING_RESULT_TIMEOUT.as_secs()
+                            );
+                            slow_result_warned = true;
+                        }
                     }
-                }
+                    ProfilingLogError::Other(_) => {
+                        return Err(err)
+                            .context("Failed to parse profiling result from journalctl output");
+                    }
+                },
             }
             sleep(PROFILING_RESULT_USLEEP);
         }
-    }
-
-    fn profiling_result(
-        &self,
-        cursor: &JournalCursor,
-    ) -> anyhow::Result<Vec<OptionWithValue<String>>> {
-        // Start journalctl process
-        let mut cmd = Command::new("journalctl");
-        if matches!(self.instance, InstanceKind::User) {
-            cmd.arg("--user");
-        }
-        let output = cmd
-            .args([
-                "-o",
-                "cat",
-                "--output-fields=MESSAGE",
-                "--no-tail",
-                "--after-cursor",
-                cursor.as_ref(),
-                "-u",
-                &self.unit_name(),
-            ])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .env("LANG", "C")
-            .output()?;
-        anyhow::ensure!(
-            output.status.success(),
-            "journalctl failed: {}",
-            output.status
-        );
-
-        // Parse its output
-        let mut has_end_marker = false;
-        let snippet_lines: Vec<_> = output
-            .stdout
-            .lines()
-            // Filter out delimiting lines while letting errors bubble up
-            .skip_while(|r| r.as_ref().is_ok_and(|l| l != START_OPTION_OUTPUT_SNIPPET))
-            .skip(1)
-            .inspect(|r| {
-                if r.as_ref().is_ok_and(|l| l == END_OPTION_OUTPUT_SNIPPET) {
-                    has_end_marker = true;
-                }
-            })
-            .take_while(|r| r.as_ref().map_or(true, |l| l != END_OPTION_OUTPUT_SNIPPET))
-            .collect::<Result<_, _>>()?;
-
-        anyhow::ensure!(has_end_marker, "Incomplete output");
-
-        let opts = snippet_lines
-            .iter()
-            .map(|l| l.parse::<OptionWithValue<String>>())
-            .collect::<anyhow::Result<_>>()?;
-
-        Ok(opts)
     }
 
     fn config_vals(key: &str, config: &str) -> anyhow::Result<Vec<String>> {
@@ -605,6 +550,34 @@ impl Service {
             output.status
         );
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    }
+
+    fn property(&self, prop: &str) -> anyhow::Result<String> {
+        let unit_name = self.unit_name();
+        let mut cmd = vec!["show", "-p", prop];
+        if matches!(self.instance, InstanceKind::User) {
+            cmd.push("--user");
+        }
+        cmd.push(&unit_name);
+        let output = Command::new("systemctl").args(cmd).output()?;
+        anyhow::ensure!(
+            output.status.success(),
+            "systemctl failed: {}",
+            output.status
+        );
+        let value = String::from_utf8_lossy(&output.stdout)
+            .split_once('=')
+            .ok_or_else(|| anyhow::anyhow!("Unexpected systemctl show output"))?
+            .1
+            .trim_ascii_end()
+            .to_owned();
+        Ok(value)
+    }
+
+    fn invocation_id(&self) -> anyhow::Result<InvocationId> {
+        self.property("InvocationID")?
+            .parse()
+            .context("Failed to parse invocation id")
     }
 }
 

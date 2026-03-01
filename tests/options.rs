@@ -12,10 +12,9 @@ mod tests {
     use insta::assert_snapshot;
 
     fn shh_run_options(to_run: &[&str]) -> String {
-        const START_OPTION_OUTPUT_SNIPPET: &str =
-            "-------- Start of suggested service options --------";
-        const END_OPTION_OUTPUT_SNIPPET: &str =
-            "-------- End of suggested service options --------";
+        const START_OPTION_OUTPUT_SNIPPET_PREFIX: &str =
+            "-------- Start of suggested service options ";
+        const END_OPTION_OUTPUT_SNIPPET_PREFIX: &str = "-------- End of suggested service options ";
         let bin =
             env::var("CARGO_BIN_EXE_shh").unwrap_or_else(|_| env!("CARGO_BIN_EXE_shh").to_owned());
         let mut cmd = Command::new(bin);
@@ -33,14 +32,22 @@ mod tests {
             .stdout
             .lines()
             // Filter out delimiting lines while letting errors bubble up
-            .skip_while(|r| r.as_ref().is_ok_and(|l| l != START_OPTION_OUTPUT_SNIPPET))
+            .skip_while(|r| {
+                r.as_ref()
+                    .is_ok_and(|l| !l.starts_with(START_OPTION_OUTPUT_SNIPPET_PREFIX))
+            })
             .skip(1)
             .inspect(|r| {
-                if r.as_ref().is_ok_and(|l| l == END_OPTION_OUTPUT_SNIPPET) {
+                if r.as_ref()
+                    .is_ok_and(|l| l.starts_with(END_OPTION_OUTPUT_SNIPPET_PREFIX))
+                {
                     has_end_marker = true;
                 }
             })
-            .take_while(|r| r.as_ref().map_or(true, |l| l != END_OPTION_OUTPUT_SNIPPET))
+            .take_while(|r| {
+                r.as_ref()
+                    .map_or(true, |l| !l.starts_with(END_OPTION_OUTPUT_SNIPPET_PREFIX))
+            })
             .collect::<Result<_, _>>()
             .unwrap();
         assert!(has_end_marker);
