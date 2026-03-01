@@ -13,7 +13,6 @@ mod tests {
 
     static ALL_SHH_RUN_OPTS: LazyLock<Vec<Vec<&'static str>>> = LazyLock::new(all_shh_run_opts);
 
-    const HARDENING_FRAGMENT_PATH: &str = "/etc/systemd/system/caddy.service.d/zz_shh-harden.conf";
     const WAIT_ACTIVE_TIMEOUT: Duration = Duration::from_secs(20);
 
     fn shh_bin() -> String {
@@ -71,12 +70,36 @@ mod tests {
         }
     }
 
+    #[expect(dead_code)]
+    fn service_log(service_name: &str) {
+        let journalctl_output = Command::new("journalctl")
+            .args(["-u", service_name, "--no-pager", "-n", "50"])
+            .output()
+            .unwrap();
+        eprintln!(
+            "journalctl -u {service_name}:\n{}",
+            String::from_utf8_lossy(&journalctl_output.stdout)
+        );
+        let systemctl_output = Command::new("systemctl")
+            .args(["status", service_name])
+            .output()
+            .unwrap();
+        eprintln!(
+            "systemctl status {service_name}:\n{}",
+            String::from_utf8_lossy(&systemctl_output.stdout)
+        );
+    }
+
     /// Generic function to check hardening workflow for a service
     fn harden_service<F>(service_name: &str, checker: F)
     where
         F: Fn(),
     {
         let bin = shh_bin();
+        let hardening_fragment_path =
+            format!("/etc/systemd/system/{service_name}.service.d/zz_shh-harden.conf");
+        let profiling_fragment_path =
+            format!("/run/systemd/system/{service_name}.service.d/zz_shh-profile.conf");
 
         for shh_opts in &*ALL_SHH_RUN_OPTS {
             eprintln!("shh service option: {}", shh_opts.join(" "));
@@ -99,6 +122,7 @@ mod tests {
                 .unwrap();
             assert!(status.success());
             wait_active(service_name);
+            eprintln!("{}", fs::read_to_string(&profiling_fragment_path).unwrap());
 
             // Profiling check
             checker();
@@ -109,26 +133,9 @@ mod tests {
                 .status()
                 .unwrap();
             assert!(status.success());
-            eprintln!("{}", fs::read_to_string(HARDENING_FRAGMENT_PATH).unwrap());
+            assert!(!fs::exists(&profiling_fragment_path).unwrap());
+            eprintln!("{}", fs::read_to_string(&hardening_fragment_path).unwrap());
             wait_active(service_name);
-
-            // Log service status for diagnostics
-            let journalctl_output = Command::new("journalctl")
-                .args(["-u", service_name, "--no-pager", "-n", "50"])
-                .output()
-                .unwrap();
-            eprintln!(
-                "journalctl -u {service_name}:\n{}",
-                String::from_utf8_lossy(&journalctl_output.stdout)
-            );
-            let systemctl_output = Command::new("systemctl")
-                .args(["status", service_name])
-                .output()
-                .unwrap();
-            eprintln!(
-                "systemctl status {service_name}:\n{}",
-                String::from_utf8_lossy(&systemctl_output.stdout)
-            );
 
             // Post hardening check
             checker();
@@ -141,7 +148,7 @@ mod tests {
             assert!(status.success());
 
             // Verify hardening fragment is removed
-            assert!(!fs::exists(HARDENING_FRAGMENT_PATH).unwrap(),);
+            assert!(!fs::exists(&hardening_fragment_path).unwrap(),);
         }
     }
 
