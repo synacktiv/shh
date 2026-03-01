@@ -244,6 +244,11 @@ mod tests {
         let cmd = ["systemctl"];
         for user in [false, true] {
             for shh_opts in &*ALL_SHH_RUN_OPTS {
+                if shh_opts.contains(&"aggressive") {
+                    // This one breaks systemctl under load,
+                    // due to divergent code path that makes us deny `@io-event`
+                    continue;
+                }
                 let mut shh_opts = shh_opts.clone();
                 if user {
                     shh_opts.extend(["-i", "user"]);

@@ -3,8 +3,10 @@
 // Last updated for systemd v257
 
 use std::{
+    collections::HashSet,
     fs, iter,
     path::{Path, PathBuf},
+    sync::LazyLock,
 };
 
 use itertools::Itertools as _;
@@ -1538,9 +1540,31 @@ impl OptionSpec for SystemCallFilter {
         !matches!(ctx.hardening_opts.mode, HardeningMode::Generic)
     }
 
-    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
-        let mut syscall_classes: Vec<_> = SYSCALL_CLASSES.keys().copied().collect();
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        /// Some services trigger different code paths depending on external run time conditions,
+        /// for examples systemctl may internally use `ppoll` or not in `sd_bus_call` (`sd-bus.c`).
+        /// To reduce the risk of breakage due to these missed syscalls, we maintain in this list
+        /// syscall classes, that:
+        /// - are not security sensitive
+        /// - have a high risk of breaking the service if denied
+        /// - have a possible risk of being missed at run time due to a divergent code path
+        static SYSCALL_CLASSES_MISSED_RISK: LazyLock<HashSet<&str>> = LazyLock::new(|| {
+            ["io-event", "signal", "sync", "timer"]
+                .into_iter()
+                .collect()
+        });
+
+        let mut syscall_classes: Vec<_> = SYSCALL_CLASSES
+            .keys()
+            .filter(|c| match ctx.hardening_opts.mode {
+                HardeningMode::Generic => unreachable!(),
+                HardeningMode::Standard => !SYSCALL_CLASSES_MISSED_RISK.contains(*c),
+                HardeningMode::Aggressive => true,
+            })
+            .copied()
+            .collect();
         syscall_classes.sort_unstable();
+
         OptionDescription {
             name: "SystemCallFilter",
             possible_values: vec![OptionValueDescription {
