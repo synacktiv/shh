@@ -1021,6 +1021,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "systemd-duration"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78409b7a37275edd6b57ce4e4afdb4e9e1cbceb9dd415c0c0ccbfa5038953ab9"
+dependencies = [
+ "nom",
+ "thiserror",
+]
+
+[[package]]
 name = "systemd-hardening-helper"
 version = "2026.1.27"
 dependencies = [
@@ -1055,6 +1065,7 @@ dependencies = [
  "simple_logger",
  "smol_str",
  "strum",
+ "systemd-duration",
  "tempfile",
  "thiserror",
  "ureq",

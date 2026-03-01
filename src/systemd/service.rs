@@ -214,8 +214,24 @@ impl Service {
             // Allow ptracing, only if a syscall filter is already in place, otherwise it becomes a whitelist
             writeln!(fragment_file, "SystemCallFilter=@debug")?;
         }
-        // strace may slow down enough to risk reaching some service timeouts
-        writeln!(fragment_file, "TimeoutStartSec=infinity")?;
+        if cfg!(debug_assertions) {
+            // strace parsing may slow down enough to risk reaching some service timeouts,
+            // but some services also never stop if we set this unconditionally to infinity
+            for timeout_config in ["TimeoutStartSec", "TimeoutStopSec"] {
+                let timeout = if let Some(timeout) =
+                    Self::config_vals(timeout_config, &current_config)?
+                        .last()
+                        .and_then(|t| systemd_duration::stdtime::parse(t).ok())
+                {
+                    // Double timeout if we have one
+                    format!("{}s", timeout.as_secs() * 2)
+                } else {
+                    // Default to infinity
+                    "infinity".into()
+                };
+                writeln!(fragment_file, "{timeout_config}={timeout}")?;
+            }
+        }
         writeln!(fragment_file, "KillMode=control-group")?;
         writeln!(fragment_file, "StandardOutput=journal")?;
 

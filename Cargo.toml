@@ -49,6 +49,7 @@ strum = { version = "0.27.2", default-features = false, features = ["std", "deri
 tempfile = { version = "3.24.0", default-features = false }
 thiserror = { version = "2.0.18", default-features = false, features = ["std"] }
 ecow = { version = "0.2.3", default-features = false, features = ["serde", "std"] }
+systemd-duration = { version = "0.3.1", default-features = false }
 
 [dev-dependencies]
 assert_cmd = { version = "2.1.2", default-features = false, features = ["color", "color-auto"] }
