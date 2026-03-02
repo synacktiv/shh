@@ -193,7 +193,7 @@ mod tests {
     #[test]
     fn run_gimp() {
         assert_snapshot!(shh_run_options(&[
-            "su", "testuser", "xvfb-run", "timeout", "10", "gimp"
+            "su", "testuser", "xvfb-run", "gimp", "--quit"
         ]));
     }
 }
