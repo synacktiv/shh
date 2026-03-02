@@ -1,10 +1,17 @@
 #!/bin/bash -eux
 
+# note: nextest will spawn TEST_THREADS parallel VMs, each running on its VM_CORE_COUNT CPUs
+CORE_COUNT=$(nproc 2>/dev/null || echo 1)
+VM_CORE_COUNT=$((CORE_COUNT > 4 ? 4 : CORE_COUNT))
+TEST_THREADS=$((CORE_COUNT / VM_CORE_COUNT))
+TEST_THREADS=$((TEST_THREADS > 2 ? TEST_THREADS : 2))
+
 CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER='./test-env/run-test debian-trixie' \
   cargo nextest run \
     --release \
     --features test-env-vm \
     --test '*' \
+    --test-threads "${TEST_THREADS}" \
     --stress-count 20 \
     --failure-output immediate-final \
     --success-output never \
