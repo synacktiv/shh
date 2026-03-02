@@ -65,6 +65,9 @@ sudo touch "${TARGET_DIR}/var/lib/systemd/linger/testuser"
 # has to be done after debootstrap to avoid package resolution errors
 sudo systemd-nspawn --machine="${MACHINE_NAME}" -D "${TARGET_DIR}" --bind-ro=/etc/resolv.conf --pipe apt-get install --no-install-recommends gimp polkitd -y < /dev/null
 
+# Disable journald rate limiting to avoid losing log messages during integration tests
+sudo sed -i 's/^#\?RateLimitIntervalSec=.*/RateLimitIntervalSec=0/' "${TARGET_DIR}/etc/systemd/journald.conf"
+
 sudo ln -sf ../run/systemd/resolve/stub-resolv.conf "${TARGET_DIR}/etc/resolv.conf"
 sudo mkdir -p "${TARGET_DIR}/etc/systemd/network"
 printf '[Match]\nName=*\n\n[Network]\nDHCP=yes\n' \
