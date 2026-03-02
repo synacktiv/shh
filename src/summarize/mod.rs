@@ -21,10 +21,10 @@ use crate::{
 mod handlers;
 
 use handlers::{
-    ChdirHandler, EpollCtlHandler, ExecHandler, KillHandler, MemfdCreateHandler, MkdirHandler,
-    MknodHandler, MmapHandler, MountHandler, NetworkHandler, OpenHandler, RenameHandler,
-    SetSchedulerHandler, ShmCtlHandler, SocketHandler, StatFdHandler, StatPathHandler,
-    SyscallHandler, TimerCreateHandler,
+    ChdirHandler, Clone3Handler, EpollCtlHandler, ExecHandler, ForkHandler, KillHandler,
+    MemfdCreateHandler, MkdirHandler, MknodHandler, MmapHandler, MountHandler, NetworkHandler,
+    OpenHandler, RenameHandler, SetSchedulerHandler, ShmCtlHandler, SocketHandler, StatFdHandler,
+    StatPathHandler, SyscallHandler, TimerCreateHandler, UnshareHandler,
 };
 
 /// A high level program runtime action
@@ -222,22 +222,20 @@ enum FdOrPath<T> {
 static SYSCALL_MAP: LazyLock<HashMap<&'static str, Box<dyn SyscallHandler>>> =
     LazyLock::new(|| {
         let mut m: HashMap<&'static str, Box<dyn SyscallHandler>> = HashMap::new();
-        // chdir
+        m.insert("accept", Box::new(NetworkHandler { fd: 0, sockaddr: 1 }));
+        m.insert("accept4", Box::new(NetworkHandler { fd: 0, sockaddr: 1 }));
+        m.insert("bind", Box::new(NetworkHandler { fd: 0, sockaddr: 1 }));
         m.insert(
             "chdir",
             Box::new(ChdirHandler {
                 path: FdOrPath::Path(0),
             }),
         );
-        m.insert(
-            "fchdir",
-            Box::new(ChdirHandler {
-                path: FdOrPath::Fd(0),
-            }),
-        );
-        // epoll_ctl
+        // Note: strace decodes clone's arguments as a struct, like clone3
+        m.insert("clone", Box::new(Clone3Handler { args: 0 }));
+        m.insert("clone3", Box::new(Clone3Handler { args: 0 }));
+        m.insert("connect", Box::new(NetworkHandler { fd: 0, sockaddr: 1 }));
         m.insert("epoll_ctl", Box::new(EpollCtlHandler { op: 1, event: 3 }));
-        // execve
         m.insert(
             "execve",
             Box::new(ExecHandler {
@@ -252,11 +250,24 @@ static SYSCALL_MAP: LazyLock<HashMap<&'static str, Box<dyn SyscallHandler>>> =
                 path: 1,
             }),
         );
-        // kill
+        m.insert(
+            "fchdir",
+            Box::new(ChdirHandler {
+                path: FdOrPath::Fd(0),
+            }),
+        );
+        m.insert("fork", Box::new(ForkHandler));
+        m.insert("fstat", Box::new(StatFdHandler { fd: 0 }));
+        m.insert("getdents", Box::new(StatFdHandler { fd: 0 }));
         m.insert("kill", Box::new(KillHandler { pid: 0, sig: 1 }));
-        // memfd_create
+        m.insert(
+            "lstat",
+            Box::new(StatPathHandler {
+                relfd: None,
+                path: 0,
+            }),
+        );
         m.insert("memfd_create", Box::new(MemfdCreateHandler { flags: 1 }));
-        // mkdir
         m.insert(
             "mkdir",
             Box::new(MkdirHandler {
@@ -271,7 +282,6 @@ static SYSCALL_MAP: LazyLock<HashMap<&'static str, Box<dyn SyscallHandler>>> =
                 path: 1,
             }),
         );
-        // mknod
         m.insert(
             "mknod",
             Box::new(MknodHandler {
@@ -286,7 +296,6 @@ static SYSCALL_MAP: LazyLock<HashMap<&'static str, Box<dyn SyscallHandler>>> =
                 mode: 2,
             }),
         );
-        // mmap
         m.insert(
             "mmap",
             Box::new(MmapHandler {
@@ -303,6 +312,7 @@ static SYSCALL_MAP: LazyLock<HashMap<&'static str, Box<dyn SyscallHandler>>> =
                 fd: Some(4),
             }),
         );
+        m.insert("mount", Box::new(MountHandler { flags: 3 }));
         m.insert(
             "mprotect",
             Box::new(MmapHandler {
@@ -312,25 +322,12 @@ static SYSCALL_MAP: LazyLock<HashMap<&'static str, Box<dyn SyscallHandler>>> =
             }),
         );
         m.insert(
-            "pkey_mprotect",
-            Box::new(MmapHandler {
-                prot: 2,
-                flags: None,
-                fd: None,
+            "newfstatat",
+            Box::new(StatPathHandler {
+                relfd: Some(0),
+                path: 1,
             }),
         );
-        // mount
-        m.insert("mount", Box::new(MountHandler { flags: 3 }));
-        // network
-        // We don't track other send/recv variants because, we can track activity we need
-        // from other syscalls
-        m.insert("accept", Box::new(NetworkHandler { fd: 0, sockaddr: 1 }));
-        m.insert("accept4", Box::new(NetworkHandler { fd: 0, sockaddr: 1 }));
-        m.insert("bind", Box::new(NetworkHandler { fd: 0, sockaddr: 1 }));
-        m.insert("connect", Box::new(NetworkHandler { fd: 0, sockaddr: 1 }));
-        m.insert("recvfrom", Box::new(NetworkHandler { fd: 0, sockaddr: 4 }));
-        m.insert("sendto", Box::new(NetworkHandler { fd: 0, sockaddr: 4 }));
-        // open
         m.insert(
             "open",
             Box::new(OpenHandler {
@@ -347,7 +344,15 @@ static SYSCALL_MAP: LazyLock<HashMap<&'static str, Box<dyn SyscallHandler>>> =
                 flags: 2,
             }),
         );
-        // rename
+        m.insert(
+            "pkey_mprotect",
+            Box::new(MmapHandler {
+                prot: 2,
+                flags: None,
+                fd: None,
+            }),
+        );
+        m.insert("recvfrom", Box::new(NetworkHandler { fd: 0, sockaddr: 4 }));
         m.insert(
             "rename",
             Box::new(RenameHandler {
@@ -378,19 +383,13 @@ static SYSCALL_MAP: LazyLock<HashMap<&'static str, Box<dyn SyscallHandler>>> =
                 flags: Some(4),
             }),
         );
-        // set scheduler
         m.insert(
             "sched_setscheduler",
             Box::new(SetSchedulerHandler { policy: 1 }),
         );
-        // shmctl
+        m.insert("sendto", Box::new(NetworkHandler { fd: 0, sockaddr: 4 }));
         m.insert("shmctl", Box::new(ShmCtlHandler { op: 1 }));
-        // socket
         m.insert("socket", Box::new(SocketHandler { af: 0, flags: 1 }));
-        // stat fd
-        m.insert("fstat", Box::new(StatFdHandler { fd: 0 }));
-        m.insert("getdents", Box::new(StatFdHandler { fd: 0 }));
-        // stat path
         m.insert(
             "stat",
             Box::new(StatPathHandler {
@@ -398,32 +397,105 @@ static SYSCALL_MAP: LazyLock<HashMap<&'static str, Box<dyn SyscallHandler>>> =
                 path: 0,
             }),
         );
-        m.insert(
-            "lstat",
-            Box::new(StatPathHandler {
-                relfd: None,
-                path: 0,
-            }),
-        );
-        m.insert(
-            "newfstatat",
-            Box::new(StatPathHandler {
-                relfd: Some(0),
-                path: 1,
-            }),
-        );
-        // timer_create
         m.insert("timer_create", Box::new(TimerCreateHandler { clockid: 0 }));
+        m.insert("unshare", Box::new(UnshareHandler { flags: 0 }));
+        m.insert("vfork", Box::new(ForkHandler));
         m
     });
+
+/// Synthetic fd-table identifier, used to group pids that share an fd table
+type FdTableId = usize;
+
+/// Track process fd-table topology and socket protocols across threads.
+///
+/// Implicit fd closures (`FD_CLOEXEC` / `O_CLOEXEC` / `SOCK_CLOEXEC`) are intentionally
+/// not modeled: we only need the protocol at the time of a `bind`/`connect`/etc. call,
+/// and when a new socket reuses the same fd number, `add_sock_proto` overwrites the old entry.
+#[derive(Debug, Default)]
+pub(crate) struct ProcessFdTracker {
+    /// Socket protocols keyed by (fd-table id, fd).
+    /// We don't track socket closings because the fd will be reused or never bound again.
+    sock_proto: HashMap<(FdTableId, RawFd), SocketProtocol>,
+    /// Which fd table each pid currently uses.
+    pid_table: HashMap<pid_t, FdTableId>,
+    /// Counter for allocating synthetic fd-table ids.
+    next_table_id: FdTableId,
+}
+
+impl ProcessFdTracker {
+    /// Register a protocol for a PID and socket file descriptor
+    pub(crate) fn add_sock_proto(&mut self, pid: pid_t, fd: RawFd, proto: SocketProtocol) {
+        let table_id = self.table_id_for_pid_mut(pid);
+        self.sock_proto.insert((table_id, fd), proto);
+    }
+
+    /// Get a protocol for a PID and socket file descriptor
+    pub(crate) fn get_sock_proto(&self, pid: pid_t, fd: RawFd) -> Option<&SocketProtocol> {
+        let table_id = self.pid_table.get(&pid)?;
+        self.sock_proto.get(&(*table_id, fd))
+    }
+
+    /// Register a child process, and wether or it shares its parent fds
+    pub(crate) fn add_child_proc(
+        &mut self,
+        parent_pid: pid_t,
+        child_pid: pid_t,
+        share_fd_table: bool,
+    ) {
+        let parent_table_id = self.table_id_for_pid_mut(parent_pid);
+        if share_fd_table {
+            self.pid_table.insert(child_pid, parent_table_id);
+        } else {
+            let child_table_id = self.alloc_table_id();
+            self.copy_sock_protos(parent_table_id, child_table_id);
+            self.pid_table.insert(child_pid, child_table_id);
+        }
+    }
+
+    /// Ensure a process has its own private fd table
+    pub(crate) fn split_fd_table(&mut self, pid: pid_t) {
+        let old_table_id = self.table_id_for_pid_mut(pid);
+        let new_table_id = self.alloc_table_id();
+        self.copy_sock_protos(old_table_id, new_table_id);
+        self.pid_table.insert(pid, new_table_id);
+    }
+
+    fn alloc_table_id(&mut self) -> FdTableId {
+        let id = self.next_table_id;
+        self.next_table_id += 1;
+        id
+    }
+
+    /// Get existing or new table id for a PID
+    fn table_id_for_pid_mut(&mut self, pid: pid_t) -> FdTableId {
+        let next = &mut self.next_table_id;
+        *self.pid_table.entry(pid).or_insert_with(|| {
+            let id = *next;
+            *next += 1;
+            id
+        })
+    }
+
+    fn copy_sock_protos(&mut self, src_table: FdTableId, dst_table: FdTableId) {
+        let protos_to_copy = self
+            .sock_proto
+            .iter()
+            .filter_map(|((table_id, fd), proto)| {
+                (*table_id == src_table).then_some((*fd, proto.clone()))
+            })
+            .collect::<Vec<_>>();
+        for (fd, proto) in protos_to_copy {
+            self.sock_proto.insert((dst_table, fd), proto);
+        }
+    }
+}
 
 /// Information that persists between syscalls and that we need to handle
 /// Obviously, keeping this to a minimum is a goal
 #[derive(Debug)]
 pub(crate) struct ProgramState {
-    /// Keep known socket protocols (per process) for bind handling, we don't care for the socket closings
-    /// because the fd will be reused or never bound again
-    known_sockets_proto: HashMap<(pid_t, RawFd), SocketProtocol>,
+    /// Process fd-table topology and socket protocol tracking
+    proc_fd: ProcessFdTracker,
     /// Current working directory
     cur_dir: PathBuf,
 }
@@ -434,7 +506,7 @@ impl ProgramState {
         P: Into<PathBuf>,
     {
         Self {
-            known_sockets_proto: HashMap::new(),
+            proc_fd: ProcessFdTracker::default(),
             cur_dir: cur_dir.into(),
         }
     }
