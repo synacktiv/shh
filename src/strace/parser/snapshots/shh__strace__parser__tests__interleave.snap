@@ -23,10 +23,10 @@ expression: syscalls
         )),
       }),
     ],
-    ret_val: IntegerExpression(
+    ret_val: Some(IntegerExpression(
       value: Literal(0),
       metadata: None,
-    ),
+    )),
   ),
   Syscall(
     pid: 1,
@@ -59,7 +59,7 @@ expression: syscalls
         metadata: None,
       )),
     ],
-    ret_val: IntegerExpression(
+    ret_val: Some(IntegerExpression(
       value: Literal(1),
       metadata: Some([
         40,
@@ -71,6 +71,6 @@ expression: syscalls
         93,
         41,
       ]),
-    ),
+    )),
   ),
 ]

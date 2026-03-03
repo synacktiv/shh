@@ -4,7 +4,7 @@ expression: result
 ---
 Parsed(NameOnly(
   name: "select",
-  ret_val: IntegerExpression(
+  ret_val: Some(IntegerExpression(
     value: Literal(1),
     metadata: Some([
       40,
@@ -16,5 +16,5 @@ Parsed(NameOnly(
       93,
       41,
     ]),
-  ),
+  )),
 ))

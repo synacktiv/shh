@@ -4,8 +4,8 @@ expression: result
 ---
 Parsed(NameOnly(
   name: "sched_yield",
-  ret_val: IntegerExpression(
+  ret_val: Some(IntegerExpression(
     value: Literal(0),
     metadata: None,
-  ),
+  )),
 ))

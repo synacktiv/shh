@@ -70,7 +70,7 @@ Parsed(Syscall(Syscall(
       metadata: None,
     )),
   ],
-  ret_val: IntegerExpression(
+  ret_val: Some(IntegerExpression(
     value: Literal(-1),
     metadata: Some([
       69,
@@ -113,5 +113,5 @@ Parsed(Syscall(Syscall(
       115,
       41,
     ]),
-  ),
+  )),
 )))

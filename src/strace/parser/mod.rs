@@ -72,10 +72,10 @@ enum ParsedSyscall {
     SyscallEnd(SyscallEnd),
     /// Complete syscall
     Syscall(Syscall),
-    /// Syscall name, the rest is ignored for performance
+    /// Syscall name and return value only
     NameOnly {
         name: SyscallName,
-        ret_val: IntegerExpression,
+        ret_val: Option<IntegerExpression>,
     },
 }
 
@@ -111,7 +111,7 @@ pub(crate) struct SyscallEnd {
     pub pid: pid_t,
     pub rel_ts: f64,
     pub name: SyscallName,
-    pub ret_val: IntegerExpression,
+    pub ret_val: Option<IntegerExpression>,
 }
 
 impl Iterator for LogParser {
@@ -133,10 +133,10 @@ impl Iterator for LogParser {
                 continue;
             }
 
-            if let Some(log) = self.log.as_mut() {
-                if let Err(e) = writeln!(log, "{line}") {
-                    return Some(Err(e.into()));
-                }
+            if let Some(log) = self.log.as_mut()
+                && let Err(e) = writeln!(log, "{line}")
+            {
+                return Some(Err(e.into()));
             }
 
             match parse_line(line, &self.handled_syscalls) {
@@ -164,7 +164,10 @@ impl Iterator for LogParser {
                             log::warn!("Unable to find first part of syscall");
                         }
                         ParsedSyscall::NameOnly { name, ret_val } => {
-                            if Syscall::is_successful_or_pending_ret_val(&ret_val) {
+                            if ret_val
+                                .as_ref()
+                                .is_none_or(Syscall::is_successful_or_pending_ret_val)
+                            {
                                 break SyscallItem::NameOnly(name);
                             }
                         }
@@ -666,6 +669,18 @@ mod tests {
             parse_line(
                 r#"39270      0.000020 connect(11<\x73\x6f\x63\x6b\x65\x74\x3a\x5b\x32\x31\x34\x31\x30\x37\x5d>, {sa_family=AF_INET, sin_port=htons(4321), sin_addr=inet_addr("\x31\x2e\x32\x2e\x33\x2e\x34")}, 16) = -1 EINPROGRESS (Operation now in progress)"#,
                 &HashSet::from(["connect"]),
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn erestartsys() {
+        let _ = simple_logger::SimpleLogger::new().init();
+        assert_snapshot!(
+            parse_line(
+                "121009      0.000004 futex(0x574cd7b0cd00, FUTEX_WAIT_PRIVATE, 6, NULL) = ? ERESTARTSYS (To be restarted if SA_RESTART is set)",
+                &HashSet::new(),
             )
             .unwrap()
         );

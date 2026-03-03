@@ -792,10 +792,11 @@ impl SyscallHandler for OpenHandler {
         // Add actions for traversed symlinks
         traverse_symlinks(&mut path, actions);
 
-        if sc.ret_val.value().is_some_and(|v| v != -1) {
+        if let Some(ret_val) = &sc.ret_val
+            && ret_val.value().is_some_and(|v| v != -1)
+        {
             // Returned fd has normalized path, use it if we can
-            let ret_path = sc
-                .ret_val
+            let ret_path = ret_val
                 .metadata
                 .as_ref()
                 .map(|b| PathBuf::from(OsStr::from_bytes(b)));
@@ -1017,13 +1018,13 @@ impl SyscallHandler for SocketHandler {
                     src: proto_flag.to_owned(),
                     type_: type_name::<SocketProtocol>(),
                 })?;
-        let ret_fd = sc
-            .ret_val
-            .value()
-            .ok_or_else(|| HandlerError::ParsingFailed {
-                src: format!("{:?}", sc.ret_val),
-                type_: type_name::<i64>(),
-            })?;
+        let Some(ret_val) = &sc.ret_val else {
+            return Ok(());
+        };
+        let ret_fd = ret_val.value().ok_or_else(|| HandlerError::ParsingFailed {
+            src: format!("{:?}", sc.ret_val),
+            type_: type_name::<i64>(),
+        })?;
 
         if ret_fd != -1 {
             state.known_sockets_proto.insert(
@@ -1476,10 +1477,10 @@ x86_Thread_features_locked:
             rel_ts: 0.0,
             name: name.into(),
             args,
-            ret_val: IntegerExpression {
+            ret_val: Some(IntegerExpression {
                 value: IntegerExpressionValue::Literal(ret_val),
                 metadata: None,
-            },
+            }),
         }
     }
 
@@ -2443,10 +2444,10 @@ x86_Thread_features_locked:
                 value: IntegerExpressionValue::Literal(3),
                 metadata: Some(b"/etc/passwd".to_vec()),
             })],
-            ret_val: IntegerExpression {
+            ret_val: Some(IntegerExpression {
                 value: IntegerExpressionValue::Literal(0),
                 metadata: None,
-            },
+            }),
         };
         let mut actions = vec![];
         let mut state = ProgramState::new("/");

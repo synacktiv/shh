@@ -1,0 +1,8 @@
+---
+source: src/strace/parser/mod.rs
+expression: "parse_line(\"121009      0.000004 futex(0x574cd7b0cd00, FUTEX_WAIT_PRIVATE, 6, NULL) = ? ERESTARTSYS (To be restarted if SA_RESTART is set)\",\n&HashSet::new(),).unwrap()"
+---
+Parsed(NameOnly(
+  name: "futex",
+  ret_val: None,
+))

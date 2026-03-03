@@ -39,8 +39,8 @@ Parsed(Syscall(Syscall(
       metadata: None,
     )),
   ],
-  ret_val: IntegerExpression(
+  ret_val: Some(IntegerExpression(
     value: Literal(139843305586688),
     metadata: None,
-  ),
+  )),
 )))

@@ -547,10 +547,10 @@ mod tests {
                     metadata: None,
                 }),
             ],
-            ret_val: IntegerExpression {
+            ret_val: Some(IntegerExpression {
                 value: IntegerExpressionValue::Literal(0),
                 metadata: None,
-            },
+            }),
         })))];
         assert_eq!(
             summarize(syscalls, &env_paths, state).unwrap(),
@@ -606,10 +606,10 @@ mod tests {
                     metadata: None,
                 }),
             ],
-            ret_val: IntegerExpression {
+            ret_val: Some(IntegerExpression {
                 value: IntegerExpressionValue::Literal(0),
                 metadata: None,
-            },
+            }),
         })))];
         assert_eq!(
             summarize(syscalls, &env_paths, state).unwrap(),
@@ -764,10 +764,10 @@ mod tests {
                     .collect(),
                 ),
             ],
-            ret_val: IntegerExpression {
+            ret_val: Some(IntegerExpression {
                 value: IntegerExpressionValue::Literal(0),
                 metadata: None,
-            },
+            }),
         })))];
         assert_eq!(
             summarize(syscalls, &[], state).unwrap(),

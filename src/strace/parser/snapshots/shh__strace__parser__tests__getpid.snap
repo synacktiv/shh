@@ -7,8 +7,8 @@ Parsed(Syscall(Syscall(
   rel_ts: 0.000022,
   name: "getpid",
   args: [],
-  ret_val: IntegerExpression(
+  ret_val: Some(IntegerExpression(
     value: Literal(641314),
     metadata: None,
-  ),
+  )),
 )))

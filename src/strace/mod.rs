@@ -24,12 +24,14 @@ pub(crate) struct Syscall {
     pub rel_ts: f64,
     pub name: SyscallName,
     pub args: Vec<Expression>,
-    pub ret_val: IntegerExpression,
+    pub ret_val: Option<IntegerExpression>,
 }
 
 impl Syscall {
     pub(crate) fn is_successful_or_pending(&self) -> bool {
-        Self::is_successful_or_pending_ret_val(&self.ret_val)
+        self.ret_val
+            .as_ref()
+            .is_none_or(Self::is_successful_or_pending_ret_val)
     }
 
     pub(crate) fn is_successful_or_pending_ret_val(rv: &IntegerExpression) -> bool {

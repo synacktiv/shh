@@ -10,7 +10,7 @@ use nom::{
     character::complete::{
         self, alpha1, alphanumeric1, char, digit1, hex_digit1, oct_digit1, space1,
     },
-    combinator::{map, map_opt, map_res, opt, recognize, rest, verify},
+    combinator::{map, map_opt, map_res, opt, recognize, rest, value, verify},
     multi::{count, many_till, many0_count, separated_list0, separated_list1},
     number::complete::double,
     sequence::{delimited, pair, preceded, separated_pair, terminated},
@@ -233,20 +233,27 @@ fn parse_in_out_argument(i: &str) -> IResult<&str, (Option<Expression>, Expressi
 }
 
 #[function_name::named]
-fn parse_ret_val(i: &str) -> IResult<&str, IntegerExpression> {
+fn parse_ret_val(i: &str) -> IResult<&str, Option<IntegerExpression>> {
     dbg_parser_entry!(i);
     preceded(
         terminated(char('='), space1),
         map_opt(
-            (parse_int_literal, opt(preceded(space1, rest))),
-            |(mut ie, m)| {
-                if let Some(m) = m {
-                    if ie.metadata.replace(m.as_bytes().to_vec()).is_some() {
+            (
+                alt((map(parse_int_literal, Some), value(None, char('?')))),
+                opt(preceded(space1, rest)),
+            ),
+            |(ieo, m): (Option<IntegerExpression>, Option<&str>)| {
+                if let Some(mut ie) = ieo {
+                    if let Some(m) = m
+                        && ie.metadata.replace(m.as_bytes().to_vec()).is_some()
+                    {
                         // We already had some metadata, something is wrong
                         return None;
                     }
+                    Some(Some(ie))
+                } else {
+                    Some(None)
                 }
-                Some(ie)
             },
         ),
     )

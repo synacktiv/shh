@@ -53,8 +53,8 @@ Parsed(Syscall(Syscall(
       ],
     ),
   ],
-  ret_val: IntegerExpression(
+  ret_val: Some(IntegerExpression(
     value: Literal(8),
     metadata: None,
-  ),
+  )),
 )))
