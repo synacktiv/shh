@@ -49,6 +49,7 @@ readonly PACKAGES=(
     python3
     strace
     systemd-resolved
+    weborf-daemon
     xauth
     xvfb
 )

@@ -195,12 +195,15 @@ impl Service {
         Self::write_fragment_header(&mut fragment_file)?;
         writeln!(fragment_file, "[Service]")?;
         // writeln!(fragment_file, "AmbientCapabilities=CAP_SYS_PTRACE")?;
-        if Self::config_vals("Type", &current_config)?
-            .last()
-            .is_some_and(|v| v.starts_with("notify"))
-        {
+        let service_type = Self::config_vals("Type", &current_config)?;
+        let service_type = service_type.last().map(String::as_str);
+        if service_type.is_some_and(|v| v.starts_with("notify")) {
             // needed because strace becomes the main process
             writeln!(fragment_file, "NotifyAccess=all")?;
+        }
+        if service_type.is_some_and(|v| v == "forking") {
+            // strace wrapping keeps the main process alive, so forking semantics no longer apply
+            writeln!(fragment_file, "Type=simple")?;
         }
         writeln!(fragment_file, "Environment=RUST_BACKTRACE=1")?;
         if !Self::config_vals("SystemCallFilter", &current_config)?.is_empty() {
@@ -383,6 +386,21 @@ impl Service {
         Ok(())
     }
 
+    pub(crate) fn reset_failed(&self) -> anyhow::Result<()> {
+        match self.action("reset-failed", true) {
+            Ok(()) => Ok(()),
+            Err(err)
+                if self.arg.is_some()
+                    && err.root_cause().to_string().starts_with("systemctl failed") =>
+            {
+                // Templated instances can cause systemctl to return 1 if not running,
+                // ignore it
+                Ok(())
+            }
+            Err(err) => Err(err),
+        }
+    }
+
     pub(crate) fn action(&self, verb: &str, block: bool) -> anyhow::Result<()> {
         let unit_name = self.unit_name();
         log::info!("{verb} {unit_name}");
@@ -402,6 +420,7 @@ impl Service {
     pub(crate) fn profiling_result_retry(
         &self,
         cursor: &JournalCursor,
+        invocation: &InvocationId,
     ) -> anyhow::Result<Vec<OptionWithValue<String>>> {
         // DefaultTimeoutStopSec is typically 90s and services can dynamically extend it
         // See https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html#TimeoutStopSec=
@@ -409,13 +428,11 @@ impl Service {
         const PROFILING_RESULT_USLEEP: Duration = Duration::from_millis(300);
         const PROFILING_RESULT_WARN_DELAY: Duration = Duration::from_secs(3);
 
-        let invocation = self.invocation_id()?;
-
         // For user units or under load, sometimes journalctl does not have the logs yet, so retry with a delay
         let time_start = Instant::now();
         let mut slow_result_warned = false;
         loop {
-            match cursor.profiling_result(self, &invocation) {
+            match cursor.profiling_result(self, invocation) {
                 Ok(opts) => return Ok(opts),
                 Err(err) => match err {
                     ProfilingLogError::Incomplete { .. } => {
@@ -574,7 +591,7 @@ impl Service {
         Ok(value)
     }
 
-    fn invocation_id(&self) -> anyhow::Result<InvocationId> {
+    pub(crate) fn invocation_id(&self) -> anyhow::Result<InvocationId> {
         self.property("InvocationID")?
             .parse()
             .context("Failed to parse invocation id")

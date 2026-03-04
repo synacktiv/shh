@@ -62,15 +62,14 @@ mod tests {
             if status.success() {
                 return;
             }
-            assert!(
-                start.elapsed() < WAIT_ACTIVE_TIMEOUT,
-                "Timed out waiting for {service_name} to become active"
-            );
+            if start.elapsed() >= WAIT_ACTIVE_TIMEOUT {
+                service_log(service_name);
+                panic!("Timed out waiting for {service_name} to become active");
+            }
             thread::sleep(Duration::from_millis(500));
         }
     }
 
-    #[expect(dead_code)]
     fn service_log(service_name: &str) {
         let journalctl_output = Command::new("journalctl")
             .args(["-u", service_name, "--no-pager", "-n", "50"])
@@ -90,16 +89,24 @@ mod tests {
         );
     }
 
+    /// Compute the fragment directory name for a service
+    fn fragment_dir(service_name: &str) -> String {
+        if let Some(base) = service_name.split_once('@').map(|(b, _)| b) {
+            format!("{base}@.service.d")
+        } else {
+            format!("{service_name}.service.d")
+        }
+    }
+
     /// Generic function to check hardening workflow for a service
     fn harden_service<F>(service_name: &str, checker: F)
     where
         F: Fn(),
     {
         let bin = shh_bin();
-        let hardening_fragment_path =
-            format!("/etc/systemd/system/{service_name}.service.d/zz_shh-harden.conf");
-        let profiling_fragment_path =
-            format!("/run/systemd/system/{service_name}.service.d/zz_shh-profile.conf");
+        let frag_dir = fragment_dir(service_name);
+        let hardening_fragment_path = format!("/etc/systemd/system/{frag_dir}/zz_shh-harden.conf");
+        let profiling_fragment_path = format!("/run/systemd/system/{frag_dir}/zz_shh-profile.conf");
 
         for shh_opts in &*ALL_SHH_RUN_OPTS {
             eprintln!("shh service option: {}", shh_opts.join(" "));
@@ -109,6 +116,9 @@ mod tests {
                 .args(["start", service_name])
                 .status()
                 .unwrap();
+            if !status.success() {
+                service_log(service_name);
+            }
             assert!(status.success());
 
             // Pre check
@@ -120,6 +130,9 @@ mod tests {
                 .args(shh_opts)
                 .status()
                 .unwrap();
+            if !status.success() {
+                service_log(service_name);
+            }
             assert!(status.success());
             wait_active(service_name);
             eprintln!("{}", fs::read_to_string(&profiling_fragment_path).unwrap());
@@ -132,6 +145,9 @@ mod tests {
                 .args(["service", "finish-profile", service_name, "-a"])
                 .status()
                 .unwrap();
+            if !status.success() {
+                service_log(service_name);
+            }
             assert!(status.success());
             assert!(!fs::exists(&profiling_fragment_path).unwrap());
             eprintln!("{}", fs::read_to_string(&hardening_fragment_path).unwrap());
@@ -142,7 +158,7 @@ mod tests {
 
             // Reset service
             status = Command::new(&bin)
-                .args(["service", "reset", "caddy"])
+                .args(["service", "reset", service_name])
                 .status()
                 .unwrap();
             assert!(status.success());
@@ -161,5 +177,61 @@ mod tests {
             assert!(html.contains("<html"));
         }
         harden_service("caddy", checker);
+    }
+
+    /// Set up a weborf instance config and document root for testing
+    fn setup_weborf_instance(instance: &str, port: u16) {
+        let docroot = format!("/srv/www/{instance}");
+        fs::create_dir_all(&docroot).unwrap();
+        fs::write(
+            format!("{docroot}/index.html"),
+            "<html><body>shh-test</body></html>\n",
+        )
+        .unwrap();
+        fs::create_dir_all("/etc/weborf.d").unwrap();
+        fs::write(
+            format!("/etc/weborf.d/{instance}"),
+            format!("basedir={docroot}/\nport={port}\nuser=nobody\ngroup=nogroup\n"),
+        )
+        .unwrap();
+    }
+
+    /// Remove a weborf instance config and document root
+    fn teardown_weborf_instance(instance: &str) {
+        let _ = fs::remove_file(format!("/etc/weborf.d/{instance}"));
+        let _ = fs::remove_dir_all(format!("/srv/www/{instance}"));
+    }
+
+    #[test]
+    fn harden_weborf() {
+        let instance = "shhtest";
+        let port = 8888_u16;
+
+        setup_weborf_instance(instance, port);
+
+        let checker = || {
+            let url = format!("http://127.0.0.1:{port}/");
+            let start = Instant::now();
+            let response = loop {
+                match ureq::get(&url).call() {
+                    Ok(response) => break response,
+                    Err(ureq::Error::Io(e))
+                        if e.kind() == std::io::ErrorKind::ConnectionRefused
+                            && start.elapsed() < WAIT_ACTIVE_TIMEOUT =>
+                    {
+                        eprintln!("Waiting for weborf to accept connections: {e}");
+                        thread::sleep(Duration::from_millis(500));
+                    }
+                    Err(e) => panic!("weborf not reachable after {:?}: {e}", start.elapsed()),
+                }
+            };
+            assert_eq!(response.status().as_u16(), 200);
+            let html = response.into_body().read_to_string().unwrap();
+            assert!(html.contains("shh-test"));
+        };
+
+        harden_service(&format!("weborf@{instance}"), checker);
+
+        teardown_weborf_instance(instance);
     }
 }

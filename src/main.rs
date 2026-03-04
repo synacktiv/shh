@@ -287,13 +287,17 @@ fn main() -> anyhow::Result<()> {
             let service = systemd::Service::new(&service.name, service.instance.instance)
                 .context("Invalid service name")?;
             let cursor = systemd::JournalCursor::current()?;
+            // Capture invocation ID before stop, as systemd may clear it for template instances
+            let invocation = service
+                .invocation_id()
+                .context("Failed to get invocation id (is the service running?)")?;
             service
                 .action("stop", true)
                 .context("Failed to stop service")?;
             service
                 .remove_profile_fragment()
                 .context("Failed to remove systemd unit profiling fragment")?;
-            let resolved_opts = service.profiling_result_retry(&cursor)?;
+            let resolved_opts = service.profiling_result_retry(&cursor, &invocation)?;
             log::info!(
                 "Resolved systemd options:\n{}",
                 resolved_opts
@@ -324,7 +328,7 @@ fn main() -> anyhow::Result<()> {
                 );
             }
             service
-                .action("reset-failed", true)
+                .reset_failed()
                 .context("Failed to reset restart count")?;
             if !no_restart {
                 service
