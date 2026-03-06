@@ -1287,6 +1287,11 @@ impl OptionUpdater for IpAddressDeny {
         } else {
             return None;
         };
+        // Unspecified addresses (:: or 0.0.0.0) mean "all interfaces" in bind(),
+        // so IPAddressDeny cannot be applied
+        if action_addr.is_unspecified() {
+            return None;
+        }
         let mut new_effect_address = effect_na.address.clone();
         new_effect_address.remove(action_addr);
         Some(OptionValueEffect::DenyAction(

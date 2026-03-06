@@ -190,8 +190,13 @@ impl Display for NetworkPort {
 pub(crate) struct NetworkAddress(IpAddr);
 
 impl NetworkAddress {
+    /// Check if this address is the unspecified address (`::` or `0.0.0.0`).
+    pub(crate) fn is_unspecified(&self) -> bool {
+        self.0.is_unspecified()
+    }
+
     /// Return the IPv4 equivalent of this address on a dual-stack socket, if any.
-    /// `::` → `0.0.0.0`, `::ffff:A.B.C.D` → `A.B.C.D`, everything else → None.
+    /// `::` -> `0.0.0.0`, `::ffff:A.B.C.D` -> `A.B.C.D`, everything else -> None.
     pub(crate) fn ipv4_equivalent(&self) -> Option<Self> {
         match self.0 {
             IpAddr::V6(v6) if v6.is_unspecified() => Some(IpAddr::V4(Ipv4Addr::UNSPECIFIED).into()),

@@ -363,11 +363,17 @@ pub(crate) fn resolve(
 #[expect(clippy::shadow_unrelated)]
 #[cfg(test)]
 mod tests {
+    use std::net::IpAddr;
+
     use super::*;
     use crate::{
         cl::HardeningOptions,
+        summarize::{NetworkActivity, NetworkActivityKind, SetSpecifier},
         sysctl,
-        systemd::{self, KernelVersion, SystemdVersion, build_options},
+        systemd::{
+            self, KernelVersion, SystemdVersion, build_options,
+            options::{SocketFamily, SocketProtocol},
+        },
     };
 
     fn test_options_standard(names: &[&str]) -> (Vec<OptionDescription>, HardeningOptions) {
@@ -694,5 +700,45 @@ mod tests {
         );
         assert_eq!(candidates[2].to_string(), "BindPaths=-/var/data");
         assert_eq!(candidates[3].to_string(), "PrivateMounts=true");
+    }
+
+    #[test]
+    fn resolve_ip_address_deny_bind_ipv6_unspecified() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let (opts, hardening_opts) = test_options_strict(&["IPAddressDeny"]);
+
+        let actions = vec![ProgramAction::NetworkActivity(
+            NetworkActivity {
+                af: SetSpecifier::One(SocketFamily::Ipv6),
+                proto: SetSpecifier::One(SocketProtocol::Tcp),
+                kind: SetSpecifier::One(NetworkActivityKind::Bind),
+                local_port: SetSpecifier::All,
+                address: SetSpecifier::One("::".parse::<IpAddr>().unwrap().into()),
+            }
+            .into(),
+        )];
+        let candidates = resolve(&opts, &actions, &hardening_opts);
+        assert!(candidates.is_empty());
+    }
+
+    #[test]
+    fn resolve_ip_address_deny_bind_ipv4_unspecified() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let (opts, hardening_opts) = test_options_strict(&["IPAddressDeny"]);
+
+        let actions = vec![ProgramAction::NetworkActivity(
+            NetworkActivity {
+                af: SetSpecifier::One(SocketFamily::Ipv4),
+                proto: SetSpecifier::One(SocketProtocol::Tcp),
+                kind: SetSpecifier::One(NetworkActivityKind::Bind),
+                local_port: SetSpecifier::All,
+                address: SetSpecifier::One("0.0.0.0".parse::<IpAddr>().unwrap().into()),
+            }
+            .into(),
+        )];
+        let candidates = resolve(&opts, &actions, &hardening_opts);
+        assert!(candidates.is_empty());
     }
 }
