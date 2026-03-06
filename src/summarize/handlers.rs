@@ -30,24 +30,19 @@ use super::{
 use crate::{
     strace::{
         BufferExpression, BufferType, Expression, IntegerExpression, IntegerExpressionValue,
-        Syscall, SyscallName,
+        Syscall,
     },
     systemd::{SocketFamily, SocketProtocol},
 };
 
 #[derive(thiserror::Error, Debug)]
 pub(crate) enum HandlerError {
-    #[error("Unexpected {sc_name:?} argument type: {arg:?}")]
-    ArgTypeMismatch {
-        sc_name: SyscallName,
-        arg: Expression,
-    },
-    #[error("Missing argument at index {index} for syscall {sc_name:?}")]
-    ArgIndexOutOfBounds { sc_name: SyscallName, index: usize },
-    #[error("Failed to parse {src:?} as {type_}")]
-    ParsingFailed { src: String, type_: &'static str },
-    #[error("Failed to convert value {src:?} ({type_src}) into {type_dst}")]
-    ConversionFailed {
+    #[error("Missing argument at index {index}")]
+    SyscalllArgIndexOutOfBounds { index: usize },
+    #[error("Unexpected argument type: {arg:?}")]
+    ExpressionTypeMismatch { arg: Expression },
+    #[error("Failed to interpret value {src:?} ({type_src}) as {type_dst}")]
+    ValueInterpretationFailed {
         src: String,
         type_src: &'static str,
         type_dst: &'static str,
@@ -57,8 +52,51 @@ pub(crate) enum HandlerError {
         member: &'static str,
         struct_: HashMap<String, Expression>,
     },
-    #[error("System error: {0}")]
-    SystemError(#[from] io::Error),
+}
+
+macro_rules! err_expr_type {
+    ($arg:expr $(,)?) => {
+        HandlerError::ExpressionTypeMismatch {
+            arg: ($arg).to_owned(),
+        }
+    };
+}
+
+macro_rules! err_value {
+    ($src:expr, $type_src:ty => $type_dst:ty $(,)?) => {
+        HandlerError::ValueInterpretationFailed {
+            src: format!("{:?}", $src),
+            type_src: type_name::<$type_src>(),
+            type_dst: type_name::<$type_dst>(),
+        }
+    };
+    ($src:expr, $type_dst:ty $(,)?) => {
+        HandlerError::ValueInterpretationFailed {
+            src: format!("{:?}", $src),
+            type_src: type_name_of_val(&($src)),
+            type_dst: type_name::<$type_dst>(),
+        }
+    };
+}
+
+macro_rules! unpack_expr {
+    ($expr:expr, $pat:pat => $result:expr $(,)?) => {
+        match $expr {
+            $pat => $result,
+            other => return Err(err_expr_type!(other)),
+        }
+    };
+}
+
+macro_rules! unpack_struct_member {
+    ($members:expr, $member:literal $(,)?) => {
+        $members
+            .get($member)
+            .ok_or_else(|| HandlerError::MissingStructMember {
+                member: $member,
+                struct_: $members.to_owned(),
+            })?
+    };
 }
 
 /// Trait for handling a syscall and producing summary actions
@@ -85,10 +123,7 @@ impl ExtractArg for usize {
     fn extract<'a>(&self, sc: &'a Syscall) -> Result<&'a Expression, HandlerError> {
         sc.args
             .get(*self)
-            .ok_or_else(|| HandlerError::ArgIndexOutOfBounds {
-                sc_name: sc.name.clone(),
-                index: *self,
-            })
+            .ok_or(HandlerError::SyscalllArgIndexOutOfBounds { index: *self })
     }
 }
 
@@ -113,11 +148,7 @@ impl ExtractArg for FdOrPath<usize> {
 
 impl FdOrPath<&Expression> {
     /// Resolve an fd-or-path reference to an optional absolute path
-    fn resolve(
-        self,
-        sc_name: &SyscallName,
-        cur_dir: &Path,
-    ) -> Result<Option<PathBuf>, HandlerError> {
+    fn resolve(self, cur_dir: &Path) -> Result<Option<PathBuf>, HandlerError> {
         match self {
             FdOrPath::Fd(fd) => Ok(resolve_path(Path::new(""), Some(fd), cur_dir)),
             FdOrPath::Path(Expression::Buffer(BufferExpression {
@@ -127,10 +158,7 @@ impl FdOrPath<&Expression> {
                 let p = Path::new(OsStr::from_bytes(b));
                 Ok(resolve_path(p, None, cur_dir))
             }
-            FdOrPath::Path(e) => Err(HandlerError::ArgTypeMismatch {
-                sc_name: sc_name.to_owned(),
-                arg: e.to_owned(),
-            }),
+            FdOrPath::Path(e) => Err(HandlerError::ExpressionTypeMismatch { arg: e.to_owned() }),
         }
     }
 }
@@ -150,10 +178,7 @@ impl SyscallHandler for ChdirHandler {
         if !sc.is_successful() {
             return Ok(());
         }
-        let dir = self
-            .path
-            .extract(sc)?
-            .resolve(&sc.name, state.cur_dir.as_ref())?;
+        let dir = self.path.extract(sc)?.resolve(state.cur_dir.as_ref())?;
         if let Some(mut dir) = dir {
             traverse_symlinks(&mut dir, actions);
             debug_assert!(dir.is_absolute());
@@ -179,40 +204,18 @@ impl SyscallHandler for EpollCtlHandler {
         let op = self.op.extract(sc)?;
         let event = self.event.extract(sc)?;
 
-        let Expression::Integer(IntegerExpression {
-            value: IntegerExpressionValue::NamedSymbol(op_name),
-            ..
-        }) = op
-        else {
-            return Err(HandlerError::ArgTypeMismatch {
-                sc_name: sc.name.clone(),
-                arg: op.to_owned(),
-            });
-        };
+        let op_name = unpack_expr!(
+            op,
+            Expression::Integer(IntegerExpression {
+                value: IntegerExpressionValue::NamedSymbol(op_name),
+                ..
+            }) => op_name
+        );
 
         if op_name == "EPOLL_CTL_ADD" {
-            let evt_flags = if let Expression::Struct(evt_struct) = event {
-                let evt_member =
-                    evt_struct
-                        .get("events")
-                        .ok_or_else(|| HandlerError::MissingStructMember {
-                            member: "events",
-                            struct_: evt_struct.to_owned(),
-                        })?;
-                if let Expression::Integer(ie) = evt_member {
-                    ie
-                } else {
-                    return Err(HandlerError::ArgTypeMismatch {
-                        sc_name: sc.name.clone(),
-                        arg: evt_member.to_owned(),
-                    });
-                }
-            } else {
-                return Err(HandlerError::ArgTypeMismatch {
-                    sc_name: sc.name.clone(),
-                    arg: event.to_owned(),
-                });
-            };
+            let evt_struct = unpack_expr!(event, Expression::Struct(evt_struct) => evt_struct);
+            let evt_member = unpack_struct_member!(evt_struct, "events");
+            let evt_flags = unpack_expr!(evt_member, Expression::Integer(ie) => ie);
             if evt_flags.value.is_flag_set("EPOLLWAKEUP") {
                 actions.push(ProgramAction::Wakeup);
             }
@@ -233,43 +236,23 @@ impl SyscallHandler for Clone3Handler {
         _actions: &mut Vec<ProgramAction>,
         state: &mut ProgramState,
     ) -> Result<(), HandlerError> {
-        let child_pid_i64 = match &sc.ret_val {
-            Some(rv) => rv.value().ok_or_else(|| HandlerError::ParsingFailed {
-                src: format!("{:?}", sc.ret_val),
-                type_: type_name::<i64>(),
-            })?,
+        let child_pid = match &sc.ret_val {
+            Some(rv) => rv.value().ok_or_else(|| err_value!(sc.ret_val, i64))?,
             None => return Ok(()),
         };
-        if child_pid_i64 <= 0 {
+        if child_pid <= 0 {
             return Ok(());
         }
-        let child_pid = TryInto::<pid_t>::try_into(child_pid_i64).map_err(|_| {
-            HandlerError::ConversionFailed {
-                src: child_pid_i64.to_string(),
-                type_src: type_name::<i64>(),
-                type_dst: type_name::<pid_t>(),
-            }
-        })?;
+        let child_pid = TryInto::<pid_t>::try_into(child_pid)
+            .map_err(|_| err_value!(child_pid, i64 => pid_t))?;
 
         let clone_args = self.args.extract(sc)?;
-        let Expression::Struct(members) = clone_args else {
-            return Err(HandlerError::ArgTypeMismatch {
-                sc_name: sc.name.clone(),
-                arg: clone_args.to_owned(),
-            });
-        };
-        let Some(flags_expr) = members.get("flags") else {
-            return Err(HandlerError::MissingStructMember {
-                member: "flags",
-                struct_: members.to_owned(),
-            });
-        };
-        let Expression::Integer(IntegerExpression { value: flags, .. }) = flags_expr else {
-            return Err(HandlerError::ArgTypeMismatch {
-                sc_name: sc.name.clone(),
-                arg: flags_expr.to_owned(),
-            });
-        };
+        let members = unpack_expr!(clone_args, Expression::Struct(members) => members);
+        let flags_expr = unpack_struct_member!(members, "flags");
+        let flags = unpack_expr!(
+            flags_expr,
+            Expression::Integer(IntegerExpression { value: flags, .. }) => flags
+        );
         let share_fd_table = flags.is_flag_set("CLONE_FILES");
         state
             .proc_fd
@@ -288,23 +271,15 @@ impl SyscallHandler for ForkHandler {
         _actions: &mut Vec<ProgramAction>,
         state: &mut ProgramState,
     ) -> Result<(), HandlerError> {
-        let child_pid_i64 = match &sc.ret_val {
-            Some(rv) => rv.value().ok_or_else(|| HandlerError::ParsingFailed {
-                src: format!("{:?}", sc.ret_val),
-                type_: type_name::<i64>(),
-            })?,
+        let child_pid = match &sc.ret_val {
+            Some(rv) => rv.value().ok_or_else(|| err_value!(sc.ret_val, i64))?,
             None => return Ok(()),
         };
-        if child_pid_i64 <= 0 {
+        if child_pid <= 0 {
             return Ok(());
         }
-        let child_pid = TryInto::<pid_t>::try_into(child_pid_i64).map_err(|_| {
-            HandlerError::ConversionFailed {
-                src: child_pid_i64.to_string(),
-                type_src: type_name::<i64>(),
-                type_dst: type_name::<pid_t>(),
-            }
-        })?;
+        let child_pid = TryInto::<pid_t>::try_into(child_pid)
+            .map_err(|_| err_value!(child_pid, i64 => pid_t))?;
 
         state.proc_fd.add_child_proc(sc.pid, child_pid, false);
         Ok(())
@@ -327,12 +302,10 @@ impl SyscallHandler for UnshareHandler {
             return Ok(());
         }
         let flags = self.flags.extract(sc)?;
-        let Expression::Integer(IntegerExpression { value: flags, .. }) = flags else {
-            return Err(HandlerError::ArgTypeMismatch {
-                sc_name: sc.name.clone(),
-                arg: flags.to_owned(),
-            });
-        };
+        let flags = unpack_expr!(
+            flags,
+            Expression::Integer(IntegerExpression { value: flags, .. }) => flags
+        );
         if flags.is_flag_set("CLONE_FILES") {
             state.proc_fd.split_fd_table(sc.pid);
         }
@@ -356,18 +329,13 @@ impl SyscallHandler for ExecHandler {
         let relfd = self.relfd.extract(sc)?;
         let path_expr = self.path.extract(sc)?;
 
-        let path = if let Expression::Buffer(BufferExpression {
-            value: b,
-            type_: BufferType::Unknown,
-        }) = path_expr
-        {
-            PathBuf::from(OsStr::from_bytes(b))
-        } else {
-            return Err(HandlerError::ArgTypeMismatch {
-                sc_name: sc.name.clone(),
-                arg: path_expr.to_owned(),
-            });
-        };
+        let path = unpack_expr!(
+            path_expr,
+            Expression::Buffer(BufferExpression {
+                value: b,
+                type_: BufferType::Unknown,
+            }) => PathBuf::from(OsStr::from_bytes(b))
+        );
         if let Some(mut path) = resolve_path(&path, relfd, state.cur_dir.as_ref()) {
             traverse_symlinks(&mut path, actions);
             actions.push(ProgramAction::Exec(path.clone()));
@@ -406,22 +374,14 @@ impl SyscallHandler for KillHandler {
         let pid = self.pid.extract(sc)?;
         let sig = self.sig.extract(sc)?;
 
-        let pid_val = match pid {
+        let pid_val = unpack_expr!(
+            pid,
             Expression::Integer(IntegerExpression {
                 value: IntegerExpressionValue::Literal(pid_val),
                 ..
-            }) => pid_t::try_from(*pid_val).map_err(|_| HandlerError::ConversionFailed {
-                src: format!("{pid_val:?}"),
-                type_src: type_name_of_val(pid_val),
-                type_dst: type_name::<pid_t>(),
-            })?,
-            _ => {
-                return Err(HandlerError::ArgTypeMismatch {
-                    sc_name: sc.name.clone(),
-                    arg: pid.to_owned(),
-                });
-            }
-        };
+            }) => pid_val
+        );
+        let pid_val = pid_t::try_from(*pid_val).map_err(|_| err_value!(*pid_val, i64 => pid_t))?;
         let sig_name = match sig {
             Expression::Integer(IntegerExpression {
                 value: IntegerExpressionValue::NamedSymbol(sig_name),
@@ -432,10 +392,7 @@ impl SyscallHandler for KillHandler {
                 ..
             }) => None,
             _ => {
-                return Err(HandlerError::ArgTypeMismatch {
-                    sc_name: sc.name.clone(),
-                    arg: pid.to_owned(),
-                });
+                return Err(err_expr_type!(sig));
             }
         };
         // https://man7.org/linux/man-pages/man2/kill.2.html
@@ -486,12 +443,10 @@ impl SyscallHandler for MemfdCreateHandler {
     ) -> Result<(), HandlerError> {
         let flags = self.flags.extract(sc)?;
 
-        let Expression::Integer(IntegerExpression { value: flags, .. }) = flags else {
-            return Err(HandlerError::ArgTypeMismatch {
-                sc_name: sc.name.clone(),
-                arg: flags.to_owned(),
-            });
-        };
+        let flags = unpack_expr!(
+            flags,
+            Expression::Integer(IntegerExpression { value: flags, .. }) => flags
+        );
         if flags.is_flag_set("MFD_HUGETLB") {
             actions.push(ProgramAction::HugePageMemoryMapping);
         }
@@ -515,18 +470,13 @@ impl SyscallHandler for MkdirHandler {
         let relfd = self.relfd.extract(sc)?;
         let path = self.path.extract(sc)?;
 
-        let path = if let Expression::Buffer(BufferExpression {
-            value: b,
-            type_: BufferType::Unknown,
-        }) = path
-        {
-            PathBuf::from(OsStr::from_bytes(b))
-        } else {
-            return Err(HandlerError::ArgTypeMismatch {
-                sc_name: sc.name.clone(),
-                arg: path.to_owned(),
-            });
-        };
+        let path = unpack_expr!(
+            path,
+            Expression::Buffer(BufferExpression {
+                value: b,
+                type_: BufferType::Unknown,
+            }) => PathBuf::from(OsStr::from_bytes(b))
+        );
         if let Some(mut path) = resolve_path(&path, relfd, state.cur_dir.as_ref()) {
             traverse_symlinks(&mut path, actions);
             actions.push(ProgramAction::Create(path));
@@ -550,16 +500,8 @@ impl SyscallHandler for MknodHandler {
     ) -> Result<(), HandlerError> {
         const PRIVILEGED_ST_MODES: [&str; 2] = ["S_IFBLK", "S_IFCHR"];
         let mode = self.mode.extract(sc)?;
-        let Expression::Integer(mode) = mode else {
-            return Err(HandlerError::ArgTypeMismatch {
-                sc_name: sc.name.clone(),
-                arg: mode.to_owned(),
-            });
-        };
-        let path = self
-            .path
-            .extract(sc)?
-            .resolve(&sc.name, state.cur_dir.as_ref())?;
+        let mode = unpack_expr!(mode, Expression::Integer(mode) => mode);
+        let path = self.path.extract(sc)?.resolve(state.cur_dir.as_ref())?;
 
         if PRIVILEGED_ST_MODES
             .iter()
@@ -592,22 +534,18 @@ impl SyscallHandler for MmapHandler {
         let flags = self.flags.extract(sc)?;
         let fd = self.fd.extract(sc)?;
 
-        let Expression::Integer(IntegerExpression {
-            value: prot_val, ..
-        }) = prot
-        else {
-            return Err(HandlerError::ArgTypeMismatch {
-                sc_name: sc.name.clone(),
-                arg: prot.to_owned(),
-            });
-        };
+        let prot_val = unpack_expr!(
+            prot,
+            Expression::Integer(IntegerExpression {
+                value: prot_val,
+                ..
+            }) => prot_val
+        );
         if let Some(flags) = flags {
-            let Expression::Integer(IntegerExpression { value: flags, .. }) = flags else {
-                return Err(HandlerError::ArgTypeMismatch {
-                    sc_name: sc.name.clone(),
-                    arg: flags.to_owned(),
-                });
-            };
+            let flags = unpack_expr!(
+                flags,
+                Expression::Integer(IntegerExpression { value: flags, .. }) => flags
+            );
             if flags.is_flag_set("MAP_HUGETLB") {
                 actions.push(ProgramAction::HugePageMemoryMapping);
             }
@@ -645,15 +583,13 @@ impl SyscallHandler for MountHandler {
     ) -> Result<(), HandlerError> {
         let flags = self.flags.extract(sc)?;
 
-        let Expression::Integer(IntegerExpression {
-            value: mount_flags, ..
-        }) = flags
-        else {
-            return Err(HandlerError::ArgTypeMismatch {
-                sc_name: sc.name.clone(),
-                arg: flags.to_owned(),
-            });
-        };
+        let mount_flags = unpack_expr!(
+            flags,
+            Expression::Integer(IntegerExpression {
+                value: mount_flags,
+                ..
+            }) => mount_flags
+        );
         if mount_flags.is_flag_set("MS_SHARED") {
             actions.push(ProgramAction::MountToHost);
         }
@@ -701,16 +637,14 @@ impl SyscallHandler for NetworkHandler {
         let sockaddr = self.sockaddr.extract(sc)?;
 
         let (af_str, addr_struct) = if let Expression::Struct(members) = sockaddr {
-            let Some(Expression::Integer(IntegerExpression {
-                value: IntegerExpressionValue::NamedSymbol(af),
-                ..
-            })) = members.get("sa_family")
-            else {
-                return Err(HandlerError::MissingStructMember {
-                    member: "sa_family",
-                    struct_: members.to_owned(),
-                });
-            };
+            let af_expr = unpack_struct_member!(members, "sa_family");
+            let af = unpack_expr!(
+                af_expr,
+                Expression::Integer(IntegerExpression {
+                    value: IntegerExpressionValue::NamedSymbol(af),
+                    ..
+                }) => af
+            );
             (af.as_str(), members)
         } else {
             // Can be NULL in some cases, ie AF_NETLINK sockets
@@ -725,76 +659,56 @@ impl SyscallHandler for NetworkHandler {
             }
             _ => (),
         }
-        let Expression::Integer(IntegerExpression {
-            value: IntegerExpressionValue::Literal(fd_val),
-            ..
-        }) = fd
-        else {
-            return Err(HandlerError::ArgTypeMismatch {
-                sc_name: sc.name.clone(),
-                arg: fd.to_owned(),
-            });
-        };
+        let fd_val = unpack_expr!(
+            fd,
+            Expression::Integer(IntegerExpression {
+                value: IntegerExpressionValue::Literal(fd_val),
+                ..
+            }) => fd_val
+        );
 
-        let ip_addr: SetSpecifier<NetworkAddress> =
-            match addr_struct
-                .iter()
-                .find_map(|(k, v)| ["sin_addr", "sin6_addr"].contains(&k.as_str()).then_some(v))
-            {
-                Some(Expression::Integer(IntegerExpression {
-                    value:
-                        IntegerExpressionValue::Macro {
-                            name: macro_name,
-                            args,
-                        },
-                    ..
-                })) if macro_name == "inet_addr" => match args.first() {
-                    Some(Expression::Buffer(BufferExpression { value, .. })) => {
-                        let ip_str =
-                            str::from_utf8(value).map_err(|_| HandlerError::ConversionFailed {
-                                src: format!("{value:?}"),
-                                type_src: type_name_of_val(value),
-                                type_dst: type_name::<&str>(),
-                            })?;
-                        let ip = ip_str.parse::<IpAddr>().map_err(|_| {
-                            HandlerError::ConversionFailed {
-                                src: ip_str.to_owned(),
-                                type_src: type_name_of_val(ip_str),
-                                type_dst: type_name::<IpAddr>(),
-                            }
-                        })?;
-                        SetSpecifier::One(ip.into())
-                    }
-                    _ => unreachable!(),
-                },
-                Some(Expression::Integer(IntegerExpression {
-                    value:
-                        IntegerExpressionValue::Macro {
-                            name: macro_name,
-                            args,
-                        },
-                    ..
-                })) if macro_name == "inet_pton" => match args.get(1) {
-                    Some(Expression::Buffer(BufferExpression { value, .. })) => {
-                        let ip_str =
-                            str::from_utf8(value).map_err(|_| HandlerError::ConversionFailed {
-                                src: format!("{value:?}"),
-                                type_src: type_name_of_val(value),
-                                type_dst: type_name::<&str>(),
-                            })?;
-                        let ip = ip_str.parse::<IpAddr>().map_err(|_| {
-                            HandlerError::ConversionFailed {
-                                src: ip_str.to_owned(),
-                                type_src: type_name_of_val(ip_str),
-                                type_dst: type_name::<IpAddr>(),
-                            }
-                        })?;
-                        SetSpecifier::One(ip.into())
-                    }
-                    _ => unreachable!(),
-                },
-                _ => SetSpecifier::None,
-            };
+        let ip_addr: SetSpecifier<NetworkAddress> = match addr_struct
+            .iter()
+            .find_map(|(k, v)| ["sin_addr", "sin6_addr"].contains(&k.as_str()).then_some(v))
+        {
+            Some(Expression::Integer(IntegerExpression {
+                value:
+                    IntegerExpressionValue::Macro {
+                        name: macro_name,
+                        args,
+                    },
+                ..
+            })) if macro_name == "inet_addr" => match args.first() {
+                Some(Expression::Buffer(BufferExpression { value, .. })) => {
+                    let ip_str =
+                        str::from_utf8(value).map_err(|_| err_value!(value, &[u8] => &str))?;
+                    let ip = ip_str
+                        .parse::<IpAddr>()
+                        .map_err(|_| err_value!(ip_str, &str => IpAddr))?;
+                    SetSpecifier::One(ip.into())
+                }
+                _ => unreachable!(),
+            },
+            Some(Expression::Integer(IntegerExpression {
+                value:
+                    IntegerExpressionValue::Macro {
+                        name: macro_name,
+                        args,
+                    },
+                ..
+            })) if macro_name == "inet_pton" => match args.get(1) {
+                Some(Expression::Buffer(BufferExpression { value, .. })) => {
+                    let ip_str =
+                        str::from_utf8(value).map_err(|_| err_value!(value, &[u8] => &str))?;
+                    let ip = ip_str
+                        .parse::<IpAddr>()
+                        .map_err(|_| err_value!(ip_str, &str => IpAddr))?;
+                    SetSpecifier::One(ip.into())
+                }
+                _ => unreachable!(),
+            },
+            _ => SetSpecifier::None,
+        };
 
         let local_port = if sc.name == "bind" {
             match addr_struct
@@ -822,11 +736,7 @@ impl SyscallHandler for NetworkHandler {
                                 TryInto::<u16>::try_into(*port_val)
                                     .ok()
                                     .and_then(|i| i.try_into().ok())
-                                    .ok_or_else(|| HandlerError::ConversionFailed {
-                                        src: port_val.to_string(),
-                                        type_src: type_name_of_val(port_val),
-                                        type_dst: type_name::<NetworkPort>(),
-                                    })?,
+                                    .ok_or_else(|| err_value!(*port_val, i64 => NetworkPort))?,
                             ))
                         }
                     }
@@ -839,11 +749,7 @@ impl SyscallHandler for NetworkHandler {
         };
 
         let fd_raw =
-            TryInto::<RawFd>::try_into(*fd_val).map_err(|_| HandlerError::ConversionFailed {
-                src: fd_val.to_string(),
-                type_src: type_name_of_val(fd_val),
-                type_dst: type_name::<RawFd>(),
-            })?;
+            TryInto::<RawFd>::try_into(*fd_val).map_err(|_| err_value!(*fd_val, i64 => RawFd))?;
 
         if let Some(info) = state.proc_fd.get_sock_info(sc.pid, fd_raw) {
             let kind = SetSpecifier::One(NetworkActivityKind::from_sc_name(&sc.name));
@@ -898,27 +804,20 @@ impl SyscallHandler for OpenHandler {
         let path_expr = self.path.extract(sc)?;
         let flags = self.flags.extract(sc)?;
 
-        let mut path = if let Expression::Buffer(BufferExpression {
-            value: b,
-            type_: BufferType::Unknown,
-        }) = path_expr
-        {
-            PathBuf::from(OsStr::from_bytes(b))
-        } else {
-            return Err(HandlerError::ArgTypeMismatch {
-                sc_name: sc.name.clone(),
-                arg: path_expr.to_owned(),
-            });
-        };
-        let Expression::Integer(IntegerExpression {
-            value: flags_val, ..
-        }) = flags
-        else {
-            return Err(HandlerError::ArgTypeMismatch {
-                sc_name: sc.name.clone(),
-                arg: flags.to_owned(),
-            });
-        };
+        let mut path = unpack_expr!(
+            path_expr,
+            Expression::Buffer(BufferExpression {
+                value: b,
+                type_: BufferType::Unknown,
+            }) => PathBuf::from(OsStr::from_bytes(b))
+        );
+        let flags_val = unpack_expr!(
+            flags,
+            Expression::Integer(IntegerExpression {
+                value: flags_val,
+                ..
+            }) => flags_val
+        );
 
         path = if let Some(path) = resolve_path(&path, relfd, state.cur_dir.as_ref()) {
             path
@@ -985,30 +884,20 @@ impl SyscallHandler for RenameHandler {
         let path_dst_expr = self.path_dst.extract(sc)?;
         let flags = self.flags.extract(sc)?;
 
-        let path_src = if let Expression::Buffer(BufferExpression {
-            value: b1,
-            type_: BufferType::Unknown,
-        }) = path_src_expr
-        {
-            PathBuf::from(OsStr::from_bytes(b1))
-        } else {
-            return Err(HandlerError::ArgTypeMismatch {
-                sc_name: sc.name.clone(),
-                arg: path_src_expr.to_owned(),
-            });
-        };
-        let path_dst = if let Expression::Buffer(BufferExpression {
-            value: b2,
-            type_: BufferType::Unknown,
-        }) = path_dst_expr
-        {
-            PathBuf::from(OsStr::from_bytes(b2))
-        } else {
-            return Err(HandlerError::ArgTypeMismatch {
-                sc_name: sc.name.clone(),
-                arg: path_dst_expr.to_owned(),
-            });
-        };
+        let path_src = unpack_expr!(
+            path_src_expr,
+            Expression::Buffer(BufferExpression {
+                value: b1,
+                type_: BufferType::Unknown,
+            }) => PathBuf::from(OsStr::from_bytes(b1))
+        );
+        let path_dst = unpack_expr!(
+            path_dst_expr,
+            Expression::Buffer(BufferExpression {
+                value: b2,
+                type_: BufferType::Unknown,
+            }) => PathBuf::from(OsStr::from_bytes(b2))
+        );
 
         let (Some(mut path_src), Some(mut path_dst)) = (
             resolve_path(&path_src, relfd_src, state.cur_dir.as_ref()),
@@ -1018,14 +907,12 @@ impl SyscallHandler for RenameHandler {
         };
 
         let exchange = match flags {
-            Some(Expression::Integer(IntegerExpression { value, .. })) => {
-                value.is_flag_set("RENAME_EXCHANGE")
-            }
             Some(other) => {
-                return Err(HandlerError::ArgTypeMismatch {
-                    sc_name: sc.name.clone(),
-                    arg: other.to_owned(),
-                });
+                let value = unpack_expr!(
+                    other,
+                    Expression::Integer(IntegerExpression { value, .. }) => value
+                );
+                value.is_flag_set("RENAME_EXCHANGE")
             }
             None => false,
         };
@@ -1058,15 +945,13 @@ impl SyscallHandler for SetSchedulerHandler {
     ) -> Result<(), HandlerError> {
         const RT_SCHEDULERS: [&str; 2] = ["SCHED_FIFO", "SCHED_RR"];
         let policy = self.policy.extract(sc)?;
-        let Expression::Integer(IntegerExpression {
-            value: policy_val, ..
-        }) = policy
-        else {
-            return Err(HandlerError::ArgTypeMismatch {
-                sc_name: sc.name.clone(),
-                arg: policy.to_owned(),
-            });
-        };
+        let policy_val = unpack_expr!(
+            policy,
+            Expression::Integer(IntegerExpression {
+                value: policy_val,
+                ..
+            }) => policy_val
+        );
         if RT_SCHEDULERS.iter().any(|s| policy_val.is_flag_set(s)) {
             actions.push(ProgramAction::SetRealtimeScheduler);
         }
@@ -1088,12 +973,10 @@ impl SyscallHandler for ShmCtlHandler {
     ) -> Result<(), HandlerError> {
         let op = self.op.extract(sc)?;
 
-        let Expression::Integer(IntegerExpression { value: op, .. }) = op else {
-            return Err(HandlerError::ArgTypeMismatch {
-                sc_name: sc.name.clone(),
-                arg: op.to_owned(),
-            });
-        };
+        let op = unpack_expr!(
+            op,
+            Expression::Integer(IntegerExpression { value: op, .. }) => op
+        );
         if op.is_flag_set("SHM_LOCK") || op.is_flag_set("SHM_UNLOCK") {
             actions.push(ProgramAction::LockMemoryMapping);
         }
@@ -1114,63 +997,39 @@ impl SyscallHandler for SocketHandler {
         actions: &mut Vec<ProgramAction>,
         state: &mut ProgramState,
     ) -> Result<(), HandlerError> {
-        let af = self.af.extract(sc)?;
+        let af_expr = self.af.extract(sc)?;
         let flags = self.flags.extract(sc)?;
 
-        let af: SocketFamily = if let Expression::Integer(IntegerExpression {
-            value: IntegerExpressionValue::NamedSymbol(af_name),
-            ..
-        }) = af
-        {
-            af_name.parse().map_err(|()| HandlerError::ParsingFailed {
-                src: af_name.to_owned(),
-                type_: type_name::<SocketFamily>(),
-            })?
-        } else {
-            return Err(HandlerError::ArgTypeMismatch {
-                sc_name: sc.name.clone(),
-                arg: af.to_owned(),
-            });
-        };
+        let af_name = unpack_expr!(
+            af_expr,
+            Expression::Integer(IntegerExpression {
+                value: IntegerExpressionValue::NamedSymbol(af_name),
+                ..
+            }) => af_name
+        );
+        let af: SocketFamily = af_name
+            .parse()
+            .map_err(|()| err_value!(af_name, &str => SocketFamily))?;
 
-        let flags = if let Expression::Integer(IntegerExpression { value, .. }) = flags {
-            value.flags()
-        } else {
-            return Err(HandlerError::ArgTypeMismatch {
-                sc_name: sc.name.clone(),
-                arg: flags.to_owned(),
-            });
-        };
+        let flags =
+            unpack_expr!(flags, Expression::Integer(IntegerExpression { value, .. }) => value)
+                .flags();
         let proto_flag = flags
             .iter()
             .find(|f| f.starts_with("SOCK_"))
-            .ok_or_else(|| HandlerError::ParsingFailed {
-                src: format!("{flags:?}"),
-                type_: type_name::<SocketProtocol>(),
-            })?;
-        let proto =
-            proto_flag
-                .parse::<SocketProtocol>()
-                .map_err(|_e| HandlerError::ParsingFailed {
-                    src: proto_flag.to_owned(),
-                    type_: type_name::<SocketProtocol>(),
-                })?;
+            .ok_or_else(|| err_value!(flags, SocketProtocol))?;
+        let proto = proto_flag
+            .parse::<SocketProtocol>()
+            .map_err(|_e| err_value!(proto_flag, &str => SocketProtocol))?;
         let Some(ret_val) = &sc.ret_val else {
             return Ok(());
         };
-        let ret_fd = ret_val.value().ok_or_else(|| HandlerError::ParsingFailed {
-            src: format!("{:?}", sc.ret_val),
-            type_: type_name::<i64>(),
-        })?;
+        let ret_fd = ret_val.value().ok_or_else(|| err_value!(sc.ret_val, i64))?;
 
         if ret_fd != -1 {
             state.proc_fd.add_sock_info(
                 sc.pid,
-                TryInto::<RawFd>::try_into(ret_fd).map_err(|_| HandlerError::ConversionFailed {
-                    src: ret_fd.to_string(),
-                    type_src: type_name_of_val(&sc.ret_val),
-                    type_dst: type_name::<RawFd>(),
-                })?,
+                TryInto::<RawFd>::try_into(ret_fd).map_err(|_| err_value!(ret_fd, i64 => RawFd))?,
                 SocketInfo {
                     proto: proto.clone(),
                     af: af.clone().into(),
@@ -1235,46 +1094,31 @@ impl SyscallHandler for SetsockoptHandler {
         }
 
         // Extract fd value
-        let fd_val = if let Expression::Integer(IntegerExpression { value, .. }) = fd {
-            value.value().ok_or_else(|| HandlerError::ParsingFailed {
-                src: format!("{value:?}"),
-                type_: type_name::<RawFd>(),
-            })?
-        } else {
-            return Err(HandlerError::ArgTypeMismatch {
-                sc_name: sc.name.clone(),
-                arg: fd.to_owned(),
-            });
-        };
+        let fd_value =
+            unpack_expr!(fd, Expression::Integer(IntegerExpression { value, .. }) => value);
+        let fd_val = fd_value
+            .value()
+            .ok_or_else(|| err_value!(fd_value, RawFd))?;
         let fd_raw =
-            TryInto::<RawFd>::try_into(fd_val).map_err(|_| HandlerError::ConversionFailed {
-                src: fd_val.to_string(),
-                type_src: type_name_of_val(&fd_val),
-                type_dst: type_name::<RawFd>(),
-            })?;
+            TryInto::<RawFd>::try_into(fd_val).map_err(|_| err_value!(fd_val, i64 => RawFd))?;
 
         // Extract optval from collection like [0] or [1]
-        let val = if let Expression::Collection {
-            complement: false,
-            values,
-        } = optval
-            && values.len() == 1
+        let values = unpack_expr!(
+            optval,
+            Expression::Collection {
+                complement: false,
+                values,
+            } => values
+        );
+        let val = if let Some(Expression::Integer(IntegerExpression { value, .. })) =
+            values.first().map(|(_, e)| e)
         {
-            if let Some(Expression::Integer(IntegerExpression { value, .. })) =
-                values.first().map(|(_, e)| e)
-            {
-                value.value()
-            } else {
-                None
-            }
+            value.value()
         } else {
             None
         };
         let Some(val) = val else {
-            return Err(HandlerError::ArgTypeMismatch {
-                sc_name: sc.name.clone(),
-                arg: optval.to_owned(),
-            });
+            return Err(err_expr_type!(optval));
         };
 
         // Update socket info if known and IPv6
@@ -1331,18 +1175,13 @@ impl SyscallHandler for StatPathHandler {
         let relfd = self.relfd.extract(sc)?;
         let path = self.path.extract(sc)?;
 
-        let path = if let Expression::Buffer(BufferExpression {
-            value: b,
-            type_: BufferType::Unknown,
-        }) = path
-        {
-            PathBuf::from(OsStr::from_bytes(b))
-        } else {
-            return Err(HandlerError::ArgTypeMismatch {
-                sc_name: sc.name.clone(),
-                arg: path.to_owned(),
-            });
-        };
+        let path = unpack_expr!(
+            path,
+            Expression::Buffer(BufferExpression {
+                value: b,
+                type_: BufferType::Unknown,
+            }) => PathBuf::from(OsStr::from_bytes(b))
+        );
         if let Some(mut path) = resolve_path(&path, relfd, state.cur_dir.as_ref()) {
             traverse_symlinks(&mut path, actions);
             actions.push(ProgramAction::Read(path));
@@ -1365,16 +1204,13 @@ impl SyscallHandler for TimerCreateHandler {
     ) -> Result<(), HandlerError> {
         const PRIVILEGED_CLOCK_NAMES: [&str; 2] = ["CLOCK_REALTIME_ALARM", "CLOCK_BOOTTIME_ALARM"];
         let clockid = self.clockid.extract(sc)?;
-        let Expression::Integer(IntegerExpression {
-            value: IntegerExpressionValue::NamedSymbol(clock_name),
-            ..
-        }) = clockid
-        else {
-            return Err(HandlerError::ArgTypeMismatch {
-                sc_name: sc.name.clone(),
-                arg: clockid.to_owned(),
-            });
-        };
+        let clock_name = unpack_expr!(
+            clockid,
+            Expression::Integer(IntegerExpression {
+                value: IntegerExpressionValue::NamedSymbol(clock_name),
+                ..
+            }) => clock_name
+        );
         if PRIVILEGED_CLOCK_NAMES.contains(&clock_name.as_str()) {
             actions.push(ProgramAction::SetAlarm);
         }
@@ -1784,7 +1620,10 @@ x86_Thread_features_locked:
         let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
-        assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
+        assert!(matches!(
+            result,
+            Err(HandlerError::ExpressionTypeMismatch { .. })
+        ));
         assert!(actions.is_empty());
     }
 
@@ -1800,7 +1639,7 @@ x86_Thread_features_locked:
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(matches!(
             result,
-            Err(HandlerError::ArgIndexOutOfBounds { .. })
+            Err(HandlerError::SyscalllArgIndexOutOfBounds { .. })
         ));
         assert!(actions.is_empty());
     }
@@ -1940,7 +1779,10 @@ x86_Thread_features_locked:
         let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
-        assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
+        assert!(matches!(
+            result,
+            Err(HandlerError::ExpressionTypeMismatch { .. })
+        ));
         assert!(actions.is_empty());
     }
 
@@ -1961,7 +1803,10 @@ x86_Thread_features_locked:
         let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
-        assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
+        assert!(matches!(
+            result,
+            Err(HandlerError::ExpressionTypeMismatch { .. })
+        ));
         assert!(actions.is_empty());
     }
 
@@ -2007,7 +1852,7 @@ x86_Thread_features_locked:
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(matches!(
             result,
-            Err(HandlerError::ArgIndexOutOfBounds { .. })
+            Err(HandlerError::SyscalllArgIndexOutOfBounds { .. })
         ));
         assert!(actions.is_empty());
     }
@@ -2022,7 +1867,7 @@ x86_Thread_features_locked:
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(matches!(
             result,
-            Err(HandlerError::ArgIndexOutOfBounds { .. })
+            Err(HandlerError::SyscalllArgIndexOutOfBounds { .. })
         ));
         assert!(actions.is_empty());
     }
@@ -2068,7 +1913,10 @@ x86_Thread_features_locked:
         let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
-        assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
+        assert!(matches!(
+            result,
+            Err(HandlerError::ExpressionTypeMismatch { .. })
+        ));
         assert!(actions.is_empty());
     }
 
@@ -2284,7 +2132,7 @@ x86_Thread_features_locked:
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(matches!(
             result,
-            Err(HandlerError::ArgIndexOutOfBounds { .. })
+            Err(HandlerError::SyscalllArgIndexOutOfBounds { .. })
         ));
         assert!(actions.is_empty());
     }
@@ -2310,7 +2158,10 @@ x86_Thread_features_locked:
         let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
-        assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
+        assert!(matches!(
+            result,
+            Err(HandlerError::ExpressionTypeMismatch { .. })
+        ));
         assert!(actions.is_empty());
     }
 
@@ -2421,7 +2272,10 @@ x86_Thread_features_locked:
         let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
-        assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
+        assert!(matches!(
+            result,
+            Err(HandlerError::ExpressionTypeMismatch { .. })
+        ));
         assert!(actions.is_empty());
     }
 
@@ -2485,7 +2339,10 @@ x86_Thread_features_locked:
         let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
-        assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
+        assert!(matches!(
+            result,
+            Err(HandlerError::ExpressionTypeMismatch { .. })
+        ));
         assert!(actions.is_empty());
     }
 
@@ -2537,7 +2394,10 @@ x86_Thread_features_locked:
         let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
-        assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
+        assert!(matches!(
+            result,
+            Err(HandlerError::ExpressionTypeMismatch { .. })
+        ));
         assert!(actions.is_empty());
     }
 
@@ -3496,7 +3356,10 @@ x86_Thread_features_locked:
         let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
-        assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
+        assert!(matches!(
+            result,
+            Err(HandlerError::ExpressionTypeMismatch { .. })
+        ));
         assert!(state.proc_fd.sock_info.is_empty());
         assert!(actions.is_empty());
     }
@@ -3513,7 +3376,10 @@ x86_Thread_features_locked:
         let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
-        assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
+        assert!(matches!(
+            result,
+            Err(HandlerError::ExpressionTypeMismatch { .. })
+        ));
         assert!(state.proc_fd.sock_info.is_empty());
         assert!(actions.is_empty());
     }
@@ -3526,7 +3392,10 @@ x86_Thread_features_locked:
         let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
-        assert!(matches!(result, Err(HandlerError::ParsingFailed { .. })));
+        assert!(matches!(
+            result,
+            Err(HandlerError::ValueInterpretationFailed { .. })
+        ));
         assert!(state.proc_fd.sock_info.is_empty());
         assert!(actions.is_empty());
     }
@@ -3539,7 +3408,10 @@ x86_Thread_features_locked:
         let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
-        assert!(matches!(result, Err(HandlerError::ParsingFailed { .. })));
+        assert!(matches!(
+            result,
+            Err(HandlerError::ValueInterpretationFailed { .. })
+        ));
         assert!(state.proc_fd.sock_info.is_empty());
         assert!(actions.is_empty());
     }
@@ -3621,7 +3493,10 @@ x86_Thread_features_locked:
         let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
-        assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
+        assert!(matches!(
+            result,
+            Err(HandlerError::ExpressionTypeMismatch { .. })
+        ));
         assert!(actions.is_empty());
     }
 
@@ -3800,7 +3675,10 @@ x86_Thread_features_locked:
         let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
-        assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
+        assert!(matches!(
+            result,
+            Err(HandlerError::ExpressionTypeMismatch { .. })
+        ));
         assert!(actions.is_empty());
     }
 
@@ -3811,7 +3689,7 @@ x86_Thread_features_locked:
         let result: Result<&Expression, _> = idx.extract(&sc);
         assert!(matches!(
             result,
-            Err(HandlerError::ArgIndexOutOfBounds { .. })
+            Err(HandlerError::SyscalllArgIndexOutOfBounds { .. })
         ));
     }
 
@@ -3854,7 +3732,7 @@ x86_Thread_features_locked:
     fn resolve_chdir_absolute() {
         let path = FdOrPath::Path(&buf_expr(b"/tmp"));
         assert_eq!(
-            path.resolve(&"chdir".into(), Path::new("/")).unwrap(),
+            path.resolve(Path::new("/")).unwrap(),
             Some(PathBuf::from("/tmp"))
         );
     }
@@ -3864,8 +3742,7 @@ x86_Thread_features_locked:
     fn resolve_chdir_relative() {
         let path = FdOrPath::Path(&buf_expr(b"subdir"));
         assert_eq!(
-            path.resolve(&"chdir".into(), Path::new("/home/user"))
-                .unwrap(),
+            path.resolve(Path::new("/home/user")).unwrap(),
             Some(PathBuf::from("/home/user/subdir"))
         );
     }
@@ -3879,7 +3756,7 @@ x86_Thread_features_locked:
         });
         let path = FdOrPath::Fd(&fd);
         assert_eq!(
-            path.resolve(&"fchdir".into(), Path::new("/")).unwrap(),
+            path.resolve(Path::new("/")).unwrap(),
             Some(PathBuf::from("/var/log"))
         );
     }
@@ -3889,7 +3766,7 @@ x86_Thread_features_locked:
     fn resolve_mknod_absolute() {
         let path = FdOrPath::Path(&buf_expr(b"/dev/null"));
         assert_eq!(
-            path.resolve(&"mknod".into(), Path::new("/")).unwrap(),
+            path.resolve(Path::new("/")).unwrap(),
             Some(PathBuf::from("/dev/null"))
         );
     }
@@ -3903,7 +3780,7 @@ x86_Thread_features_locked:
         });
         let path = FdOrPath::Fd(&fd);
         assert_eq!(
-            path.resolve(&"mknodat".into(), Path::new("/")).unwrap(),
+            path.resolve(Path::new("/")).unwrap(),
             Some(PathBuf::from("/tmp"))
         );
     }
@@ -3912,7 +3789,7 @@ x86_Thread_features_locked:
     #[test]
     fn resolve_pseudo_path() {
         let path = FdOrPath::Path(&buf_expr(b"pipe:[12345]"));
-        assert_eq!(path.resolve(&"mknod".into(), Path::new("/")).unwrap(), None);
+        assert_eq!(path.resolve(Path::new("/")).unwrap(), None);
     }
 
     // Fd with pipe pseudo metadata returns None
@@ -3923,10 +3800,7 @@ x86_Thread_features_locked:
             metadata: Some(b"pipe:[12345]".to_vec()),
         });
         let path = FdOrPath::Fd(&fd);
-        assert_eq!(
-            path.resolve(&"fchdir".into(), Path::new("/")).unwrap(),
-            None
-        );
+        assert_eq!(path.resolve(Path::new("/")).unwrap(), None);
     }
 
     // Wrong expression type for Path variant returns error
@@ -3934,7 +3808,7 @@ x86_Thread_features_locked:
     fn resolve_path_type_mismatch() {
         let expr = int_literal(42);
         let path = FdOrPath::Path(&expr);
-        assert!(path.resolve(&"chdir".into(), Path::new("/")).is_err());
+        assert!(path.resolve(Path::new("/")).is_err());
     }
 
     // Helper to create an IPv6 TCP socket in state for a given fd
