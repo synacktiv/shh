@@ -7,6 +7,7 @@ use anyhow::Context as _;
 /// State of system sysctl knobs
 pub(crate) struct State {
     pub kernel_unprivileged_userns_clone: bool,
+    pub ipv6_bindv6only: bool,
 }
 
 impl State {
@@ -29,6 +30,7 @@ impl State {
                 }
                 Err(err) => return Err(err),
             },
+            ipv6_bindv6only: Self::read_bool("net/ipv6/bindv6only")?,
         })
     }
 
@@ -36,6 +38,7 @@ impl State {
     pub(crate) fn all() -> Self {
         Self {
             kernel_unprivileged_userns_clone: true,
+            ipv6_bindv6only: false,
         }
     }
 
@@ -44,6 +47,7 @@ impl State {
     pub(crate) fn none() -> Self {
         Self {
             kernel_unprivileged_userns_clone: false,
+            ipv6_bindv6only: false,
         }
     }
 

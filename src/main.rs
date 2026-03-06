@@ -163,6 +163,7 @@ fn main() -> anyhow::Result<()> {
             // Initialize state
             let state = summarize::ProgramState::new(
                 env::current_dir().context("Failed to read current directory")?,
+                sysctl_state.ipv6_bindv6only,
             );
 
             // Summarize actions

@@ -3,7 +3,7 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt::{self, Display},
-    net::IpAddr,
+    net::{IpAddr, Ipv4Addr},
     num::NonZeroU16,
     os::fd::RawFd,
     path::PathBuf,
@@ -23,8 +23,9 @@ mod handlers;
 use handlers::{
     ChdirHandler, Clone3Handler, EpollCtlHandler, ExecHandler, ForkHandler, KillHandler,
     MemfdCreateHandler, MkdirHandler, MknodHandler, MmapHandler, MountHandler, NetworkHandler,
-    OpenHandler, RenameHandler, SetSchedulerHandler, ShmCtlHandler, SocketHandler, StatFdHandler,
-    StatPathHandler, SyscallHandler, TimerCreateHandler, UnshareHandler,
+    OpenHandler, RenameHandler, SetSchedulerHandler, SetsockoptHandler, ShmCtlHandler,
+    SocketHandler, StatFdHandler, StatPathHandler, SyscallHandler, TimerCreateHandler,
+    UnshareHandler,
 };
 
 /// A high level program runtime action
@@ -189,8 +190,14 @@ impl Display for NetworkPort {
 pub(crate) struct NetworkAddress(IpAddr);
 
 impl NetworkAddress {
-    pub(crate) fn is_ipv6_unspecified(&self) -> bool {
-        matches!(self.0, IpAddr::V6(addr) if addr.is_unspecified())
+    /// Return the IPv4 equivalent of this address on a dual-stack socket, if any.
+    /// `::` → `0.0.0.0`, `::ffff:A.B.C.D` → `A.B.C.D`, everything else → None.
+    pub(crate) fn ipv4_equivalent(&self) -> Option<Self> {
+        match self.0 {
+            IpAddr::V6(v6) if v6.is_unspecified() => Some(IpAddr::V4(Ipv4Addr::UNSPECIFIED).into()),
+            IpAddr::V6(v6) => v6.to_ipv4_mapped().map(|v4| IpAddr::V4(v4).into()),
+            IpAddr::V4(_) => None,
+        }
     }
 }
 
@@ -204,6 +211,47 @@ impl Display for NetworkAddress {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
+}
+
+/// Address family info for a socket
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
+pub(crate) enum SocketAfInfo {
+    Ipv4,
+    Ipv6 { v6only: Option<bool> },
+    Other(String),
+}
+
+impl SocketAfInfo {
+    pub(crate) fn is_dual_stack(&self, bindv6only_default: bool) -> bool {
+        matches!(self, Self::Ipv6 { v6only } if !v6only.unwrap_or(bindv6only_default))
+    }
+
+    pub(crate) fn family(&self) -> SocketFamily {
+        match self {
+            Self::Ipv4 => SocketFamily::Ipv4,
+            Self::Ipv6 { .. } => SocketFamily::Ipv6,
+            Self::Other(s) => SocketFamily::Other(s.clone()),
+        }
+    }
+}
+
+impl From<SocketFamily> for SocketAfInfo {
+    fn from(af: SocketFamily) -> Self {
+        match af {
+            SocketFamily::Ipv4 => Self::Ipv4,
+            SocketFamily::Ipv6 => Self::Ipv6 { v6only: None },
+            SocketFamily::Other(s) => Self::Other(s),
+        }
+    }
+}
+
+/// Combined socket info: protocol and address family details
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
+pub(crate) struct SocketInfo {
+    pub proto: SocketProtocol,
+    pub af: SocketAfInfo,
 }
 
 #[derive(Debug)]
@@ -388,6 +436,15 @@ static SYSCALL_MAP: LazyLock<HashMap<&'static str, Box<dyn SyscallHandler>>> =
             Box::new(SetSchedulerHandler { policy: 1 }),
         );
         m.insert("sendto", Box::new(NetworkHandler { fd: 0, sockaddr: 4 }));
+        m.insert(
+            "setsockopt",
+            Box::new(SetsockoptHandler {
+                fd: 0,
+                level: 1,
+                optname: 2,
+                optval: 3,
+            }),
+        );
         m.insert("shmctl", Box::new(ShmCtlHandler { op: 1 }));
         m.insert("socket", Box::new(SocketHandler { af: 0, flags: 1 }));
         m.insert(
@@ -406,16 +463,16 @@ static SYSCALL_MAP: LazyLock<HashMap<&'static str, Box<dyn SyscallHandler>>> =
 /// Synthetic fd-table identifier, used to group pids that share an fd table
 type FdTableId = usize;
 
-/// Track process fd-table topology and socket protocols across threads.
+/// Track process fd-table topology and socket info across threads.
 ///
 /// Implicit fd closures (`FD_CLOEXEC` / `O_CLOEXEC` / `SOCK_CLOEXEC`) are intentionally
 /// not modeled: we only need the protocol at the time of a `bind`/`connect`/etc. call,
-/// and when a new socket reuses the same fd number, `add_sock_proto` overwrites the old entry.
+/// and when a new socket reuses the same fd number, `add_sock_info` overwrites the old entry.
 #[derive(Debug, Default)]
 pub(crate) struct ProcessFdTracker {
-    /// Socket protocols keyed by (fd-table id, fd).
+    /// Socket info keyed by (fd-table id, fd).
     /// We don't track socket closings because the fd will be reused or never bound again.
-    sock_proto: HashMap<(FdTableId, RawFd), SocketProtocol>,
+    sock_info: HashMap<(FdTableId, RawFd), SocketInfo>,
     /// Which fd table each pid currently uses.
     pid_table: HashMap<pid_t, FdTableId>,
     /// Counter for allocating synthetic fd-table ids.
@@ -423,16 +480,22 @@ pub(crate) struct ProcessFdTracker {
 }
 
 impl ProcessFdTracker {
-    /// Register a protocol for a PID and socket file descriptor
-    pub(crate) fn add_sock_proto(&mut self, pid: pid_t, fd: RawFd, proto: SocketProtocol) {
+    /// Register socket info for a PID and socket file descriptor
+    pub(crate) fn add_sock_info(&mut self, pid: pid_t, fd: RawFd, info: SocketInfo) {
         let table_id = self.table_id_for_pid_mut(pid);
-        self.sock_proto.insert((table_id, fd), proto);
+        self.sock_info.insert((table_id, fd), info);
     }
 
-    /// Get a protocol for a PID and socket file descriptor
-    pub(crate) fn get_sock_proto(&self, pid: pid_t, fd: RawFd) -> Option<&SocketProtocol> {
+    /// Get socket info for a PID and socket file descriptor
+    pub(crate) fn get_sock_info(&self, pid: pid_t, fd: RawFd) -> Option<&SocketInfo> {
         let table_id = self.pid_table.get(&pid)?;
-        self.sock_proto.get(&(*table_id, fd))
+        self.sock_info.get(&(*table_id, fd))
+    }
+
+    /// Get mutable socket info for a PID and socket file descriptor
+    pub(crate) fn get_sock_info_mut(&mut self, pid: pid_t, fd: RawFd) -> Option<&mut SocketInfo> {
+        let table_id = self.pid_table.get(&pid)?;
+        self.sock_info.get_mut(&(*table_id, fd))
     }
 
     /// Register a child process, and wether or it shares its parent fds
@@ -447,7 +510,7 @@ impl ProcessFdTracker {
             self.pid_table.insert(child_pid, parent_table_id);
         } else {
             let child_table_id = self.alloc_table_id();
-            self.copy_sock_protos(parent_table_id, child_table_id);
+            self.copy_sock_infos(parent_table_id, child_table_id);
             self.pid_table.insert(child_pid, child_table_id);
         }
     }
@@ -456,7 +519,7 @@ impl ProcessFdTracker {
     pub(crate) fn split_fd_table(&mut self, pid: pid_t) {
         let old_table_id = self.table_id_for_pid_mut(pid);
         let new_table_id = self.alloc_table_id();
-        self.copy_sock_protos(old_table_id, new_table_id);
+        self.copy_sock_infos(old_table_id, new_table_id);
         self.pid_table.insert(pid, new_table_id);
     }
 
@@ -476,16 +539,16 @@ impl ProcessFdTracker {
         })
     }
 
-    fn copy_sock_protos(&mut self, src_table: FdTableId, dst_table: FdTableId) {
-        let protos_to_copy = self
-            .sock_proto
+    fn copy_sock_infos(&mut self, src_table: FdTableId, dst_table: FdTableId) {
+        let infos_to_copy = self
+            .sock_info
             .iter()
-            .filter_map(|((table_id, fd), proto)| {
-                (*table_id == src_table).then_some((*fd, proto.clone()))
+            .filter_map(|((table_id, fd), info)| {
+                (*table_id == src_table).then_some((*fd, info.clone()))
             })
             .collect::<Vec<_>>();
-        for (fd, proto) in protos_to_copy {
-            self.sock_proto.insert((dst_table, fd), proto);
+        for (fd, info) in infos_to_copy {
+            self.sock_info.insert((dst_table, fd), info);
         }
     }
 }
@@ -498,16 +561,19 @@ pub(crate) struct ProgramState {
     proc_fd: ProcessFdTracker,
     /// Current working directory
     cur_dir: PathBuf,
+    /// System default for `IPV6_V6ONLY` (from net.ipv6.bindv6only sysctl)
+    bindv6only_default: bool,
 }
 
 impl ProgramState {
-    pub(crate) fn new<P>(cur_dir: P) -> Self
+    pub(crate) fn new<P>(cur_dir: P, bindv6only_default: bool) -> Self
     where
         P: Into<PathBuf>,
     {
         Self {
             proc_fd: ProcessFdTracker::default(),
             cur_dir: cur_dir.into(),
+            bindv6only_default,
         }
     }
 }
@@ -573,6 +639,11 @@ where
     Ok(actions)
 }
 
+#[cfg(test)]
+pub(crate) fn program_state() -> ProgramState {
+    ProgramState::new("/", false)
+}
+
 #[expect(clippy::unreadable_literal)]
 #[cfg(test)]
 mod tests {
@@ -589,7 +660,7 @@ mod tests {
             PathBuf::from("/path/from/env/1"),
             PathBuf::from("/path/from/env/2"),
         ];
-        let state = ProgramState::new("/");
+        let state = program_state();
 
         let temp_dir_src = tempfile::tempdir().unwrap();
         let temp_dir_dst = tempfile::tempdir().unwrap();
@@ -646,7 +717,7 @@ mod tests {
             PathBuf::from("/path/from/env/1"),
             PathBuf::from("/path/from/env/2"),
         ];
-        let state = ProgramState::new("/");
+        let state = program_state();
 
         let syscalls = [Ok(SyscallItem::Complete(Box::new(Syscall {
             pid: 598056,
@@ -698,7 +769,7 @@ mod tests {
     fn fstat_unknown() {
         let _ = simple_logger::SimpleLogger::new().init();
 
-        let state = ProgramState::new("/");
+        let state = program_state();
 
         let syscalls = [Ok(SyscallItem::Complete(Box::new(Syscall {
             pid: 498133,

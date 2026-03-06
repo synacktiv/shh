@@ -25,7 +25,7 @@ use path_clean::PathClean as _;
 
 use super::{
     FdOrPath, NetworkActivity, NetworkActivityKind, NetworkAddress, NetworkPort, ProgramAction,
-    ProgramState, SetSpecifier,
+    ProgramState, SetSpecifier, SocketAfInfo, SocketInfo,
 };
 use crate::{
     strace::{
@@ -655,6 +655,29 @@ impl SyscallHandler for MountHandler {
     }
 }
 
+/// Map an address specifier to its IPv4 dual-stack equivalent.
+/// Returns `None` when the specifier contains an address with no IPv4 mapping
+/// (e.g. `::1`, `2001:db8::1`).
+fn ipv4_equivalent_specifier(
+    spec: &SetSpecifier<NetworkAddress>,
+) -> Option<SetSpecifier<NetworkAddress>> {
+    match spec {
+        SetSpecifier::All => Some(SetSpecifier::All),
+        SetSpecifier::None => Some(SetSpecifier::None),
+        SetSpecifier::One(addr) => addr.ipv4_equivalent().map(SetSpecifier::One),
+        SetSpecifier::Some(addrs) => addrs
+            .iter()
+            .map(NetworkAddress::ipv4_equivalent)
+            .collect::<Option<Vec<_>>>()
+            .map(SetSpecifier::Some),
+        SetSpecifier::AllExcept(addrs) => addrs
+            .iter()
+            .map(NetworkAddress::ipv4_equivalent)
+            .collect::<Option<Vec<_>>>()
+            .map(SetSpecifier::AllExcept),
+    }
+}
+
 /// Handle network syscalls
 pub(crate) struct NetworkHandler {
     pub fd: usize,
@@ -696,11 +719,6 @@ impl SyscallHandler for NetworkHandler {
             }
             _ => (),
         }
-        let af = af_str.parse().map_err(|()| HandlerError::ParsingFailed {
-            src: af_str.to_owned(),
-            type_: type_name::<SocketFamily>(),
-        })?;
-
         let Expression::Integer(IntegerExpression {
             value: IntegerExpressionValue::Literal(fd_val),
             ..
@@ -814,30 +832,27 @@ impl SyscallHandler for NetworkHandler {
             SetSpecifier::All
         };
 
-        if let Some(proto) = state.proc_fd.get_sock_proto(
-            sc.pid,
+        let fd_raw =
             TryInto::<RawFd>::try_into(*fd_val).map_err(|_| HandlerError::ConversionFailed {
                 src: fd_val.to_string(),
                 type_src: type_name_of_val(fd_val),
                 type_dst: type_name::<RawFd>(),
-            })?,
-        ) {
+            })?;
+
+        if let Some(info) = state.proc_fd.get_sock_info(sc.pid, fd_raw) {
             let kind = SetSpecifier::One(NetworkActivityKind::from_sc_name(&sc.name));
 
-            // When binding to [::] (IPv6 unspecified), the socket is typically dual-stack
-            // and also serves IPv4 traffic, so emit an IPv4 bind action too
-            let is_ipv6_unspecified_bind = sc.name == "bind"
-                && af == SocketFamily::Ipv6
-                && matches!(&ip_addr,
-                    SetSpecifier::One(addr) if addr.is_ipv6_unspecified());
-            if is_ipv6_unspecified_bind {
+            // Dual-stack: emit an IPv4 action if this AF_INET6 socket can serve IPv4
+            if info.af.is_dual_stack(state.bindv6only_default)
+                && let Some(ipv4_addr) = ipv4_equivalent_specifier(&ip_addr)
+            {
                 actions.push(ProgramAction::NetworkActivity(
                     NetworkActivity {
                         af: SetSpecifier::One(SocketFamily::Ipv4),
-                        proto: SetSpecifier::One(proto.to_owned()),
+                        proto: SetSpecifier::One(info.proto.clone()),
                         kind: kind.clone(),
                         local_port: local_port.clone(),
-                        address: ip_addr.clone(),
+                        address: ipv4_addr,
                     }
                     .into(),
                 ));
@@ -845,8 +860,8 @@ impl SyscallHandler for NetworkHandler {
 
             actions.push(ProgramAction::NetworkActivity(
                 NetworkActivity {
-                    af: SetSpecifier::One(af),
-                    proto: SetSpecifier::One(proto.to_owned()),
+                    af: SetSpecifier::One(info.af.family()),
+                    proto: SetSpecifier::One(info.proto.clone()),
                     kind,
                     local_port,
                     address: ip_addr,
@@ -1096,7 +1111,7 @@ impl SyscallHandler for SocketHandler {
         let af = self.af.extract(sc)?;
         let flags = self.flags.extract(sc)?;
 
-        let af = if let Expression::Integer(IntegerExpression {
+        let af: SocketFamily = if let Expression::Integer(IntegerExpression {
             value: IntegerExpressionValue::NamedSymbol(af_name),
             ..
         }) = af
@@ -1143,14 +1158,17 @@ impl SyscallHandler for SocketHandler {
         })?;
 
         if ret_fd != -1 {
-            state.proc_fd.add_sock_proto(
+            state.proc_fd.add_sock_info(
                 sc.pid,
                 TryInto::<RawFd>::try_into(ret_fd).map_err(|_| HandlerError::ConversionFailed {
                     src: ret_fd.to_string(),
                     type_src: type_name_of_val(&sc.ret_val),
                     type_dst: type_name::<RawFd>(),
                 })?,
-                proto.clone(),
+                SocketInfo {
+                    proto: proto.clone(),
+                    af: af.clone().into(),
+                },
             );
         }
 
@@ -1164,6 +1182,100 @@ impl SyscallHandler for SocketHandler {
             }
             .into(),
         ));
+        Ok(())
+    }
+}
+
+/// Handle setsockopt syscalls to track `IPV6_V6ONLY` option
+pub(crate) struct SetsockoptHandler {
+    pub fd: usize,
+    pub level: usize,
+    pub optname: usize,
+    pub optval: usize,
+}
+
+impl SyscallHandler for SetsockoptHandler {
+    fn handle(
+        &self,
+        sc: &Syscall,
+        _actions: &mut Vec<ProgramAction>,
+        state: &mut ProgramState,
+    ) -> Result<(), HandlerError> {
+        let fd = self.fd.extract(sc)?;
+        let level = self.level.extract(sc)?;
+        let optname = self.optname.extract(sc)?;
+        let optval = self.optval.extract(sc)?;
+
+        // Only handle SOL_IPV6 + IPV6_V6ONLY
+        let is_v6only = matches!(
+            (level, optname),
+            (
+                Expression::Integer(IntegerExpression {
+                    value: IntegerExpressionValue::NamedSymbol(l),
+                    ..
+                }),
+                Expression::Integer(IntegerExpression {
+                    value: IntegerExpressionValue::NamedSymbol(o),
+                    ..
+                }),
+            ) if l == "SOL_IPV6" && o == "IPV6_V6ONLY"
+        );
+        if !is_v6only {
+            return Ok(());
+        }
+
+        // Extract fd value
+        let fd_val = if let Expression::Integer(IntegerExpression { value, .. }) = fd {
+            value.value().ok_or_else(|| HandlerError::ParsingFailed {
+                src: format!("{value:?}"),
+                type_: type_name::<RawFd>(),
+            })?
+        } else {
+            return Err(HandlerError::ArgTypeMismatch {
+                sc_name: sc.name.clone(),
+                arg: fd.to_owned(),
+            });
+        };
+        let fd_raw =
+            TryInto::<RawFd>::try_into(fd_val).map_err(|_| HandlerError::ConversionFailed {
+                src: fd_val.to_string(),
+                type_src: type_name_of_val(&fd_val),
+                type_dst: type_name::<RawFd>(),
+            })?;
+
+        // Extract optval from collection like [0] or [1]
+        let val = if let Expression::Collection {
+            complement: false,
+            values,
+        } = optval
+            && values.len() == 1
+        {
+            if let Some(Expression::Integer(IntegerExpression { value, .. })) =
+                values.first().map(|(_, e)| e)
+            {
+                value.value()
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        let Some(val) = val else {
+            return Err(HandlerError::ArgTypeMismatch {
+                sc_name: sc.name.clone(),
+                arg: optval.to_owned(),
+            });
+        };
+
+        // Update socket info if known and IPv6
+        if let Some(SocketInfo {
+            af: SocketAfInfo::Ipv6 { v6only },
+            ..
+        }) = state.proc_fd.get_sock_info_mut(sc.pid, fd_raw)
+        {
+            *v6only = Some(val != 0);
+        }
+
         Ok(())
     }
 }
@@ -1437,10 +1549,14 @@ where
 mod tests {
     use std::{
         fs::{self, File},
+        net::IpAddr,
         os::unix,
     };
 
-    use super::*;
+    use super::{
+        super::{SocketAfInfo, program_state},
+        *,
+    };
 
     #[test]
     fn is_socket_or_pipe_pseudo_path() {
@@ -1640,7 +1756,7 @@ x86_Thread_features_locked:
         };
         let sc = make_syscall("chdir", vec![buf_expr(b"/tmp")], 0);
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -1655,7 +1771,7 @@ x86_Thread_features_locked:
         };
         let sc = make_syscall("chdir", vec![int_literal(42)], 0);
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
@@ -1669,7 +1785,7 @@ x86_Thread_features_locked:
         };
         let sc = make_syscall("chdir", vec![], 0);
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(matches!(
@@ -1702,7 +1818,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -1730,7 +1846,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -1758,7 +1874,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -1780,7 +1896,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(matches!(
@@ -1811,7 +1927,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
@@ -1832,7 +1948,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
@@ -1848,7 +1964,7 @@ x86_Thread_features_locked:
             3,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -1864,7 +1980,7 @@ x86_Thread_features_locked:
             3,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -1876,7 +1992,7 @@ x86_Thread_features_locked:
         let handler = MemfdCreateHandler { flags: 5 }; // Wrong index
         let sc = make_syscall("memfd_create", vec![buf_expr(b"test"), int_literal(4)], 3);
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(matches!(
@@ -1891,7 +2007,7 @@ x86_Thread_features_locked:
         let handler = MemfdCreateHandler { flags: 1 };
         let sc = make_syscall("memfd_create", vec![buf_expr(b"test")], 3);
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(matches!(
@@ -1909,7 +2025,7 @@ x86_Thread_features_locked:
         };
         let sc = make_syscall("mkdir", vec![buf_expr(b"/tmp/newdir")], 0);
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -1924,7 +2040,7 @@ x86_Thread_features_locked:
         };
         let sc = make_syscall("mkdirat", vec![int_literal(3), buf_expr(b"subdir")], 0);
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -1939,7 +2055,7 @@ x86_Thread_features_locked:
         };
         let sc = make_syscall("mkdir", vec![int_literal(42)], 0);
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
@@ -1958,7 +2074,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -1977,7 +2093,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -2002,7 +2118,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -2028,7 +2144,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -2052,7 +2168,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -2077,7 +2193,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -2102,7 +2218,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -2133,7 +2249,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -2153,7 +2269,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(matches!(
@@ -2181,7 +2297,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
@@ -2205,7 +2321,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -2229,7 +2345,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -2250,7 +2366,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -2271,7 +2387,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -2292,7 +2408,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
@@ -2308,7 +2424,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -2324,7 +2440,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -2340,7 +2456,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -2356,7 +2472,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
@@ -2368,7 +2484,7 @@ x86_Thread_features_locked:
         let handler = ShmCtlHandler { op: 1 };
         let sc = make_syscall("shmctl", vec![int_literal(1), named_symbol("SHM_LOCK")], 0);
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -2384,7 +2500,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -2396,7 +2512,7 @@ x86_Thread_features_locked:
         let handler = ShmCtlHandler { op: 1 };
         let sc = make_syscall("shmctl", vec![int_literal(1), named_symbol("SHM_STAT")], 0);
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -2408,7 +2524,7 @@ x86_Thread_features_locked:
         let handler = ShmCtlHandler { op: 1 };
         let sc = make_syscall("shmctl", vec![int_literal(1), buf_expr(b"invalid")], 0);
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
@@ -2427,13 +2543,17 @@ x86_Thread_features_locked:
             3,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
         assert_eq!(
-            state.proc_fd.get_sock_proto(1000, 3),
-            Some(SocketProtocol::Tcp).as_ref()
+            state.proc_fd.get_sock_info(1000, 3),
+            Some(SocketInfo {
+                proto: SocketProtocol::Tcp,
+                af: SocketAfInfo::Ipv4,
+            })
+            .as_ref()
         );
         assert_eq!(
             actions,
@@ -2462,13 +2582,17 @@ x86_Thread_features_locked:
             5,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
         assert_eq!(
-            state.proc_fd.get_sock_proto(1000, 5),
-            Some(SocketProtocol::Udp).as_ref()
+            state.proc_fd.get_sock_info(1000, 5),
+            Some(SocketInfo {
+                proto: SocketProtocol::Udp,
+                af: SocketAfInfo::Ipv6 { v6only: None },
+            })
+            .as_ref()
         );
         assert_eq!(
             actions,
@@ -2611,7 +2735,7 @@ x86_Thread_features_locked:
         bind_sc.pid = 2000;
 
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         socket_handler
             .handle(&socket_sc, &mut actions, &mut state)
@@ -2700,7 +2824,7 @@ x86_Thread_features_locked:
         bind_sc.pid = 1000;
 
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         socket_handler
             .handle(&socket_pid_1000, &mut actions, &mut state)
@@ -2735,7 +2859,7 @@ x86_Thread_features_locked:
         let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
 
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         // Parent opens a TCP socket on fd 3
         socket_handler
@@ -2780,7 +2904,7 @@ x86_Thread_features_locked:
         let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
 
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         // Parent opens a TCP socket on fd 3
         socket_handler
@@ -2854,7 +2978,7 @@ x86_Thread_features_locked:
         let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
 
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         // Parent opens TCP on fd 3
         socket_handler
@@ -2908,7 +3032,7 @@ x86_Thread_features_locked:
         let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
 
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         // Parent opens TCP on fd 3
         socket_handler
@@ -2963,7 +3087,7 @@ x86_Thread_features_locked:
         let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
 
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         // Parent opens TCP on fd 3
         socket_handler
@@ -3042,7 +3166,7 @@ x86_Thread_features_locked:
         let unshare_handler = UnshareHandler { flags: 0 };
 
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         // Parent opens TCP on fd 3
         socket_handler
@@ -3065,8 +3189,11 @@ x86_Thread_features_locked:
 
         // Child should still see fd 3 as TCP (copied during unshare)
         assert_eq!(
-            state.proc_fd.get_sock_proto(2000, 3),
-            Some(&SocketProtocol::Tcp)
+            state.proc_fd.get_sock_info(2000, 3),
+            Some(&SocketInfo {
+                proto: SocketProtocol::Tcp,
+                af: SocketAfInfo::Ipv4,
+            })
         );
     }
 
@@ -3078,7 +3205,7 @@ x86_Thread_features_locked:
         let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
 
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         // Parent opens TCP on fd 3
         socket_handler
@@ -3135,7 +3262,7 @@ x86_Thread_features_locked:
         let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
 
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         // Bind fd 3 without any prior socket() => no protocol known
         network_handler
@@ -3153,7 +3280,7 @@ x86_Thread_features_locked:
         let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
 
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         // Parent opens TCP on fd 3
         socket_handler
@@ -3205,7 +3332,7 @@ x86_Thread_features_locked:
         let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
 
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         // Parent opens TCP on fd 3
         socket_handler
@@ -3256,7 +3383,7 @@ x86_Thread_features_locked:
         );
 
         // Parent should NOT see fd 4 (fork created independent table)
-        assert_eq!(state.proc_fd.get_sock_proto(1000, 4), None);
+        assert!(state.proc_fd.get_sock_info(1000, 4).is_none());
 
         // Grandchild binds fd 3 => should see TCP (copied from parent at fork time)
         network_handler
@@ -3286,7 +3413,7 @@ x86_Thread_features_locked:
         let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
 
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         // Process 1000 opens TCP on fd 3
         socket_handler
@@ -3356,11 +3483,11 @@ x86_Thread_features_locked:
             -1,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
-        assert!(state.proc_fd.sock_proto.is_empty());
+        assert!(state.proc_fd.sock_info.is_empty());
         assert!(actions.is_empty());
     }
 
@@ -3373,11 +3500,11 @@ x86_Thread_features_locked:
             -1,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
-        assert!(state.proc_fd.sock_proto.is_empty());
+        assert!(state.proc_fd.sock_info.is_empty());
         assert!(actions.is_empty());
     }
 
@@ -3386,11 +3513,11 @@ x86_Thread_features_locked:
         let handler = SocketHandler { af: 0, flags: 1 };
         let sc = make_syscall("socket", vec![named_symbol("AF_INET"), int_literal(0)], -1);
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(matches!(result, Err(HandlerError::ParsingFailed { .. })));
-        assert!(state.proc_fd.sock_proto.is_empty());
+        assert!(state.proc_fd.sock_info.is_empty());
         assert!(actions.is_empty());
     }
 
@@ -3399,11 +3526,11 @@ x86_Thread_features_locked:
         let handler = SocketHandler { af: 0, flags: 1 };
         let sc = make_syscall("socket", vec![named_symbol("AF_INET"), int_literal(123)], 3);
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(matches!(result, Err(HandlerError::ParsingFailed { .. })));
-        assert!(state.proc_fd.sock_proto.is_empty());
+        assert!(state.proc_fd.sock_info.is_empty());
         assert!(actions.is_empty());
     }
 
@@ -3424,7 +3551,7 @@ x86_Thread_features_locked:
             }),
         };
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -3436,7 +3563,7 @@ x86_Thread_features_locked:
         let handler = StatFdHandler { fd: 0 };
         let sc = make_syscall("fstat", vec![int_literal(3)], 0);
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -3451,7 +3578,7 @@ x86_Thread_features_locked:
         };
         let sc = make_syscall("stat", vec![buf_expr(b"/etc/passwd")], 0);
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -3466,7 +3593,7 @@ x86_Thread_features_locked:
         };
         let sc = make_syscall("statat", vec![int_literal(3), buf_expr(b"file")], 0);
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -3481,7 +3608,7 @@ x86_Thread_features_locked:
         };
         let sc = make_syscall("stat", vec![int_literal(42)], 0);
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
@@ -3497,7 +3624,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -3513,7 +3640,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -3529,7 +3656,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -3545,7 +3672,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -3567,7 +3694,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -3602,7 +3729,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -3636,7 +3763,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(result.is_ok());
@@ -3660,7 +3787,7 @@ x86_Thread_features_locked:
             0,
         );
         let mut actions = vec![];
-        let mut state = ProgramState::new("/");
+        let mut state = program_state();
 
         let result = handler.handle(&sc, &mut actions, &mut state);
         assert!(matches!(result, Err(HandlerError::ArgTypeMismatch { .. })));
@@ -3798,5 +3925,617 @@ x86_Thread_features_locked:
         let expr = int_literal(42);
         let path = FdOrPath::Path(&expr);
         assert!(path.resolve(&"chdir".into(), Path::new("/")).is_err());
+    }
+
+    // Helper to create an IPv6 TCP socket in state for a given fd
+    fn setup_ipv6_socket(state: &mut ProgramState, fd: RawFd) {
+        state.proc_fd.add_sock_info(
+            1000,
+            fd,
+            SocketInfo {
+                proto: SocketProtocol::Tcp,
+                af: SocketAfInfo::Ipv6 { v6only: None },
+            },
+        );
+    }
+
+    // Helper to create a setsockopt syscall
+    fn make_setsockopt(fd: i64, level: &str, optname: &str, optval: i64) -> Syscall {
+        make_syscall(
+            "setsockopt",
+            vec![
+                int_literal(fd),
+                named_symbol(level),
+                named_symbol(optname),
+                Expression::Collection {
+                    complement: false,
+                    values: vec![(None, int_literal(optval))],
+                },
+                int_literal(4),
+            ],
+            0,
+        )
+    }
+
+    #[test]
+    fn setsockopt_v6only_set() {
+        let handler = SetsockoptHandler {
+            fd: 0,
+            level: 1,
+            optname: 2,
+            optval: 3,
+        };
+        let mut state = program_state();
+        setup_ipv6_socket(&mut state, 3);
+
+        let sc = make_setsockopt(3, "SOL_IPV6", "IPV6_V6ONLY", 1);
+        let mut actions = vec![];
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(
+            state.proc_fd.get_sock_info(1000, 3),
+            Some(SocketInfo {
+                proto: SocketProtocol::Tcp,
+                af: SocketAfInfo::Ipv6 { v6only: Some(true) },
+            })
+            .as_ref()
+        );
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn setsockopt_v6only_clear() {
+        let handler = SetsockoptHandler {
+            fd: 0,
+            level: 1,
+            optname: 2,
+            optval: 3,
+        };
+        let mut state = program_state();
+        setup_ipv6_socket(&mut state, 3);
+
+        let sc = make_setsockopt(3, "SOL_IPV6", "IPV6_V6ONLY", 0);
+        let mut actions = vec![];
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        assert_eq!(
+            state.proc_fd.get_sock_info(1000, 3),
+            Some(SocketInfo {
+                proto: SocketProtocol::Tcp,
+                af: SocketAfInfo::Ipv6 {
+                    v6only: Some(false)
+                },
+            })
+            .as_ref()
+        );
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn setsockopt_non_ipv6_ignored() {
+        let handler = SetsockoptHandler {
+            fd: 0,
+            level: 1,
+            optname: 2,
+            optval: 3,
+        };
+        let mut state = program_state();
+        setup_ipv6_socket(&mut state, 3);
+
+        let sc = make_setsockopt(3, "SOL_SOCKET", "SO_REUSEADDR", 1);
+        let mut actions = vec![];
+        let result = handler.handle(&sc, &mut actions, &mut state);
+        assert!(result.is_ok());
+        // v6only should remain None (unchanged)
+        assert_eq!(
+            state.proc_fd.get_sock_info(1000, 3),
+            Some(SocketInfo {
+                proto: SocketProtocol::Tcp,
+                af: SocketAfInfo::Ipv6 { v6only: None },
+            })
+            .as_ref()
+        );
+        assert!(actions.is_empty());
+    }
+
+    // Helper to create an AF_INET6 socket syscall
+    fn make_socket_inet6(pid: pid_t, sock_type: &str, ret_fd: i64) -> Syscall {
+        let mut sc = make_syscall(
+            "socket",
+            vec![
+                named_symbol("AF_INET6"),
+                binary_or_flags(&[sock_type, "SOCK_CLOEXEC"]),
+            ],
+            ret_fd,
+        );
+        sc.pid = pid;
+        sc
+    }
+
+    // Helper to create an AF_INET6 bind syscall with an IPv6 address
+    fn make_bind_inet6(pid: pid_t, fd: i64, port: i64, addr: &str) -> Syscall {
+        let mut sc = make_syscall(
+            "bind",
+            vec![
+                int_literal(fd),
+                Expression::Struct(HashMap::from([
+                    ("sa_family".to_owned(), named_symbol("AF_INET6")),
+                    ("sin6_family".to_owned(), named_symbol("AF_INET6")),
+                    (
+                        "sin6_port".to_owned(),
+                        Expression::Integer(IntegerExpression {
+                            value: IntegerExpressionValue::Macro {
+                                name: "htons".to_owned(),
+                                args: vec![int_literal(port)],
+                            },
+                            metadata: None,
+                        }),
+                    ),
+                    (
+                        "sin6_addr".to_owned(),
+                        Expression::Integer(IntegerExpression {
+                            value: IntegerExpressionValue::Macro {
+                                name: "inet_pton".to_owned(),
+                                args: vec![named_symbol("AF_INET6"), buf_expr(addr.as_bytes())],
+                            },
+                            metadata: None,
+                        }),
+                    ),
+                ])),
+            ],
+            0,
+        );
+        sc.pid = pid;
+        sc
+    }
+
+    // Helper to create an AF_INET6 connect syscall with an IPv6 address
+    fn make_connect_inet6(pid: pid_t, fd: i64, addr: &str) -> Syscall {
+        let mut sc = make_syscall(
+            "connect",
+            vec![
+                int_literal(fd),
+                Expression::Struct(HashMap::from([
+                    ("sa_family".to_owned(), named_symbol("AF_INET6")),
+                    ("sin6_family".to_owned(), named_symbol("AF_INET6")),
+                    (
+                        "sin6_port".to_owned(),
+                        Expression::Integer(IntegerExpression {
+                            value: IntegerExpressionValue::Macro {
+                                name: "htons".to_owned(),
+                                args: vec![int_literal(443)],
+                            },
+                            metadata: None,
+                        }),
+                    ),
+                    (
+                        "sin6_addr".to_owned(),
+                        Expression::Integer(IntegerExpression {
+                            value: IntegerExpressionValue::Macro {
+                                name: "inet_pton".to_owned(),
+                                args: vec![named_symbol("AF_INET6"), buf_expr(addr.as_bytes())],
+                            },
+                            metadata: None,
+                        }),
+                    ),
+                ])),
+            ],
+            0,
+        );
+        sc.pid = pid;
+        sc
+    }
+
+    #[test]
+    fn dual_stack_bind_unspecified() {
+        let socket_handler = SocketHandler { af: 0, flags: 1 };
+        let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
+
+        let mut actions = vec![];
+        let mut state = program_state();
+
+        socket_handler
+            .handle(
+                &make_socket_inet6(1000, "SOCK_STREAM", 3),
+                &mut actions,
+                &mut state,
+            )
+            .unwrap();
+
+        network_handler
+            .handle(
+                &make_bind_inet6(1000, 3, 80, "::"),
+                &mut actions,
+                &mut state,
+            )
+            .unwrap();
+
+        // Should emit IPv4 action with 0.0.0.0, then IPv6 action with ::
+        assert_eq!(
+            actions[1..],
+            vec![
+                ProgramAction::NetworkActivity(
+                    NetworkActivity {
+                        af: SetSpecifier::One(SocketFamily::Ipv4),
+                        proto: SetSpecifier::One(SocketProtocol::Tcp),
+                        kind: SetSpecifier::One(NetworkActivityKind::Bind),
+                        local_port: SetSpecifier::One(NetworkPort(80.try_into().unwrap())),
+                        address: SetSpecifier::One("0.0.0.0".parse::<IpAddr>().unwrap().into()),
+                    }
+                    .into()
+                ),
+                ProgramAction::NetworkActivity(
+                    NetworkActivity {
+                        af: SetSpecifier::One(SocketFamily::Ipv6),
+                        proto: SetSpecifier::One(SocketProtocol::Tcp),
+                        kind: SetSpecifier::One(NetworkActivityKind::Bind),
+                        local_port: SetSpecifier::One(NetworkPort(80.try_into().unwrap())),
+                        address: SetSpecifier::One("::".parse::<IpAddr>().unwrap().into()),
+                    }
+                    .into()
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn dual_stack_connect_v4mapped() {
+        let socket_handler = SocketHandler { af: 0, flags: 1 };
+        let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
+
+        let mut actions = vec![];
+        let mut state = program_state();
+
+        socket_handler
+            .handle(
+                &make_socket_inet6(1000, "SOCK_STREAM", 3),
+                &mut actions,
+                &mut state,
+            )
+            .unwrap();
+
+        network_handler
+            .handle(
+                &make_connect_inet6(1000, 3, "::ffff:192.168.1.1"),
+                &mut actions,
+                &mut state,
+            )
+            .unwrap();
+
+        // Should emit IPv4 action with 192.168.1.1, then IPv6 action
+        assert_eq!(
+            actions[1..],
+            vec![
+                ProgramAction::NetworkActivity(
+                    NetworkActivity {
+                        af: SetSpecifier::One(SocketFamily::Ipv4),
+                        proto: SetSpecifier::One(SocketProtocol::Tcp),
+                        kind: SetSpecifier::One(NetworkActivityKind::Connect),
+                        local_port: SetSpecifier::All,
+                        address: SetSpecifier::One("192.168.1.1".parse::<IpAddr>().unwrap().into()),
+                    }
+                    .into()
+                ),
+                ProgramAction::NetworkActivity(
+                    NetworkActivity {
+                        af: SetSpecifier::One(SocketFamily::Ipv6),
+                        proto: SetSpecifier::One(SocketProtocol::Tcp),
+                        kind: SetSpecifier::One(NetworkActivityKind::Connect),
+                        local_port: SetSpecifier::All,
+                        address: SetSpecifier::One(
+                            "::ffff:192.168.1.1".parse::<IpAddr>().unwrap().into()
+                        ),
+                    }
+                    .into()
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn v6only_bind_no_ipv4() {
+        let socket_handler = SocketHandler { af: 0, flags: 1 };
+        let setsockopt_handler = SetsockoptHandler {
+            fd: 0,
+            level: 1,
+            optname: 2,
+            optval: 3,
+        };
+        let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
+
+        let mut actions = vec![];
+        let mut state = program_state();
+
+        socket_handler
+            .handle(
+                &make_socket_inet6(1000, "SOCK_STREAM", 3),
+                &mut actions,
+                &mut state,
+            )
+            .unwrap();
+
+        setsockopt_handler
+            .handle(
+                &make_setsockopt(3, "SOL_IPV6", "IPV6_V6ONLY", 1),
+                &mut actions,
+                &mut state,
+            )
+            .unwrap();
+
+        network_handler
+            .handle(
+                &make_bind_inet6(1000, 3, 80, "::"),
+                &mut actions,
+                &mut state,
+            )
+            .unwrap();
+
+        // Should only emit IPv6 action, no IPv4
+        assert_eq!(
+            actions[1..],
+            vec![ProgramAction::NetworkActivity(
+                NetworkActivity {
+                    af: SetSpecifier::One(SocketFamily::Ipv6),
+                    proto: SetSpecifier::One(SocketProtocol::Tcp),
+                    kind: SetSpecifier::One(NetworkActivityKind::Bind),
+                    local_port: SetSpecifier::One(NetworkPort(80.try_into().unwrap())),
+                    address: SetSpecifier::One("::".parse::<IpAddr>().unwrap().into()),
+                }
+                .into()
+            )]
+        );
+    }
+
+    #[test]
+    fn dual_stack_pure_ipv6_no_ipv4() {
+        let socket_handler = SocketHandler { af: 0, flags: 1 };
+        let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
+
+        let mut actions = vec![];
+        let mut state = program_state();
+
+        socket_handler
+            .handle(
+                &make_socket_inet6(1000, "SOCK_STREAM", 3),
+                &mut actions,
+                &mut state,
+            )
+            .unwrap();
+
+        network_handler
+            .handle(
+                &make_connect_inet6(1000, 3, "2001:db8::1"),
+                &mut actions,
+                &mut state,
+            )
+            .unwrap();
+
+        // Pure IPv6 address has no IPv4 equivalent — only IPv6 action emitted
+        assert_eq!(
+            actions[1..],
+            vec![ProgramAction::NetworkActivity(
+                NetworkActivity {
+                    af: SetSpecifier::One(SocketFamily::Ipv6),
+                    proto: SetSpecifier::One(SocketProtocol::Tcp),
+                    kind: SetSpecifier::One(NetworkActivityKind::Connect),
+                    local_port: SetSpecifier::All,
+                    address: SetSpecifier::One("2001:db8::1".parse::<IpAddr>().unwrap().into()),
+                }
+                .into()
+            )]
+        );
+    }
+
+    #[test]
+    fn dual_stack_loopback_no_ipv4() {
+        let socket_handler = SocketHandler { af: 0, flags: 1 };
+        let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
+
+        let mut actions = vec![];
+        let mut state = program_state();
+
+        socket_handler
+            .handle(
+                &make_socket_inet6(1000, "SOCK_STREAM", 3),
+                &mut actions,
+                &mut state,
+            )
+            .unwrap();
+
+        network_handler
+            .handle(
+                &make_bind_inet6(1000, 3, 80, "::1"),
+                &mut actions,
+                &mut state,
+            )
+            .unwrap();
+
+        // ::1 is IPv6-only loopback — no IPv4 action
+        assert_eq!(
+            actions[1..],
+            vec![ProgramAction::NetworkActivity(
+                NetworkActivity {
+                    af: SetSpecifier::One(SocketFamily::Ipv6),
+                    proto: SetSpecifier::One(SocketProtocol::Tcp),
+                    kind: SetSpecifier::One(NetworkActivityKind::Bind),
+                    local_port: SetSpecifier::One(NetworkPort(80.try_into().unwrap())),
+                    address: SetSpecifier::One("::1".parse::<IpAddr>().unwrap().into()),
+                }
+                .into()
+            )]
+        );
+    }
+
+    // 2. When bindv6only_default is true, IPv6 socket with v6only=None should not emit IPv4
+    #[test]
+    fn bindv6only_default_true_no_ipv4() {
+        let socket_handler = SocketHandler { af: 0, flags: 1 };
+        let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
+
+        let mut actions = vec![];
+        let mut state = ProgramState::new("/", true);
+
+        socket_handler
+            .handle(
+                &make_socket_inet6(1000, "SOCK_STREAM", 3),
+                &mut actions,
+                &mut state,
+            )
+            .unwrap();
+
+        network_handler
+            .handle(
+                &make_bind_inet6(1000, 3, 80, "::"),
+                &mut actions,
+                &mut state,
+            )
+            .unwrap();
+
+        // With bindv6only_default=true and v6only=None, should be treated as v6-only
+        assert_eq!(
+            actions[1..],
+            vec![ProgramAction::NetworkActivity(
+                NetworkActivity {
+                    af: SetSpecifier::One(SocketFamily::Ipv6),
+                    proto: SetSpecifier::One(SocketProtocol::Tcp),
+                    kind: SetSpecifier::One(NetworkActivityKind::Bind),
+                    local_port: SetSpecifier::One(NetworkPort(80.try_into().unwrap())),
+                    address: SetSpecifier::One("::".parse::<IpAddr>().unwrap().into()),
+                }
+                .into()
+            )]
+        );
+    }
+
+    // Helper to create an AF_INET6 sendto syscall
+    fn make_sendto_inet6(pid: pid_t, fd: i64, addr: &str) -> Syscall {
+        let mut sc = make_syscall(
+            "sendto",
+            vec![
+                int_literal(fd),
+                buf_expr(b"data"),
+                int_literal(4),
+                int_literal(0),
+                Expression::Struct(HashMap::from([
+                    ("sa_family".to_owned(), named_symbol("AF_INET6")),
+                    ("sin6_family".to_owned(), named_symbol("AF_INET6")),
+                    (
+                        "sin6_port".to_owned(),
+                        Expression::Integer(IntegerExpression {
+                            value: IntegerExpressionValue::Macro {
+                                name: "htons".to_owned(),
+                                args: vec![int_literal(53)],
+                            },
+                            metadata: None,
+                        }),
+                    ),
+                    (
+                        "sin6_addr".to_owned(),
+                        Expression::Integer(IntegerExpression {
+                            value: IntegerExpressionValue::Macro {
+                                name: "inet_pton".to_owned(),
+                                args: vec![named_symbol("AF_INET6"), buf_expr(addr.as_bytes())],
+                            },
+                            metadata: None,
+                        }),
+                    ),
+                ])),
+            ],
+            4,
+        );
+        sc.pid = pid;
+        sc
+    }
+
+    // 3. Dual-stack with sendto emits both IPv4 and IPv6 actions
+    #[test]
+    fn dual_stack_sendto() {
+        let socket_handler = SocketHandler { af: 0, flags: 1 };
+        let network_handler = NetworkHandler { fd: 0, sockaddr: 4 };
+
+        let mut actions = vec![];
+        let mut state = program_state();
+
+        socket_handler
+            .handle(
+                &make_socket_inet6(1000, "SOCK_DGRAM", 3),
+                &mut actions,
+                &mut state,
+            )
+            .unwrap();
+
+        network_handler
+            .handle(
+                &make_sendto_inet6(1000, 3, "::ffff:8.8.8.8"),
+                &mut actions,
+                &mut state,
+            )
+            .unwrap();
+
+        // Should emit IPv4 action with 8.8.8.8, then IPv6 action
+        assert_eq!(
+            actions[1..],
+            vec![
+                ProgramAction::NetworkActivity(
+                    NetworkActivity {
+                        af: SetSpecifier::One(SocketFamily::Ipv4),
+                        proto: SetSpecifier::One(SocketProtocol::Udp),
+                        kind: SetSpecifier::One(NetworkActivityKind::SendRecv),
+                        local_port: SetSpecifier::All,
+                        address: SetSpecifier::One("8.8.8.8".parse::<IpAddr>().unwrap().into()),
+                    }
+                    .into()
+                ),
+                ProgramAction::NetworkActivity(
+                    NetworkActivity {
+                        af: SetSpecifier::One(SocketFamily::Ipv6),
+                        proto: SetSpecifier::One(SocketProtocol::Udp),
+                        kind: SetSpecifier::One(NetworkActivityKind::SendRecv),
+                        local_port: SetSpecifier::All,
+                        address: SetSpecifier::One(
+                            "::ffff:8.8.8.8".parse::<IpAddr>().unwrap().into()
+                        ),
+                    }
+                    .into()
+                ),
+            ]
+        );
+    }
+
+    // 4. AF_INET socket never triggers dual-stack path
+    #[test]
+    fn ipv4_socket_no_dual_stack() {
+        let socket_handler = SocketHandler { af: 0, flags: 1 };
+        let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
+
+        let mut actions = vec![];
+        let mut state = program_state();
+
+        socket_handler
+            .handle(
+                &make_socket_inet(1000, "SOCK_STREAM", 3),
+                &mut actions,
+                &mut state,
+            )
+            .unwrap();
+
+        network_handler
+            .handle(&make_bind_inet(1000, 3, 80), &mut actions, &mut state)
+            .unwrap();
+
+        // Only one bind action with IPv4, no dual-stack IPv6
+        assert_eq!(
+            actions[1..],
+            vec![ProgramAction::NetworkActivity(
+                NetworkActivity {
+                    af: SetSpecifier::One(SocketFamily::Ipv4),
+                    proto: SetSpecifier::One(SocketProtocol::Tcp),
+                    kind: SetSpecifier::One(NetworkActivityKind::Bind),
+                    local_port: SetSpecifier::One(NetworkPort(80.try_into().unwrap())),
+                    address: SetSpecifier::None,
+                }
+                .into()
+            )]
+        );
     }
 }
