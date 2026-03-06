@@ -147,6 +147,9 @@ impl SyscallHandler for ChdirHandler {
         actions: &mut Vec<ProgramAction>,
         state: &mut ProgramState,
     ) -> Result<(), HandlerError> {
+        if !sc.is_successful() {
+            return Ok(());
+        }
         let dir = self
             .path
             .extract(sc)?
@@ -320,6 +323,9 @@ impl SyscallHandler for UnshareHandler {
         _actions: &mut Vec<ProgramAction>,
         state: &mut ProgramState,
     ) -> Result<(), HandlerError> {
+        if !sc.is_successful() {
+            return Ok(());
+        }
         let flags = self.flags.extract(sc)?;
         let Expression::Integer(IntegerExpression { value: flags, .. }) = flags else {
             return Err(HandlerError::ArgTypeMismatch {
@@ -1201,6 +1207,10 @@ impl SyscallHandler for SetsockoptHandler {
         _actions: &mut Vec<ProgramAction>,
         state: &mut ProgramState,
     ) -> Result<(), HandlerError> {
+        if !sc.is_successful() {
+            return Ok(());
+        }
+
         let fd = self.fd.extract(sc)?;
         let level = self.level.extract(sc)?;
         let optname = self.optname.extract(sc)?;

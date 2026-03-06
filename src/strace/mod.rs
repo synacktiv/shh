@@ -34,6 +34,13 @@ impl Syscall {
             .is_none_or(Self::is_successful_or_pending_ret_val)
     }
 
+    pub(crate) fn is_successful(&self) -> bool {
+        self.ret_val
+            .as_ref()
+            .and_then(IntegerExpression::value)
+            .is_some_and(|v| v >= 0)
+    }
+
     pub(crate) fn is_successful_or_pending_ret_val(rv: &IntegerExpression) -> bool {
         // Strace `--successful-only` argument can make us miss interesting stuff,
         // so identify "successful" syscalls with our own logic

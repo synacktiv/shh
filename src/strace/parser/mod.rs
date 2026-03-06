@@ -159,9 +159,13 @@ impl Iterator for LogParser {
                             {
                                 let sc_start =
                                     self.unfinished_syscalls.swap_remove(unfinished_index); // I fucking love Rust <3
-                                break SyscallItem::Complete(Box::new(sc_start.end(&sc_end)));
+                                let sc = sc_start.end(&sc_end);
+                                if sc.is_successful_or_pending() {
+                                    break SyscallItem::Complete(Box::new(sc));
+                                }
+                            } else {
+                                log::warn!("Unable to find first part of syscall");
                             }
-                            log::warn!("Unable to find first part of syscall");
                         }
                         ParsedSyscall::NameOnly { name, ret_val } => {
                             if ret_val
