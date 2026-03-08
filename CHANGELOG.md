@@ -1,5 +1,80 @@
 # Changelog
 
+## v2026.3.8
+
+### <!-- 01 -->💡 Features
+
+- Refactor man page & shell completions generation ([78f4a85](https://github.com/desbma/shh/commit/78f4a855b3c6b5d2479dae9236521ab48bc6edda) by desbma)
+- Simplify journalctl output parsing ([399e226](https://github.com/desbma/shh/commit/399e226cf8637e9731e520ee9b135798c0430ef9) by desbma)
+- Add special handling for syscall classes on divergent code paths ([7afe636](https://github.com/desbma/shh/commit/7afe6369db9bfcdd75306665834d98b321be542d) by desbma)
+- Improve option result parsing from journald, add unique id ([7067b61](https://github.com/desbma/shh/commit/7067b61803dca1175e4fd1f6e5f880faf644374f) by desbma)
+- Properly handle restarted syscalls ([392608e](https://github.com/desbma/shh/commit/392608ee2a46d505ee3acabe4e2923cdc5d91f12) by desbma)
+- Revamp per process fd tracking ([c2b5820](https://github.com/desbma/shh/commit/c2b5820fa13c7a7705dc95ea62ba1857bdde02c6) by desbma)
+- Improve dual stack socket handling ([3c7d482](https://github.com/desbma/shh/commit/3c7d482228ef11a7d76268967c3da31dd4f08a50) by desbma)
+
+### <!-- 02 -->🐛 Bug fixes
+
+- Possible incomplete resolved options output ([d00301e](https://github.com/desbma/shh/commit/d00301e27668c911840474188331046795faff72) by desbma)
+- Reset restart count in finish-profile ([a04c891](https://github.com/desbma/shh/commit/a04c891537af21fdb97c15fadd74f60c5cf84ddc) by desbma)
+- Dual stack socket bind ([20438e4](https://github.com/desbma/shh/commit/20438e490b6afc764f6c33b46cfd164a2678a8c0) by desbma)
+- Test-env/run breaking terminal ([f918910](https://github.com/desbma/shh/commit/f9189109165c430ce9eacca1727e227e903375a8) by desbma)
+- Test-env/run breaking terminal, the return ([3bd4ba8](https://github.com/desbma/shh/commit/3bd4ba88c2ecad13c3d251a82128260b59dff7b1) by desbma)
+- Possible truncated option output for debug builds ([4f66e0e](https://github.com/desbma/shh/commit/4f66e0ef7b5f435859e666cb7c528b9f584ea08a) by desbma)
+- Syscall return code misuse corner cases ([4d5446a](https://github.com/desbma/shh/commit/4d5446aee5e3737942e6b65183fe8eb49bc06441) by desbma)
+- Improve handling of bind on unspecified address ([4229989](https://github.com/desbma/shh/commit/4229989f6c4e86213954708c1900d583ac39bdb9) by desbma)
+- Possible journacltl log overlap in generated options output ([3b4a4ca](https://github.com/desbma/shh/commit/3b4a4ca6f96f75d9a5f0e008b9e67aef4f8a7574) by desbma)
+
+### <!-- 03 -->🏃 Performance
+
+- Add syscall name bench ([e3a1bdc](https://github.com/desbma/shh/commit/e3a1bdccb15e6c3fb887582f5131dbfa8a1b1343) by desbma)
+- Use EcoString for syscall name (20-25% faster in micro bench) ([358ec2d](https://github.com/desbma/shh/commit/358ec2d9eec81a09a70e432b7dd7624a1c65fdaa) by desbma)
+- Add i128/i64 bench ([733eb2d](https://github.com/desbma/shh/commit/733eb2d4aa4bd4f805d39307395524fa59f5908e) by desbma)
+- Get rid of i128 ([426640f](https://github.com/desbma/shh/commit/426640f5a5432db336093b161e222ffe4c815899) by desbma)
+- Only parse full syscalls if we need to (>35% speedup) ([ab8d0d7](https://github.com/desbma/shh/commit/ab8d0d750c6e78117a7f7e74f7c6771e5336cdb9) by desbma)
+
+### <!-- 05 -->🧪 Testing
+
+- Run integration tests via systemd-vmspawn ([ae10a84](https://github.com/desbma/shh/commit/ae10a84afab06df0d67f54f17c17bf4be96006d3) by desbma)
+- Add CACHEDIR.TAG to default target dir ([214ac02](https://github.com/desbma/shh/commit/214ac024f74458a4b9d2fcfd8334ba52c116fccc) by desbma)
+- Fix outdated second snapshots ([162c5da](https://github.com/desbma/shh/commit/162c5da14587fb7511178f3a00f9ca7a16696084) by desbma)
+- Full hardening workflow for caddy ([7d86a22](https://github.com/desbma/shh/commit/7d86a22fb525fc300d81bed5f42a3af5f03a8b7b) by desbma)
+- Simplify & format test-all script ([d4e81dd](https://github.com/desbma/shh/commit/d4e81dd4383b82a3dba2cc9a1af372768c7f8e5f) by desbma)
+- Use systemctl wait loop to avoid flakiness ([0adaa93](https://github.com/desbma/shh/commit/0adaa93dfed0ade79a47f7f12f7b25e81329c97c) by desbma)
+- test-env/setup: Fix machine name clash ([76f1c34](https://github.com/desbma/shh/commit/76f1c34501caea00f3168438e7b1c557b9497b11) by desbma)
+- Add stress test script ([a12fd98](https://github.com/desbma/shh/commit/a12fd98d53a4d1783d3dccd00cf385a0eabe68ac) by desbma)
+- Simplify test scripts now that they handle concurrent tests ([e47baeb](https://github.com/desbma/shh/commit/e47baeb95078471cc436d9ab9ece0cb424c8e9c4) by desbma)
+- Refactor logging for e2e test ([c5b8e70](https://github.com/desbma/shh/commit/c5b8e70a709fb0b0f186cea95dc074c652053ce1) by desbma)
+- Disable journald rate limit in test VM ([b24792a](https://github.com/desbma/shh/commit/b24792a37bd3883fe349c042118d1067844204ab) by desbma)
+- Auto stop gimp to make test more robust ([88e7d85](https://github.com/desbma/shh/commit/88e7d856954a6dc64b55ed06d88963d609391e3b) by desbma)
+- Tweak stress test core count ([e660e5a](https://github.com/desbma/shh/commit/e660e5a443a4316e4f2b91de600a9d78d674eec7) by desbma)
+- Unit@param.service end to end test ([380978c](https://github.com/desbma/shh/commit/380978c3da09fe3caf81a0ede0a1078eb547bb04) by desbma)
+
+### <!-- 06 -->🚜 Refactor
+
+- Reduce syscall handler boilerplate ([e639d99](https://github.com/desbma/shh/commit/e639d994c57f43d131c6e20b074762d0cf933749) by desbma)
+- Factorize fd path resolution + add tests ([1b42276](https://github.com/desbma/shh/commit/1b422769cdaaa72f7c2d0dffb2439c0cf708d61c) by desbma)
+- Untangle resolver ([c8f9483](https://github.com/desbma/shh/commit/c8f9483b8c3c1f30bbe162d63ad4c1fe89ace408) by desbma)
+- Add macros to simplify handler code ([9288d7a](https://github.com/desbma/shh/commit/9288d7a2a741f299d854540b128d6cc96d131ed3) by desbma)
+
+### <!-- 09 -->🤖 Continuous integration
+
+- Remove unneeded permission for cargo audit ([a38a1bc](https://github.com/desbma/shh/commit/a38a1bc6f54f9c98ee43f7a82c91da0a1bf4909e) by desbma)
+- Add msrv check ([269d592](https://github.com/desbma/shh/commit/269d5920f6579c94a91933b1881bb8f046ca8e48) by desbma)
+- Run clippy on all targets, including tests ([d9a84a9](https://github.com/desbma/shh/commit/d9a84a990003e9de44a2610677b0b3701a5b044d) by desbma)
+- Update actions versions ([e8c2957](https://github.com/desbma/shh/commit/e8c2957cb0550856538a34667c6c50020cad5e8a) by desbma)
+
+### <!-- 10 -->🧰 Miscellaneous tasks
+
+- Comment typo ([4d8aa8f](https://github.com/desbma/shh/commit/4d8aa8fcf993c7f8fc67cac05461e024a067726e) by desbma)
+- Update AGENTS.md ([8051c61](https://github.com/desbma/shh/commit/8051c61a9be852e25e02be934cd6afebc3457371) by desbma)
+- Ignore insta .snap.new files ([1ff7180](https://github.com/desbma/shh/commit/1ff7180a50660ae9b82353a5805e9ed2e318e442) by desbma)
+- Ignore claude files ([4532bf4](https://github.com/desbma/shh/commit/4532bf4cc01bab107830f9496fadf2561828bfbc) by desbma)
+- Update dependencies ([7703123](https://github.com/desbma/shh/commit/7703123b0b8479f2ac2b5f11408e078cdb69b622) by desbma)
+- Fix const_gen lint ([c4a02eb](https://github.com/desbma/shh/commit/c4a02eb0e5d9ca8ab54ae86dec4396e455d7d25e) by desbma)
+- Update release script ([c2b0833](https://github.com/desbma/shh/commit/c2b08338ee3ac4178497de9093a51f5a6a5ff918) by desbma)
+
+---
+
 ## v2026.1.27
 
 ### <!-- 01 -->💡 Features
