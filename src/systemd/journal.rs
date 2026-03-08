@@ -79,6 +79,9 @@ impl JournalCursor {
                 self.as_ref(),
                 "-u",
                 &service.unit_name(),
+                // Filter to only stdout/stderr from the service process,
+                // excluding systemd's own messages about the unit (e.g. "Deactivated successfully.")
+                "_TRANSPORT=stdout",
             ])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
