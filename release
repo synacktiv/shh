@@ -3,18 +3,14 @@
 set -o pipefail
 
 readonly VERSION="${1:-$(date +%Y.%-m.%-d)}"
-readonly IS_JUJUTSU="$(if jj root &> /dev/null; then echo 1; else echo 0; fi)"
 
-cd "$(git rev-parse --show-toplevel)"
+cd "$(jj root)"
 
-if [ "${IS_JUJUTSU}" -eq 1 ]
+if jj show --stat | tail -n -1 | grep -q '^0 files changed'
 then
-  if jj show --stat | tail -n -1 | grep -q '^0 files changed'
-  then
-    jj describe -m "chore: version ${VERSION}"
-  else
-    jj new -m "chore: version ${VERSION}"
-  fi
+  jj describe -m "chore: version ${VERSION}"
+else
+  jj new -m "chore: version ${VERSION}"
 fi
 
 cargo set-version "${VERSION}"
@@ -23,32 +19,14 @@ cargo upgrade
 cargo update
 
 cargo check
-cargo test --bins
+cargo test
 
-RUST_LOG=warn cargo run -- list-systemd-options | head -n -1 > systemd_options.md
-
-if [ "${IS_JUJUTSU}" -eq 0 ]
-then
-  git add Cargo.{toml,lock} systemd_options.md
-
-  git commit -m "chore: version ${VERSION}"
-fi
-
-if [ "${IS_JUJUTSU}" -eq 1 ]
-then
-  jj new
-fi
+jj new
 
 git tag -f -m "Version ${VERSION}" "v${VERSION}"
 git cliff | head -n -3 > CHANGELOG.md
 git tag -d "v${VERSION}"
 
-if [ "${IS_JUJUTSU}" -eq 1 ]
-then
-  jj squash -u
-else
-  git add CHANGELOG.md
-  git commit --amend --no-edit
-fi
+jj squash -u
 
 git tag -f -m "Version ${VERSION}" "v${VERSION}"
