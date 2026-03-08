@@ -15,7 +15,7 @@ use std::{
 
 use anyhow::Context as _;
 use itertools::Itertools as _;
-use rand::Rng as _;
+use rand::RngExt as _;
 
 use super::InstanceKind;
 use crate::{
