@@ -64,6 +64,10 @@ fn main() {
     // Write generated code
     let out_dir = env::var_os("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("systemd_syscall_groups.rs");
-    let const_declarations = const_declaration!(SYSCALL_CLASSES = classes);
+    let mut const_declarations = const_declaration!(SYSCALL_CLASSES = classes);
+    const_declarations = const_declarations
+        .strip_prefix("#[allow(clippy::redundant_static_lifetimes)] ")
+        .map(ToOwned::to_owned)
+        .unwrap_or(const_declarations);
     fs::write(&dest_path, const_declarations).unwrap();
 }
