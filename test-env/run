@@ -23,7 +23,7 @@ readonly TARGET_DIR="${TARGET_DIR:-${PROJECT_DIR}/test-env/target/${DISTRIBUTION
 # concurrent instances don't interfere with each other
 EPHEMERAL="$(mktemp -d --tmpdir vmtest-XXXXXXXXXX)"
 readonly EPHEMERAL
-mkdir "${EPHEMERAL}"/{upper,work,merged}
+sudo mkdir "${EPHEMERAL}"/{upper,work,merged}
 sudo mount -t overlay overlay \
     -o "lowerdir=${TARGET_DIR},upperdir=${EPHEMERAL}/upper,workdir=${EPHEMERAL}/work" \
     "${EPHEMERAL}/merged"
