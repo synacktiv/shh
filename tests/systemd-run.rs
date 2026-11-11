@@ -799,6 +799,28 @@ ptrace(PTRACE_DETACH, target_pid)
     }
 
     #[test]
+    fn systemd_run_mv_symlink() {
+        // Rename a pre-existing symlink over another in /var/lib, a write to their directory, not to the
+        // directory of their target
+        let dir = tempfile::tempdir_in("/var/lib").unwrap();
+        let target_dir = dir.path().join("releases");
+        let target = target_dir.join("target");
+        let src = dir.path().join("new");
+        let dst = dir.path().join("cur");
+        fs::create_dir(&target_dir).unwrap();
+        fs::write(&target, "").unwrap();
+        unix::fs::symlink(&target, &dst).unwrap();
+        let cmd = ["mv", "-T", src.to_str().unwrap(), dst.to_str().unwrap()];
+        for shh_opts in &*ALL_SHH_RUN_OPTS {
+            eprintln!("shh run option: {}", shh_opts.join(" "));
+            unix::fs::symlink(&target, &src).unwrap();
+            let sd_opts = generate_options(&cmd, shh_opts);
+            unix::fs::symlink(&target, &src).unwrap();
+            let _ = systemd_run(&cmd, &sd_opts, false);
+        }
+    }
+
+    #[test]
     fn systemd_run_create_held() {
         // Create an entry held directly in /tmp, which the service must see; link and rename sources are created
         // by the command
@@ -930,10 +952,6 @@ else:
                     src.to_str().unwrap(),
                 ];
                 for shh_opts in &*ALL_SHH_RUN_OPTS {
-                    // Whitelist mode wrongly makes both rename operands mount points, failing the rename with EBUSY
-                    if kind == "rename" && shh_opts.contains(&"-w") {
-                        continue;
-                    }
                     eprintln!(
                         "shh run option: {opts} ({kind} in {path:?})",
                         opts = shh_opts.join(" ")

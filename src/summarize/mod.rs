@@ -994,9 +994,8 @@ mod tests {
             summarize(syscalls, &env_paths, state).unwrap(),
             vec![
                 ProgramAction::Read(temp_dir_src.path().join("a")),
-                ProgramAction::Write(temp_dir_src.path().join("a")),
+                ProgramAction::Remove(temp_dir_src.path().join("a")),
                 ProgramAction::Create(temp_dir_dst.path().join("b")),
-                ProgramAction::Write(temp_dir_dst.path().join("b")),
                 ProgramAction::RequireSameMount(
                     temp_dir_src.path().to_owned(),
                     temp_dir_dst.path().to_owned()
@@ -2024,11 +2023,41 @@ mod tests {
             vec![
                 ProgramAction::Read(src_dir_link.clone()),
                 ProgramAction::Read(src_dir.join("old")),
-                ProgramAction::Read(other_dir.join("target")),
-                ProgramAction::Write(other_dir.join("target")),
-                ProgramAction::Create(new.clone()),
-                ProgramAction::Write(new),
+                ProgramAction::Remove(src_dir.join("old")),
+                ProgramAction::Create(new),
                 ProgramAction::RequireSameMount(src_dir, temp_dir.path().to_path_buf()),
+                ProgramAction::Syscalls(["renameat".into()].into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn rename_removes_source() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        // State after renaming a symlink over another: the source is gone, the destination is the moved symlink
+        let temp_dir = tempfile::tempdir().unwrap();
+        let src = temp_dir.path().join("new");
+        let dst = temp_dir.path().join("cur");
+        let target = temp_dir.path().join("target");
+        File::create(&target).unwrap();
+        unix::fs::symlink(&target, &dst).unwrap();
+        let args = vec![
+            named_symbol("AT_FDCWD"),
+            buf_expr(src.as_os_str().as_bytes()),
+            named_symbol("AT_FDCWD"),
+            buf_expr(dst.as_os_str().as_bytes()),
+        ];
+        assert_eq!(
+            summarize([Ok(syscall("renameat", args))], &[], program_state()).unwrap(),
+            vec![
+                ProgramAction::Read(src.clone()),
+                ProgramAction::Remove(src),
+                ProgramAction::Create(dst),
+                ProgramAction::RequireSameMount(
+                    temp_dir.path().to_owned(),
+                    temp_dir.path().to_owned()
+                ),
                 ProgramAction::Syscalls(["renameat".into()].into()),
             ]
         );
@@ -2312,10 +2341,9 @@ mod tests {
             summarize_syscall(sc),
             vec![
                 ProgramAction::Read("/src/file".into()),
-                ProgramAction::Write("/src/file".into()),
+                ProgramAction::Remove("/src/file".into()),
                 ProgramAction::Read(existing.clone()),
-                ProgramAction::Create(existing.clone()),
-                ProgramAction::Write(existing),
+                ProgramAction::Create(existing),
                 ProgramAction::RequireSameMount("/src".into(), temp_dir.path().to_owned()),
                 ProgramAction::Syscalls(["renameat2".into()].into()),
             ]

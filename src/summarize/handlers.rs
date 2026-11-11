@@ -919,13 +919,12 @@ impl SyscallHandler for RenameHandler {
             None => false,
         };
 
-        // The directories, taken before following the final components, need the same mount
+        // A rename acts on the entries themselves, never following their final component
         traverse_parent_symlinks(&mut path_src, actions);
-        let dir_src = path_src.parent().map(Path::to_path_buf);
-        traverse_symlinks(&mut path_src, actions);
         traverse_parent_symlinks(&mut path_dst, actions);
+        // The directories need the same mount
+        let dir_src = path_src.parent().map(Path::to_path_buf);
         let dir_dst = path_dst.parent().map(Path::to_path_buf);
-        traverse_symlinks(&mut path_dst, actions);
         // A rename of an absent entry still writes to both directories
         if sc.errno() == Some("ENOENT") {
             if let (Some(dir_src), Some(dir_dst)) = (dir_src, dir_dst) {
@@ -936,15 +935,20 @@ impl SyscallHandler for RenameHandler {
             return Ok(());
         }
         actions.push(ProgramAction::Read(path_src.clone()));
-        actions.push(ProgramAction::Write(path_src.clone()));
+        actions.push(if exchange {
+            ProgramAction::Write(path_src)
+        } else {
+            ProgramAction::Remove(path_src)
+        });
         // An exchanged destination, or one a rename fails on, like with RENAME_NOREPLACE, exists before the call
         if exchange || !sc.is_successful() {
             actions.push(ProgramAction::Read(path_dst.clone()));
         }
-        if !exchange {
-            actions.push(ProgramAction::Create(path_dst.clone()));
-        }
-        actions.push(ProgramAction::Write(path_dst.clone()));
+        actions.push(if exchange {
+            ProgramAction::Write(path_dst)
+        } else {
+            ProgramAction::Create(path_dst)
+        });
         if let (Some(dir_src), Some(dir_dst)) = (dir_src, dir_dst) {
             actions.push(ProgramAction::RequireSameMount(dir_src, dir_dst));
         }
@@ -3882,9 +3886,8 @@ x86_Thread_features_locked:
             actions,
             vec![
                 ProgramAction::Read("/tmp/old".into()),
-                ProgramAction::Write("/tmp/old".into()),
+                ProgramAction::Remove("/tmp/old".into()),
                 ProgramAction::Create("/tmp/new".into()),
-                ProgramAction::Write("/tmp/new".into()),
                 ProgramAction::RequireSameMount("/tmp".into(), "/tmp".into())
             ]
         );
@@ -3918,9 +3921,8 @@ x86_Thread_features_locked:
             actions,
             vec![
                 ProgramAction::Read("/old".into()),
-                ProgramAction::Write("/old".into()),
+                ProgramAction::Remove("/old".into()),
                 ProgramAction::Create("/new".into()),
-                ProgramAction::Write("/new".into()),
                 ProgramAction::RequireSameMount("/".into(), "/".into())
             ]
         );
