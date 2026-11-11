@@ -821,6 +821,71 @@ ptrace(PTRACE_DETACH, target_pid)
     }
 
     #[test]
+    fn systemd_run_replace_executed_file() {
+        // Run a pre-existing script in /var/lib, and replace, remove or move it or its directory, writes to
+        // directories whose entries the service must not see as mount points, or holding them
+        let dir = tempfile::tempdir_in("/var/lib").unwrap();
+        let tool_dir = dir.path().join("tools");
+        let tool = tool_dir.join("tool");
+        let new = tool_dir.join("new");
+        let staging_dir = dir.path().join("staging");
+        let old_dir = dir.path().join("old");
+        let setup = || {
+            for bin_dir in [&tool_dir, &staging_dir] {
+                fs::create_dir_all(bin_dir).unwrap();
+                let bin = bin_dir.join("tool");
+                fs::write(&bin, "#!/bin/sh\n").unwrap();
+                fs::set_permissions(&bin, Permissions::from_mode(0o755)).unwrap();
+            }
+            fs::write(&new, "").unwrap();
+            if old_dir.exists() {
+                fs::remove_dir_all(&old_dir).unwrap();
+            }
+        };
+        let [tool_dir, tool, new, staging_dir, old_dir] =
+            [&tool_dir, &tool, &new, &staging_dir, &old_dir].map(|p| p.to_str().unwrap());
+        for script in [
+            format!("{tool} && mv {new} {tool}"),
+            format!("{tool} && rm {tool}"),
+            format!("{tool} && rm -r {tool_dir}"),
+            format!("{tool} && mv {tool_dir} {old_dir} && rm {old_dir}/tool"),
+            format!(
+                "mv {tool_dir} {old_dir} && mv {staging_dir} {tool_dir} && {tool} && rm -r {old_dir}"
+            ),
+        ] {
+            let cmd = ["sh", "-c", &script];
+            for shh_opts in &*ALL_SHH_RUN_OPTS {
+                eprintln!(
+                    "shh run option: {opts} ({script})",
+                    opts = shh_opts.join(" ")
+                );
+                setup();
+                let sd_opts = generate_options(&cmd, shh_opts);
+                setup();
+                let _ = systemd_run(&cmd, &sd_opts, false);
+            }
+        }
+    }
+
+    #[test]
+    fn systemd_run_rename_exchange() {
+        // Exchange two pre-existing files in /tmp, a write to their directory
+        let dir = tempfile::tempdir_in("/tmp").unwrap();
+        let a = dir.path().join("a");
+        let b = dir.path().join("b");
+        fs::write(&a, "").unwrap();
+        fs::write(&b, "").unwrap();
+        let cmd = [
+            "mv",
+            "--exchange",
+            "-T",
+            a.to_str().unwrap(),
+            b.to_str().unwrap(),
+        ];
+        profile_and_run(&cmd, false);
+    }
+
+    #[test]
     fn systemd_run_create_held() {
         // Create an entry held directly in /tmp, which the service must see; link and rename sources are created
         // by the command

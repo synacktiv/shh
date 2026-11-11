@@ -23,8 +23,9 @@ use handlers::{
     AccessHandler, ChdirHandler, Clone3Handler, EpollCtlHandler, ExecHandler, FanotifyMarkHandler,
     FdWriteHandler, FollowSymlink, ForkHandler, IoctlHandler, KillHandler, LinkHandler,
     MemfdCreateHandler, MknodHandler, MmapHandler, MountHandler, NetworkHandler, OpenHandler,
-    PathHandler, RenameHandler, SetSchedulerHandler, SetsockoptHandler, ShmCtlHandler,
-    SocketHandler, StatFdHandler, SyscallHandler, TimerCreateHandler, UnshareHandler,
+    PathHandler, RemoveHandler, RenameHandler, SetSchedulerHandler, SetsockoptHandler,
+    ShmCtlHandler, SocketHandler, StatFdHandler, SyscallHandler, TimerCreateHandler,
+    UnshareHandler,
 };
 
 /// A high level program runtime action
@@ -51,7 +52,9 @@ pub(crate) enum ProgramAction {
     Read(PathBuf),
     /// Remove a path
     Remove(PathBuf),
-    /// Paths a link or rename needs on the same mount
+    /// Path requiring no mount at or below it
+    RequireNoMountWithin(PathBuf),
+    /// Paths required to share a mount
     RequireSameMount(PathBuf, PathBuf),
     /// Set privileged timer alarm
     SetAlarm,
@@ -632,11 +635,13 @@ static SYSCALL_MAP: phf::Map<&'static str, &'static dyn SyscallHandler> = phf::p
         path_dst: 3,
         flags: Some(4),
     },
-    "rmdir" => &PathHandler {
-        relfd: None,
-        path: 0,
-        follow: FollowSymlink::Never,
-        action: ProgramAction::Remove,
+    "rmdir" => &RemoveHandler {
+        path: PathHandler {
+            relfd: None,
+            path: 0,
+            follow: FollowSymlink::Never,
+            action: ProgramAction::Remove,
+        },
     },
     "sched_setscheduler" => &SetSchedulerHandler { policy: 1 },
     "sendto" => &NetworkHandler { fd: 0, sockaddr: 4 },
@@ -703,17 +708,21 @@ static SYSCALL_MAP: phf::Map<&'static str, &'static dyn SyscallHandler> = phf::p
         follow: FollowSymlink::Always,
         action: ProgramAction::Write,
     },
-    "unlink" => &PathHandler {
-        relfd: None,
-        path: 0,
-        follow: FollowSymlink::Never,
-        action: ProgramAction::Remove,
+    "unlink" => &RemoveHandler {
+        path: PathHandler {
+            relfd: None,
+            path: 0,
+            follow: FollowSymlink::Never,
+            action: ProgramAction::Remove,
+        },
     },
-    "unlinkat" => &PathHandler {
-        relfd: Some(0),
-        path: 1,
-        follow: FollowSymlink::Never,
-        action: ProgramAction::Remove,
+    "unlinkat" => &RemoveHandler {
+        path: PathHandler {
+            relfd: Some(0),
+            path: 1,
+            follow: FollowSymlink::Never,
+            action: ProgramAction::Remove,
+        },
     },
     "unshare" => &UnshareHandler { flags: 0 },
     "utime" => &PathHandler {
@@ -993,11 +1002,16 @@ mod tests {
         assert_eq!(
             summarize(syscalls, &env_paths, state).unwrap(),
             vec![
+                ProgramAction::RequireSameMount(
+                    temp_dir_src.path().to_owned(),
+                    temp_dir_dst.path().to_owned()
+                ),
                 ProgramAction::Read(temp_dir_src.path().join("a")),
                 ProgramAction::Remove(temp_dir_src.path().join("a")),
                 ProgramAction::Create(temp_dir_dst.path().join("b")),
+                ProgramAction::RequireNoMountWithin(temp_dir_src.path().join("a")),
                 ProgramAction::RequireSameMount(
-                    temp_dir_src.path().to_owned(),
+                    temp_dir_dst.path().join("b"),
                     temp_dir_dst.path().to_owned()
                 ),
                 ProgramAction::Syscalls(["renameat".into()].into()),
@@ -1365,19 +1379,30 @@ mod tests {
     }
 
     #[test]
-    fn unlink_removes_path() {
+    fn remove_requires_same_mount() {
         let _ = simple_logger::SimpleLogger::new().init();
 
-        let state = program_state();
-
-        let syscalls = [Ok(syscall("unlink", vec![buf_expr(b"/var/lib/test")]))];
-        assert_eq!(
-            summarize(syscalls, &[], state).unwrap(),
-            vec![
-                ProgramAction::Remove("/var/lib/test".into()),
-                ProgramAction::Syscalls(["unlink".into()].into()),
-            ]
-        );
+        for (name, args) in [
+            ("unlink", vec![buf_expr(b"/var/lib/test")]),
+            (
+                "unlinkat",
+                vec![
+                    named_symbol("AT_FDCWD"),
+                    buf_expr(b"/var/lib/test"),
+                    named_symbol("AT_REMOVEDIR"),
+                ],
+            ),
+            ("rmdir", vec![buf_expr(b"/var/lib/test")]),
+        ] {
+            assert_eq!(
+                summarize([Ok(syscall(name, args))], &[], program_state()).unwrap(),
+                vec![
+                    ProgramAction::Remove("/var/lib/test".into()),
+                    ProgramAction::RequireSameMount("/var/lib/test".into(), "/var/lib".into()),
+                    ProgramAction::Syscalls([name.into()].into()),
+                ]
+            );
+        }
     }
 
     #[test]
@@ -1391,6 +1416,23 @@ mod tests {
             vec![
                 ProgramAction::Write("/var/lib".into()),
                 ProgramAction::Syscalls(["unlink".into()].into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn rmdir_non_empty_requires_same_mount() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        // Failing with ENOTEMPTY, which the parser keeps
+        let sc = make_failed_syscall("rmdir", vec![buf_expr(b"/var/lib/full")], "ENOTEMPTY");
+        assert_eq!(
+            summarize_syscall(sc),
+            vec![
+                ProgramAction::Read("/var/lib/full".into()),
+                ProgramAction::Remove("/var/lib/full".into()),
+                ProgramAction::RequireSameMount("/var/lib/full".into(), "/var/lib".into()),
+                ProgramAction::Syscalls(["rmdir".into()].into()),
             ]
         );
     }
@@ -1411,9 +1453,9 @@ mod tests {
         assert_eq!(
             summarize_syscall(sc),
             vec![
+                ProgramAction::RequireSameMount("/var/lib/apt".into(), "/var/lib/misc".into()),
                 ProgramAction::Write("/var/lib/apt".into()),
                 ProgramAction::Write("/var/lib/misc".into()),
-                ProgramAction::RequireSameMount("/var/lib/apt".into(), "/var/lib/misc".into()),
                 ProgramAction::Syscalls(["rename".into()].into()),
             ]
         );
@@ -1663,11 +1705,13 @@ mod tests {
                 ProgramAction::Write(target.clone()),
                 ProgramAction::Read(link.clone()),
                 ProgramAction::Write(target),
-                ProgramAction::Remove(link),
+                ProgramAction::Remove(link.clone()),
+                ProgramAction::RequireSameMount(link, temp_dir.path().to_owned()),
                 ProgramAction::Read(link_dir.clone()),
                 ProgramAction::Write(target_dir.clone()),
                 ProgramAction::Read(link_dir),
                 ProgramAction::Remove(target_dir.join("file")),
+                ProgramAction::RequireSameMount(target_dir.join("file"), target_dir.clone()),
                 ProgramAction::Syscalls(
                     [
                         "chmod".into(),
@@ -2022,10 +2066,12 @@ mod tests {
             summarize([Ok(syscall("renameat", args))], &[], program_state()).unwrap(),
             vec![
                 ProgramAction::Read(src_dir_link.clone()),
+                ProgramAction::RequireSameMount(src_dir.clone(), temp_dir.path().to_path_buf()),
                 ProgramAction::Read(src_dir.join("old")),
                 ProgramAction::Remove(src_dir.join("old")),
-                ProgramAction::Create(new),
-                ProgramAction::RequireSameMount(src_dir, temp_dir.path().to_path_buf()),
+                ProgramAction::Create(new.clone()),
+                ProgramAction::RequireNoMountWithin(src_dir.join("old")),
+                ProgramAction::RequireSameMount(new, temp_dir.path().to_path_buf()),
                 ProgramAction::Syscalls(["renameat".into()].into()),
             ]
         );
@@ -2052,12 +2098,10 @@ mod tests {
             summarize([Ok(syscall("renameat", args))], &[], program_state()).unwrap(),
             vec![
                 ProgramAction::Read(src.clone()),
-                ProgramAction::Remove(src),
-                ProgramAction::Create(dst),
-                ProgramAction::RequireSameMount(
-                    temp_dir.path().to_owned(),
-                    temp_dir.path().to_owned()
-                ),
+                ProgramAction::Remove(src.clone()),
+                ProgramAction::Create(dst.clone()),
+                ProgramAction::RequireNoMountWithin(src),
+                ProgramAction::RequireSameMount(dst, temp_dir.path().to_owned()),
                 ProgramAction::Syscalls(["renameat".into()].into()),
             ]
         );
@@ -2340,11 +2384,13 @@ mod tests {
         assert_eq!(
             summarize_syscall(sc),
             vec![
+                ProgramAction::RequireSameMount("/src".into(), temp_dir.path().to_owned()),
                 ProgramAction::Read("/src/file".into()),
                 ProgramAction::Remove("/src/file".into()),
                 ProgramAction::Read(existing.clone()),
-                ProgramAction::Create(existing),
-                ProgramAction::RequireSameMount("/src".into(), temp_dir.path().to_owned()),
+                ProgramAction::Create(existing.clone()),
+                ProgramAction::RequireNoMountWithin("/src/file".into()),
+                ProgramAction::RequireSameMount(existing, temp_dir.path().to_owned()),
                 ProgramAction::Syscalls(["renameat2".into()].into()),
             ]
         );

@@ -570,9 +570,9 @@ impl OptionUpdater for ReadOnlyPaths {
     ) -> Option<OptionValueEffect> {
         let action_path = match action {
             ProgramAction::Write(action_path) => action_path_exception(action_path.to_owned()),
-            ProgramAction::Create(action_path) | ProgramAction::Remove(action_path) => {
-                action_path.parent()?.to_owned()
-            }
+            ProgramAction::Create(action_path)
+            | ProgramAction::Remove(action_path)
+            | ProgramAction::RequireNoMountWithin(action_path) => action_path.parent()?.to_owned(),
             ProgramAction::RequireSameMount(path1, path2) => common_ancestor(path1, path2)?,
             _ => return None,
         };
@@ -720,7 +720,9 @@ impl OptionUpdater for InaccessiblePaths {
                     (action_path.to_owned(), true)
                 }
                 ProgramAction::Write(action_path) => (action_path.to_owned(), false),
-                ProgramAction::Create(action_path) | ProgramAction::Remove(action_path) => {
+                ProgramAction::Create(action_path)
+                | ProgramAction::Remove(action_path)
+                | ProgramAction::RequireNoMountWithin(action_path) => {
                     (action_path.parent().map(Path::to_path_buf)?, false)
                 }
                 ProgramAction::RequireSameMount(path1, path2) => {
@@ -918,6 +920,7 @@ impl OptionUpdater for NoExecPaths {
     ) -> Option<OptionValueEffect> {
         let action_path = match action {
             ProgramAction::Exec(action_path) => action_path.to_owned(),
+            ProgramAction::RequireNoMountWithin(action_path) => action_path.parent()?.to_owned(),
             ProgramAction::RequireSameMount(path1, path2) => common_ancestor(path1, path2)?,
             _ => return None,
         };

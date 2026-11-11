@@ -241,6 +241,19 @@ impl PathDescription {
             }
         }
     }
+
+    /// Check whether mounts of the described paths sit on a path or below it
+    pub(crate) fn mounts_within(&self, path: &Path) -> bool {
+        match self {
+            PathDescription::Base { base, exceptions } => iter::once(base)
+                .chain(exceptions)
+                .any(|m| m.starts_with(path)),
+            // A pattern only tells whether a path is on another mount than its directory
+            PathDescription::Pattern(_) => path
+                .parent()
+                .is_some_and(|dir| self.splits_mount(path, dir)),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -296,6 +309,14 @@ impl EmptyPathDescription {
             .chain(&self.exceptions_ro)
             .chain(&self.exceptions_rw)
             .any(|m| a.starts_with(m) != b.starts_with(m))
+    }
+
+    /// Check whether the base or exception mounts sit on a path or below it
+    pub(crate) fn mounts_within(&self, path: &Path) -> bool {
+        iter::once(&self.base)
+            .chain(&self.exceptions_ro)
+            .chain(&self.exceptions_rw)
+            .any(|m| m.starts_with(path))
     }
 }
 

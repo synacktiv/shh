@@ -38,11 +38,13 @@ impl OptionValueEffect {
                             .is_none_or(|pap| !ro_paths.matches(pap))
                 }
                 ProgramAction::RequireSameMount(a, b) => !ro_paths.splits_mount(a, b),
+                ProgramAction::RequireNoMountWithin(path) => !ro_paths.mounts_within(path),
                 _ => true,
             },
             OptionValueEffect::DenyExec(noexec_paths) => match action {
                 ProgramAction::Exec(path_action) => !noexec_paths.matches(path_action),
                 ProgramAction::RequireSameMount(a, b) => !noexec_paths.splits_mount(a, b),
+                ProgramAction::RequireNoMountWithin(path) => !noexec_paths.mounts_within(path),
                 _ => true,
             },
             OptionValueEffect::EmptyPath(empty_paths) => {
@@ -76,6 +78,7 @@ impl OptionValueEffect {
                                     .is_some_and(|pap| pap == empty_paths.base || created(pap)))
                     }
                     ProgramAction::RequireSameMount(a, b) => !empty_paths.splits_mount(a, b),
+                    ProgramAction::RequireNoMountWithin(path) => !empty_paths.mounts_within(path),
                     _ => true,
                 }
             }
@@ -86,6 +89,7 @@ impl OptionValueEffect {
                 | ProgramAction::Create(path_action)
                 | ProgramAction::Remove(path_action) => !removed_paths.matches(path_action),
                 ProgramAction::RequireSameMount(a, b) => !removed_paths.splits_mount(a, b),
+                ProgramAction::RequireNoMountWithin(path) => !removed_paths.mounts_within(path),
                 _ => true,
             },
             OptionValueEffect::DenySyscalls(denied) => {
@@ -226,11 +230,13 @@ fn actions_compatible(
                 }
             }
         }
-        // A mount added for an action can split the paths of a mount requirement checked before it
-        match actions
-            .iter()
-            .position(|a| matches!(a, ProgramAction::RequireSameMount(..)))
-        {
+        // A mount added for an action can break a mount requirement checked before it
+        match actions.iter().position(|a| {
+            matches!(
+                a,
+                ProgramAction::RequireSameMount(..) | ProgramAction::RequireNoMountWithin(_)
+            )
+        }) {
             Some(first_requirement) if changed => start = first_requirement,
             _ => break,
         }
@@ -356,7 +362,12 @@ pub(crate) fn resolve(
 ) -> Vec<OptionWithValue<&'static str>> {
     // Mount requirements are checked once all other actions have set the mounts
     let mut actions = actions.to_vec();
-    actions.sort_by_key(|a| matches!(a, ProgramAction::RequireSameMount(..)));
+    actions.sort_by_key(|a| {
+        matches!(
+            a,
+            ProgramAction::RequireSameMount(..) | ProgramAction::RequireNoMountWithin(_)
+        )
+    });
 
     let mut resolved_opts = Vec::new();
     for opt in opts {
@@ -911,6 +922,112 @@ mod tests {
             };
             assert_eq!(
                 resolve(&opts, actions, &hardening_opts)
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_rename_carries_mounts() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let rename = |old: &str, new: &str| {
+            let new = PathBuf::from(new);
+            vec![
+                ProgramAction::Read(old.into()),
+                ProgramAction::Remove(old.into()),
+                ProgramAction::Create(new.clone()),
+                ProgramAction::RequireNoMountWithin(old.into()),
+                ProgramAction::RequireSameMount(new.clone(), new.parent().unwrap().to_owned()),
+            ]
+        };
+        let exec = ProgramAction::Exec("/tmp/tree/old/tool".into());
+        let rename_tree = rename("/tmp/tree/old", "/tmp/tree/new");
+        let exec_paths = [
+            "NoExecPaths=-/",
+            "ExecPaths=-/tmp/tree",
+            "PrivateMounts=true",
+        ];
+        // Removing a directory created on the empty base keeps the exception for a file read below it
+        let rename_created = [
+            vec![
+                ProgramAction::Exec("/usr/bin/prog".into()),
+                ProgramAction::Create("/work".into()),
+                ProgramAction::Create("/work/old".into()),
+                ProgramAction::Read("/work/old/f".into()),
+            ],
+            rename("/work/old", "/work/new"),
+        ]
+        .concat();
+        for (standard, name, actions, expected) in [
+            // The exception for a file executed below the renamed directory, before or after the rename, would move
+            // with it
+            (
+                false,
+                "NoExecPaths",
+                [&[exec.clone()][..], &rename_tree].concat(),
+                &exec_paths[..],
+            ),
+            (
+                false,
+                "NoExecPaths",
+                [&rename_tree[..], &[exec]].concat(),
+                &exec_paths,
+            ),
+            (
+                false,
+                "InaccessiblePaths",
+                rename_created,
+                &[
+                    "TemporaryFileSystem=/",
+                    "BindReadOnlyPaths=-/usr/bin/prog",
+                    "BindPaths=-/work",
+                    "PrivateMounts=true",
+                ],
+            ),
+            // Built-in mounts below the renamed directory would move with it
+            (true, "PrivateTmp", rename("/var", "/var.old"), &[]),
+            (
+                true,
+                "PrivateTmp",
+                rename("/var/lib", "/var/lib.old"),
+                &["PrivateTmp=true"],
+            ),
+            (
+                true,
+                "ProtectKernelModules",
+                rename("/usr/lib", "/usr/lib.old"),
+                &[],
+            ),
+            (
+                true,
+                "ProtectKernelModules",
+                rename("/usr/share", "/usr/share.old"),
+                &["ProtectKernelModules=true"],
+            ),
+            (
+                true,
+                "ProtectControlGroups",
+                rename("/sys/fs", "/sys/fs.old"),
+                &[],
+            ),
+            (
+                true,
+                "ProtectControlGroups",
+                rename("/sys/kernel", "/sys/kernel.old"),
+                &["ProtectControlGroups=true"],
+            ),
+        ] {
+            let (opts, hardening_opts) = if standard {
+                test_options_standard(&[name])
+            } else {
+                test_options_strict(&[name])
+            };
+            assert_eq!(
+                resolve(&opts, &actions, &hardening_opts)
                     .iter()
                     .map(ToString::to_string)
                     .collect::<Vec<_>>(),

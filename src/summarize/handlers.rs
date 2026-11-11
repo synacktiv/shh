@@ -922,35 +922,48 @@ impl SyscallHandler for RenameHandler {
         // A rename acts on the entries themselves, never following their final component
         traverse_parent_symlinks(&mut path_src, actions);
         traverse_parent_symlinks(&mut path_dst, actions);
-        // The directories need the same mount
         let dir_src = path_src.parent().map(Path::to_path_buf);
         let dir_dst = path_dst.parent().map(Path::to_path_buf);
+        // Different directories need the same mount
+        if let (Some(dir_src), Some(dir_dst)) = (&dir_src, &dir_dst)
+            && dir_src != dir_dst
+        {
+            actions.push(ProgramAction::RequireSameMount(
+                dir_src.clone(),
+                dir_dst.clone(),
+            ));
+        }
         // A rename of an absent entry still writes to both directories
         if sc.errno() == Some("ENOENT") {
             if let (Some(dir_src), Some(dir_dst)) = (dir_src, dir_dst) {
-                actions.push(ProgramAction::Write(dir_src.clone()));
-                actions.push(ProgramAction::Write(dir_dst.clone()));
-                actions.push(ProgramAction::RequireSameMount(dir_src, dir_dst));
+                actions.push(ProgramAction::Write(dir_src));
+                actions.push(ProgramAction::Write(dir_dst));
             }
             return Ok(());
         }
         actions.push(ProgramAction::Read(path_src.clone()));
-        actions.push(if exchange {
-            ProgramAction::Write(path_src)
-        } else {
-            ProgramAction::Remove(path_src)
-        });
+        actions.push(ProgramAction::Remove(path_src.clone()));
         // An exchanged destination, or one a rename fails on, like with RENAME_NOREPLACE, exists before the call
         if exchange || !sc.is_successful() {
             actions.push(ProgramAction::Read(path_dst.clone()));
         }
+        // An exchange replaces each entry by the other one
         actions.push(if exchange {
-            ProgramAction::Write(path_dst)
+            ProgramAction::Remove(path_dst.clone())
         } else {
-            ProgramAction::Create(path_dst)
+            ProgramAction::Create(path_dst.clone())
         });
-        if let (Some(dir_src), Some(dir_dst)) = (dir_src, dir_dst) {
-            actions.push(ProgramAction::RequireSameMount(dir_src, dir_dst));
+        // A moved entry must not be a mount point, and carries the mounts below it, so none may sit there
+        if dir_src.is_some() {
+            actions.push(ProgramAction::RequireNoMountWithin(path_src));
+        }
+        if let Some(dir_dst) = dir_dst {
+            actions.push(if exchange {
+                ProgramAction::RequireNoMountWithin(path_dst)
+            } else {
+                // A replaced entry must not be a mount point, so it must share the mount of its directory
+                ProgramAction::RequireSameMount(path_dst, dir_dst)
+            });
         }
         Ok(())
     }
@@ -1450,6 +1463,31 @@ impl SyscallHandler for FanotifyMarkHandler {
             actions.push(ProgramAction::HostMountNamespace);
         }
         self.path.handle(sc, actions, state)
+    }
+}
+
+/// Handle entry removal syscalls
+pub(crate) struct RemoveHandler {
+    pub path: PathHandler,
+}
+
+impl SyscallHandler for RemoveHandler {
+    fn handle(
+        &self,
+        sc: &Syscall,
+        actions: &mut Vec<ProgramAction>,
+        state: &mut ProgramState,
+    ) -> Result<(), HandlerError> {
+        let path = self.path.handle_path(sc, actions, state)?;
+        // Unless absent, the entry must not be a mount point, so it must share the mount of its directory
+        if sc.errno() != Some("ENOENT")
+            && let Some(path) = path
+            && let Some(dir) = path.parent()
+        {
+            let dir = dir.to_owned();
+            actions.push(ProgramAction::RequireSameMount(path, dir));
+        }
+        Ok(())
     }
 }
 
@@ -3888,7 +3926,8 @@ x86_Thread_features_locked:
                 ProgramAction::Read("/tmp/old".into()),
                 ProgramAction::Remove("/tmp/old".into()),
                 ProgramAction::Create("/tmp/new".into()),
-                ProgramAction::RequireSameMount("/tmp".into(), "/tmp".into())
+                ProgramAction::RequireNoMountWithin("/tmp/old".into()),
+                ProgramAction::RequireSameMount("/tmp/new".into(), "/tmp".into())
             ]
         );
     }
@@ -3923,7 +3962,8 @@ x86_Thread_features_locked:
                 ProgramAction::Read("/old".into()),
                 ProgramAction::Remove("/old".into()),
                 ProgramAction::Create("/new".into()),
-                ProgramAction::RequireSameMount("/".into(), "/".into())
+                ProgramAction::RequireNoMountWithin("/old".into()),
+                ProgramAction::RequireSameMount("/new".into(), "/".into())
             ]
         );
     }
@@ -3955,10 +3995,11 @@ x86_Thread_features_locked:
             actions,
             vec![
                 ProgramAction::Read("/tmp/a".into()),
-                ProgramAction::Write("/tmp/a".into()),
+                ProgramAction::Remove("/tmp/a".into()),
                 ProgramAction::Read("/tmp/b".into()),
-                ProgramAction::Write("/tmp/b".into()),
-                ProgramAction::RequireSameMount("/tmp".into(), "/tmp".into())
+                ProgramAction::Remove("/tmp/b".into()),
+                ProgramAction::RequireNoMountWithin("/tmp/a".into()),
+                ProgramAction::RequireNoMountWithin("/tmp/b".into())
             ]
         );
     }
