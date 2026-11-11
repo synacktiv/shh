@@ -456,7 +456,7 @@ impl SyscallHandler for MemfdCreateHandler {
 
 /// Handle mknod-like syscalls
 pub(crate) struct MknodHandler {
-    pub path: FdOrPath<usize>,
+    pub path: PathHandler,
     pub mode: usize,
 }
 
@@ -470,7 +470,6 @@ impl SyscallHandler for MknodHandler {
         const PRIVILEGED_ST_MODES: [&str; 2] = ["S_IFBLK", "S_IFCHR"];
         let mode = self.mode.extract(sc)?;
         let mode = unpack_expr!(mode, Expression::Integer(mode) => mode);
-        let path = self.path.extract(sc)?.resolve(state.cur_dir.as_ref())?;
 
         if PRIVILEGED_ST_MODES
             .iter()
@@ -478,14 +477,7 @@ impl SyscallHandler for MknodHandler {
         {
             actions.push(ProgramAction::MknodSpecial);
         }
-        if let Some(path) = path {
-            // A creation failing on an existing entry depends on it
-            if !sc.is_successful() {
-                actions.push(ProgramAction::Read(path.clone()));
-            }
-            actions.push(ProgramAction::Create(path));
-        }
-        Ok(())
+        self.path.handle(sc, actions, state)
     }
 }
 
@@ -2257,7 +2249,12 @@ x86_Thread_features_locked:
     #[test]
     fn mknod_handler_regular_file() {
         let handler = MknodHandler {
-            path: FdOrPath::Path(0),
+            path: PathHandler {
+                relfd: None,
+                path: 0,
+                follow: FollowSymlink::Never,
+                action: ProgramAction::Create,
+            },
             mode: 1,
         };
         let sc = make_syscall(
@@ -2274,53 +2271,30 @@ x86_Thread_features_locked:
     }
 
     #[test]
-    fn mknod_handler_block_device() {
+    fn mknod_handler_special_device() {
         let handler = MknodHandler {
-            path: FdOrPath::Path(0),
+            path: PathHandler {
+                relfd: None,
+                path: 0,
+                follow: FollowSymlink::Never,
+                action: ProgramAction::Create,
+            },
             mode: 1,
         };
-        let sc = make_syscall(
-            "mknod",
-            vec![buf_expr(b"/tmp/dev"), named_symbol("S_IFBLK")],
-            0,
-        );
-        let mut actions = vec![];
-        let mut state = program_state();
+        for mode in ["S_IFBLK", "S_IFCHR"] {
+            let sc = make_syscall("mknod", vec![buf_expr(b"/tmp/dev"), named_symbol(mode)], 0);
+            let mut actions = vec![];
+            let mut state = program_state();
 
-        let result = handler.handle(&sc, &mut actions, &mut state);
-        assert!(result.is_ok());
-        assert_eq!(
-            actions,
-            vec![
-                ProgramAction::MknodSpecial,
-                ProgramAction::Create("/tmp/dev".into())
-            ]
-        );
-    }
-
-    #[test]
-    fn mknod_handler_char_device() {
-        let handler = MknodHandler {
-            path: FdOrPath::Path(0),
-            mode: 1,
-        };
-        let sc = make_syscall(
-            "mknod",
-            vec![buf_expr(b"/tmp/dev"), named_symbol("S_IFCHR")],
-            0,
-        );
-        let mut actions = vec![];
-        let mut state = program_state();
-
-        let result = handler.handle(&sc, &mut actions, &mut state);
-        assert!(result.is_ok());
-        assert_eq!(
-            actions,
-            vec![
-                ProgramAction::MknodSpecial,
-                ProgramAction::Create("/tmp/dev".into())
-            ]
-        );
+            handler.handle(&sc, &mut actions, &mut state).unwrap();
+            assert_eq!(
+                actions,
+                vec![
+                    ProgramAction::MknodSpecial,
+                    ProgramAction::Create("/tmp/dev".into())
+                ]
+            );
+        }
     }
 
     #[test]
@@ -4096,32 +4070,6 @@ x86_Thread_features_locked:
         assert_eq!(
             path.resolve(Path::new("/")).unwrap(),
             Some(PathBuf::from("/var/log"))
-        );
-    }
-
-    // mknod("/dev/null", ...)
-    #[test]
-    fn resolve_mknod_absolute() {
-        let path = FdOrPath::Path(&buf_expr(b"/dev/null"));
-        assert_eq!(
-            path.resolve(Path::new("/")).unwrap(),
-            Some(PathBuf::from("/dev/null"))
-        );
-    }
-
-    // mknodat(AT_FDCWD</tmp>, "mydev", ...)
-    #[test]
-    fn resolve_mknodat_relative() {
-        let fd = Expression::Integer(IntegerExpression {
-            value: IntegerExpressionValue::NamedSymbol(NamedSymbol::Unambiguous(
-                "AT_FDCWD".to_owned(),
-            )),
-            metadata: Some(b"/tmp".to_vec()),
-        });
-        let path = FdOrPath::Fd(&fd);
-        assert_eq!(
-            path.resolve(Path::new("/")).unwrap(),
-            Some(PathBuf::from("/tmp"))
         );
     }
 

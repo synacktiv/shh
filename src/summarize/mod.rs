@@ -536,11 +536,21 @@ static SYSCALL_MAP: phf::Map<&'static str, &'static dyn SyscallHandler> = phf::p
         action: ProgramAction::Create,
     },
     "mknod" => &MknodHandler {
-        path: FdOrPath::Path(0),
+        path: PathHandler {
+            relfd: None,
+            path: 0,
+            follow: FollowSymlink::Never,
+            action: ProgramAction::Create,
+        },
         mode: 1,
     },
     "mknodat" => &MknodHandler {
-        path: FdOrPath::Fd(1),
+        path: PathHandler {
+            relfd: Some(0),
+            path: 1,
+            follow: FollowSymlink::Never,
+            action: ProgramAction::Create,
+        },
         mode: 2,
     },
     "mmap" | "mmap2" => &MmapHandler {
@@ -2401,26 +2411,99 @@ mod tests {
         let _ = simple_logger::SimpleLogger::new().init();
 
         let temp_dir = tempfile::tempdir().unwrap();
+        // A dangling symlink, which the creation does not follow
         let existing = temp_dir.path().join("existing");
-        File::create(&existing).unwrap();
-        // Failing with EEXIST, which the parser keeps
-        let sc = make_syscall(
-            "mknod",
-            vec![
-                buf_expr(existing.as_os_str().as_bytes()),
-                binary_or_flags(&["S_IFIFO"]),
-                int_literal(0),
-            ],
-            -1,
-        );
-        assert_eq!(
-            summarize_syscall(sc),
-            vec![
-                ProgramAction::Read(existing.clone()),
-                ProgramAction::Create(existing),
-                ProgramAction::Syscalls(["mknod".into()].into()),
-            ]
-        );
+        unix::fs::symlink(temp_dir.path().join("missing"), &existing).unwrap();
+        let existing_bytes = existing.as_os_str().as_bytes();
+        for (name, args) in [
+            (
+                "mknod",
+                vec![
+                    buf_expr(existing_bytes),
+                    binary_or_flags(&["S_IFIFO"]),
+                    int_literal(0),
+                ],
+            ),
+            (
+                "mknodat",
+                vec![
+                    named_symbol("AT_FDCWD"),
+                    buf_expr(existing_bytes),
+                    binary_or_flags(&["S_IFIFO"]),
+                    int_literal(0),
+                ],
+            ),
+        ] {
+            // Failing with EEXIST, which the parser keeps
+            assert_eq!(
+                summarize_syscall(make_syscall(name, args, -1)),
+                vec![
+                    ProgramAction::Read(existing.clone()),
+                    ProgramAction::Create(existing.clone()),
+                    ProgramAction::Syscalls([name.into()].into()),
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn mknodat_creates_path() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let fifo = temp_dir.path().join("fifo");
+        for (dir_fd, path) in [
+            (fd_expr(3, temp_dir.path()), buf_expr(b"fifo")),
+            (
+                named_symbol("AT_FDCWD"),
+                buf_expr(fifo.as_os_str().as_bytes()),
+            ),
+        ] {
+            let args = vec![dir_fd, path, binary_or_flags(&["S_IFIFO"])];
+            assert_eq!(
+                summarize([Ok(syscall("mknodat", args))], &[], program_state()).unwrap(),
+                vec![
+                    ProgramAction::Create(fifo.clone()),
+                    ProgramAction::Syscalls(["mknodat".into()].into()),
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn mknod_through_symlink() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let target_dir = temp_dir.path().join("target_dir");
+        let link_dir = temp_dir.path().join("link_dir");
+        fs::create_dir(&target_dir).unwrap();
+        unix::fs::symlink(&target_dir, &link_dir).unwrap();
+        let fifo = link_dir.join("fifo");
+        let fifo_bytes = fifo.as_os_str().as_bytes();
+        for (name, args) in [
+            (
+                "mknod",
+                vec![buf_expr(fifo_bytes), binary_or_flags(&["S_IFIFO"])],
+            ),
+            (
+                "mknodat",
+                vec![
+                    named_symbol("AT_FDCWD"),
+                    buf_expr(fifo_bytes),
+                    binary_or_flags(&["S_IFIFO"]),
+                ],
+            ),
+        ] {
+            assert_eq!(
+                summarize([Ok(syscall(name, args))], &[], program_state()).unwrap(),
+                vec![
+                    ProgramAction::Read(link_dir.clone()),
+                    ProgramAction::Create(target_dir.join("fifo")),
+                    ProgramAction::Syscalls([name.into()].into()),
+                ]
+            );
+        }
     }
 
     #[test]

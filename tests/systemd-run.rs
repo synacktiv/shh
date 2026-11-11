@@ -68,6 +68,8 @@ try:
     elif kind == 'mknod':
         # mknod syscall on x86_64, glibc's mkfifo calls mknodat
         check(libc.syscall(SYS_mknod, path.encode(), stat.S_IFIFO | 0o644, 0))
+    elif kind == 'mkfifo':
+        os.mkfifo(path)
     else:
         raise ValueError(kind)
 except FileExistsError:
@@ -761,6 +763,19 @@ ptrace(PTRACE_DETACH, target_pid)
     }
 
     #[test]
+    fn systemd_run_mkfifo_through_symlink() {
+        // Create a FIFO in /var/lib through a symlink in /tmp, a read of the symlink and a write to the directory
+        // of its target
+        let dir = tempfile::tempdir_in("/var/lib").unwrap();
+        let link_dir = tempfile::tempdir_in("/tmp").unwrap();
+        let link = link_dir.path().join("link");
+        unix::fs::symlink(dir.path(), &link).unwrap();
+        let path = link.join("fifo");
+        let cmd = ["mkfifo", path.to_str().unwrap()];
+        profile_and_run_creating_path(&cmd, &dir.path().join("fifo"));
+    }
+
+    #[test]
     fn systemd_run_ln_hard() {
         // Hard link a pre-existing file, a read of the source, both directly in /tmp
         let src = tempfile::NamedTempFile::new_in("/tmp").unwrap();
@@ -896,6 +911,7 @@ ptrace(PTRACE_DETACH, target_pid)
             ("link", "file"),
             ("rename", "file"),
             ("mknod", "fifo"),
+            ("mkfifo", "fifo"),
             ("open-replace", "file"),
             ("mkdir-p", "dir"),
         ] {
@@ -941,6 +957,7 @@ ptrace(PTRACE_DETACH, target_pid)
             ("link", "file"),
             ("rename", "file"),
             ("mknod", "fifo"),
+            ("mkfifo", "fifo"),
         ] {
             let cmd = [
                 "python3",

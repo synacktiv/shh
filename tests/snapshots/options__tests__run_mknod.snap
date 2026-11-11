@@ -4,7 +4,6 @@ expression: "shh_run_options(&[\"mknod\", pipe_path.as_os_str().to_str().unwrap(
 ---
 ProtectSystem=full
 ProtectHome=true
-PrivateTmp=disconnected
 PrivateDevices=true
 PrivateMounts=true
 ProtectKernelTunables=true
