@@ -474,6 +474,35 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
     }
 
     #[test]
+    fn systemd_run_uds_through_symlink() {
+        // Connect to a Unix socket in /tmp through a symlink in /var/lib, a read of the symlink and of the
+        // socket, then bind one in /tmp through a symlink in /var/lib to its directory, a write to that directory
+        let sock_dir = tempfile::tempdir_in("/tmp").unwrap();
+        let link_dir = tempfile::tempdir_in("/var/lib").unwrap();
+        let sock = sock_dir.path().join("sock");
+        let _listener = UnixListener::bind(&sock).unwrap();
+        let sock_link = link_dir.path().join("sock");
+        unix::fs::symlink(&sock, &sock_link).unwrap();
+        let connect_cmd = [
+            "python3",
+            "-c",
+            "import socket, sys; socket.socket(socket.AF_UNIX).connect(sys.argv[1])",
+            sock_link.to_str().unwrap(),
+        ];
+        profile_and_run(&connect_cmd, false);
+        let dir_link = link_dir.path().join("dir");
+        unix::fs::symlink(sock_dir.path(), &dir_link).unwrap();
+        let bound = dir_link.join("new");
+        let bind_cmd = [
+            "python3",
+            "-c",
+            "import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])",
+            bound.to_str().unwrap(),
+        ];
+        profile_and_run_creating_path(&bind_cmd, &sock_dir.path().join("new"));
+    }
+
+    #[test]
     fn systemd_run_sock_packet() {
         let cmd = [
             "python3",

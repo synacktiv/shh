@@ -612,11 +612,22 @@ impl SyscallHandler for NetworkHandler {
             return Ok(());
         };
         if af_str == "AF_UNIX"
-            && let Some(path) = socket_address_uds_path(addr_struct, &state.cur_dir)
+            // A peer address returned by other calls is not looked up
+            && matches!(sc.name.as_str(), "bind" | "connect" | "sendto")
+            // Extract path for socket address structure if it's a non abstract one
+            && let Some(Expression::Buffer(BufferExpression {
+                value: b,
+                type_: BufferType::Unknown,
+            })) = addr_struct.get("sun_path")
+            && let Some(mut path) =
+                resolve_path(Path::new(OsStr::from_bytes(b)), None, &state.cur_dir)
         {
+            // A bind creates its last component, a connect or sendto looks up the socket it names
+            let bind = sc.name == "bind";
+            traverse_path(&mut path, !bind, actions);
             // Peers outside the service reach the socket through its path
             actions.push(ProgramAction::Read(path.clone()));
-            if sc.name == "bind" {
+            if bind {
                 actions.push(ProgramAction::Create(path));
             }
         }
@@ -1525,22 +1536,6 @@ impl SyscallHandler for LinkHandler {
             actions.push(ProgramAction::RequireSameMount(old, new_dir.to_owned()));
         }
         Ok(())
-    }
-}
-
-/// Extract path for socket address structure if it's a non abstract one
-fn socket_address_uds_path(
-    members: &HashMap<String, Expression>,
-    cur_dir: &Path,
-) -> Option<PathBuf> {
-    if let Some(Expression::Buffer(BufferExpression {
-        value: b,
-        type_: BufferType::Unknown,
-    })) = members.get("sun_path")
-    {
-        resolve_path(&PathBuf::from(OsStr::from_bytes(b)), None, cur_dir).map(|p| p.clean())
-    } else {
-        None
     }
 }
 

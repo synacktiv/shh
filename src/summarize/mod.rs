@@ -1097,6 +1097,111 @@ mod tests {
     }
 
     #[test]
+    fn uds_through_symlink() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let target_dir = temp_dir.path().join("target_dir");
+        let link_dir = temp_dir.path().join("link_dir");
+        fs::create_dir(&target_dir).unwrap();
+        unix::fs::symlink(&target_dir, &link_dir).unwrap();
+        let sock = target_dir.join("sock");
+        let sock_link = temp_dir.path().join("sock_link");
+        unix::fs::symlink(&sock, &sock_link).unwrap();
+        let inner_dir = target_dir.join("inner");
+        let alias = temp_dir.path().join("alias");
+        fs::create_dir(&inner_dir).unwrap();
+        unix::fs::symlink(&inner_dir, &alias).unwrap();
+        let sockaddr = |path: &Path| {
+            Expression::Struct(HashMap::from([
+                ("sa_family".to_owned(), named_symbol("AF_UNIX")),
+                ("sun_path".to_owned(), buf_expr(path.as_os_str().as_bytes())),
+            ]))
+        };
+        let lookup_actions = vec![
+            ProgramAction::Read(sock_link.clone()),
+            ProgramAction::Read(sock.clone()),
+        ];
+        for (name, args, mut path_actions) in [
+            (
+                "connect",
+                vec![int_literal(3), sockaddr(&sock_link), int_literal(110)],
+                lookup_actions.clone(),
+            ),
+            (
+                "sendto",
+                vec![
+                    int_literal(3),
+                    buf_expr(b"x"),
+                    int_literal(1),
+                    int_literal(0),
+                    sockaddr(&sock_link),
+                    int_literal(110),
+                ],
+                lookup_actions,
+            ),
+            (
+                "bind",
+                vec![
+                    int_literal(3),
+                    sockaddr(&link_dir.join("new")),
+                    int_literal(110),
+                ],
+                vec![
+                    ProgramAction::Read(link_dir.clone()),
+                    ProgramAction::Read(target_dir.join("new")),
+                    ProgramAction::Create(target_dir.join("new")),
+                ],
+            ),
+            // A `..` after a symlink leaves the symlink target
+            (
+                "bind",
+                vec![
+                    int_literal(3),
+                    sockaddr(&alias.join("../new")),
+                    int_literal(110),
+                ],
+                vec![
+                    ProgramAction::Read(alias.clone()),
+                    ProgramAction::Read(inner_dir.clone()),
+                    ProgramAction::Read(target_dir.join("new")),
+                    ProgramAction::Create(target_dir.join("new")),
+                ],
+            ),
+            // A bind does not follow its last component
+            (
+                "bind",
+                vec![int_literal(3), sockaddr(&sock_link), int_literal(110)],
+                vec![
+                    ProgramAction::Read(sock_link.clone()),
+                    ProgramAction::Create(sock_link.clone()),
+                ],
+            ),
+            // A returned peer address is not looked up
+            (
+                "accept",
+                vec![int_literal(3), sockaddr(&sock_link), int_literal(110)],
+                vec![],
+            ),
+            (
+                "recvfrom",
+                vec![
+                    int_literal(3),
+                    buf_expr(b"x"),
+                    int_literal(1),
+                    int_literal(0),
+                    sockaddr(&sock_link),
+                    int_literal(110),
+                ],
+                vec![],
+            ),
+        ] {
+            path_actions.push(ProgramAction::Syscalls([name.into()].into()));
+            assert_eq!(summarize_syscall(make_syscall(name, args, 0)), path_actions);
+        }
+    }
+
+    #[test]
     fn fstat_unknown() {
         let _ = simple_logger::SimpleLogger::new().init();
 
