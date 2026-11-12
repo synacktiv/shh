@@ -73,9 +73,20 @@ impl OptionSpec for ProtectSystem {
                 OptionValueDescription {
                     value: OptionValue::String("strict".to_owned()),
                     desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
+                        // Kernel API file systems and home directories stay writable, each on its own mount
                         OptionValueEffect::DenyWrite(PathDescription::Base {
                             base: "/".into(),
-                            exceptions: vec!["/dev/".into(), "/proc/".into(), "/sys/".into()],
+                            exceptions: [
+                                "/dev/",
+                                "/proc/",
+                                "/sys/",
+                                "/home/",
+                                "/root/",
+                                "/run/user/",
+                            ]
+                            .into_iter()
+                            .map(PathBuf::from)
+                            .collect(),
                         }),
                         OptionValueEffect::DenyAction(DeniableAction::HostMountNamespace),
                     ])),

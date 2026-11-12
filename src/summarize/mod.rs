@@ -949,6 +949,7 @@ mod tests {
     use std::{
         fs::{self, File},
         os::unix::{self, ffi::OsStrExt as _},
+        path::Path,
     };
 
     use super::{
@@ -1283,10 +1284,9 @@ mod tests {
     fn openat2_actions_follow_flags() {
         let _ = simple_logger::SimpleLogger::new().init();
 
-        for (flags, mode, actions) in [
+        for (flags, actions) in [
             (
                 &["O_RDWR", "O_CREAT", "O_CLOEXEC"][..],
-                0o600,
                 vec![
                     ProgramAction::Create("/var/lib/test".into()),
                     ProgramAction::Write("/var/lib/test".into()),
@@ -1295,35 +1295,25 @@ mod tests {
             ),
             (
                 &["O_RDONLY"],
-                0,
                 vec![ProgramAction::Read("/var/lib/test".into())],
             ),
             (
                 &["O_WRONLY"],
-                0,
                 vec![ProgramAction::Write("/var/lib/test".into())],
             ),
             (
                 &["O_RDONLY", "O_TRUNC"],
-                0,
                 vec![
                     ProgramAction::Write("/var/lib/test".into()),
                     ProgramAction::Read("/var/lib/test".into()),
                 ],
             ),
         ] {
-            let syscalls = [Ok(syscall(
-                "openat2",
-                vec![
-                    fd_expr(3, "/var/lib"),
-                    buf_expr(b"test"),
-                    Expression::Struct(HashMap::from([
-                        ("flags".to_owned(), binary_or_flags(flags)),
-                        ("mode".to_owned(), int_literal(mode)),
-                        ("resolve".to_owned(), int_literal(0)),
-                    ])),
-                    int_literal(24),
-                ],
+            let syscalls = [Ok(openat2_resolve(
+                fd_expr(3, "/var/lib"),
+                "test",
+                flags,
+                &[],
             ))];
             assert_eq!(
                 summarize(syscalls, &[], program_state()).unwrap(),
@@ -1333,6 +1323,194 @@ mod tests {
                 ]
                 .concat()
             );
+        }
+    }
+
+    /// Build an `openat2` call with open and resolve flags
+    fn openat2_resolve(
+        dirfd: Expression,
+        path: &str,
+        flags: &[&str],
+        resolve: &[&str],
+    ) -> SyscallItem {
+        syscall(
+            "openat2",
+            vec![
+                dirfd,
+                buf_expr(path.as_bytes()),
+                Expression::Struct(HashMap::from([
+                    ("flags".to_owned(), binary_or_flags(flags)),
+                    ("resolve".to_owned(), binary_or_flags(resolve)),
+                ])),
+                int_literal(24),
+            ],
+        )
+    }
+
+    #[test]
+    fn openat2_in_root_symlink() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = temp_dir.path();
+        fs::create_dir_all(root.join("usr/lib")).unwrap();
+        File::create(root.join("usr/lib/file")).unwrap();
+        unix::fs::symlink("usr/lib", root.join("lib")).unwrap();
+        unix::fs::symlink("/lib/file", root.join("abs")).unwrap();
+        // The root as a directory descriptor or as the working directory
+        for (dirfd, cur_dir) in [
+            (fd_expr(3, root), Path::new("/")),
+            (named_symbol("AT_FDCWD"), root),
+        ] {
+            for (path, links) in [
+                ("/lib/file", &["lib"][..]),
+                // `..` stops at the root
+                ("../../lib/file", &["lib"]),
+                ("abs", &["abs", "lib"]),
+            ] {
+                let syscalls = [Ok(openat2_resolve(
+                    dirfd.clone(),
+                    path,
+                    &["O_RDONLY"],
+                    &["RESOLVE_IN_ROOT"],
+                ))];
+                assert_eq!(
+                    summarize(syscalls, &[], ProgramState::new(cur_dir, false)).unwrap(),
+                    links
+                        .iter()
+                        .map(|l| ProgramAction::Read(root.join(l)))
+                        .chain([
+                            ProgramAction::Read(root.join("usr/lib/file")),
+                            ProgramAction::Syscalls(["openat2".into()].into()),
+                        ])
+                        .collect::<Vec<_>>()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn openat2_no_xdev_same_mount() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let dir = temp_dir.path();
+        let sub = dir.join("sub");
+        fs::create_dir(&sub).unwrap();
+        unix::fs::symlink("sub", dir.join("link")).unwrap();
+        let abs_path = sub.join("file");
+        unix::fs::symlink(&abs_path, dir.join("abs")).unwrap();
+        // Walk of the absolute path from a start directory
+        let abs_walk = |start: &Path| {
+            let mut actions: Vec<_> = abs_path
+                .ancestors()
+                .filter(|p| *p != start)
+                .map(|p| ProgramAction::RequireSameMount(start.to_owned(), p.to_owned()))
+                .collect();
+            actions.reverse();
+            actions.push(ProgramAction::Read(abs_path.clone()));
+            actions
+        };
+        for (dirfd, path, resolve, mut actions) in [
+            // An absolute path is walked from the root directory
+            (
+                named_symbol("AT_FDCWD"),
+                abs_path.to_str().unwrap(),
+                &["RESOLVE_NO_XDEV"][..],
+                abs_walk(Path::new("/")),
+            ),
+            (
+                fd_expr(3, dir),
+                "sub/file",
+                &["RESOLVE_NO_XDEV"],
+                vec![
+                    ProgramAction::RequireSameMount(dir.to_owned(), sub.clone()),
+                    ProgramAction::RequireSameMount(dir.to_owned(), sub.join("file")),
+                    ProgramAction::Read(sub.join("file")),
+                ],
+            ),
+            (
+                fd_expr(3, &sub),
+                "../file",
+                &["RESOLVE_NO_XDEV"],
+                vec![
+                    ProgramAction::Read(sub.clone()),
+                    ProgramAction::RequireSameMount(sub.clone(), dir.to_owned()),
+                    ProgramAction::RequireSameMount(sub.clone(), dir.join("file")),
+                    ProgramAction::Read(dir.join("file")),
+                ],
+            ),
+            (
+                fd_expr(3, dir),
+                "link/file",
+                &["RESOLVE_NO_XDEV"],
+                vec![
+                    ProgramAction::Read(dir.join("link")),
+                    ProgramAction::RequireSameMount(dir.to_owned(), sub.clone()),
+                    ProgramAction::RequireSameMount(dir.to_owned(), sub.join("file")),
+                    ProgramAction::Read(sub.join("file")),
+                ],
+            ),
+            // An absolute symlink target is walked from the root directory
+            (
+                fd_expr(3, dir),
+                "abs",
+                &["RESOLVE_NO_XDEV"],
+                [vec![ProgramAction::Read(dir.join("abs"))], abs_walk(dir)].concat(),
+            ),
+            // An absolute path is walked from the directory with RESOLVE_IN_ROOT
+            (
+                fd_expr(3, dir),
+                "/sub/file",
+                &["RESOLVE_IN_ROOT", "RESOLVE_NO_XDEV"],
+                vec![
+                    ProgramAction::RequireSameMount(dir.to_owned(), sub.clone()),
+                    ProgramAction::RequireSameMount(dir.to_owned(), sub.join("file")),
+                    ProgramAction::Read(sub.join("file")),
+                ],
+            ),
+        ] {
+            let syscalls = [Ok(openat2_resolve(dirfd, path, &["O_RDONLY"], resolve))];
+            actions.push(ProgramAction::Syscalls(["openat2".into()].into()));
+            assert_eq!(summarize(syscalls, &[], program_state()).unwrap(), actions);
+        }
+    }
+
+    #[test]
+    fn openat2_no_xdev_no_follow() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let dir = temp_dir.path();
+        let sub = dir.join("sub");
+        let link = dir.join("link");
+        fs::create_dir(&sub).unwrap();
+        unix::fs::symlink("sub", &link).unwrap();
+        let followed = vec![
+            ProgramAction::Read(link.clone()),
+            ProgramAction::RequireSameMount(dir.to_owned(), sub.clone()),
+            ProgramAction::Read(sub.clone()),
+        ];
+        for (path, mut actions) in [
+            (
+                "link",
+                vec![
+                    ProgramAction::RequireSameMount(dir.to_owned(), link.clone()),
+                    ProgramAction::Read(link.clone()),
+                ],
+            ),
+            // A trailing slash or `.` component walks through the symlink
+            ("link/", followed.clone()),
+            ("link/.", followed),
+        ] {
+            let syscalls = [Ok(openat2_resolve(
+                fd_expr(3, dir),
+                path,
+                &["O_NOFOLLOW", "O_PATH"],
+                &["RESOLVE_NO_XDEV"],
+            ))];
+            actions.push(ProgramAction::Syscalls(["openat2".into()].into()));
+            assert_eq!(summarize(syscalls, &[], program_state()).unwrap(), actions);
         }
     }
 

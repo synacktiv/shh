@@ -583,6 +583,35 @@ mod tests {
     }
 
     #[test]
+    fn resolve_protect_system_strict_implicit_writable() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let (opts, hardening_opts) = test_options_standard(&["ProtectSystem"]);
+
+        for (action, value) in [
+            (ProgramAction::Write("/home/user/file".into()), "strict"),
+            (ProgramAction::Create("/root/file".into()), "strict"),
+            (
+                ProgramAction::Remove("/run/user/1000/file".into()),
+                "strict",
+            ),
+            // These directories are mounts apart from the root
+            (
+                ProgramAction::RequireSameMount("/".into(), "/home/user".into()),
+                "full",
+            ),
+            (
+                ProgramAction::RequireSameMount("/home".into(), "/home/user".into()),
+                "strict",
+            ),
+        ] {
+            let candidates = resolve(&opts, &[action], &hardening_opts);
+            assert_eq!(candidates.len(), 1);
+            assert_eq!(candidates[0].to_string(), format!("ProtectSystem={value}"));
+        }
+    }
+
+    #[test]
     fn resolve_protect_home() {
         let _ = simple_logger::SimpleLogger::new().init();
 

@@ -774,22 +774,24 @@ impl SyscallHandler for OpenHandler {
             }) => PathBuf::from(OsStr::from_bytes(b))
         );
 
-        path = if let Some(path) = resolve_path(&path, relfd, state.cur_dir.as_ref()) {
-            path
-        } else {
-            return Ok(());
-        };
-
+        // Resolve flags of openat2
+        let mut resolve = None;
+        let mut nofollow = false;
         let (create, exclusive, write, read) = if let Some(flags) = flags {
             let flags = if sc.name == "openat2" {
                 let members = unpack_expr!(flags, Expression::Struct(members) => members);
+                resolve = Some(unpack_expr!(
+                    unpack_struct_member!(members, "resolve"),
+                    Expression::Integer(IntegerExpression { value, .. }) => value
+                ));
                 unpack_struct_member!(members, "flags")
             } else {
                 flags
             };
             let flags_val = unpack_expr!(flags, Expression::Integer(flags) => &flags.value);
+            nofollow = flags_val.is_flag_set("O_NOFOLLOW");
             if flags_val.is_flag_set("O_PATH") {
-                // Lookup only, the kernel ignores the other flags
+                // Lookup only
                 (false, false, false, true)
             } else if flags_val.is_flag_set("O_TMPFILE") {
                 // Unnamed file in the opened directory, the returned fd path names a placeholder entry there
@@ -810,8 +812,35 @@ impl SyscallHandler for OpenHandler {
             (true, false, true, false)
         };
 
-        // Add actions for the path walk, an exclusive creation failing on a final symlink instead of following it
-        traverse_path(&mut path, !exclusive, actions);
+        // A final symlink is not followed by an exclusive creation, which fails on it, nor with O_NOFOLLOW, unless a
+        // trailing slash or `.` component makes the kernel walk through it
+        let path_bytes = path.as_os_str().as_bytes();
+        let follow_last =
+            !exclusive && (!nofollow || path_bytes.ends_with(b"/") || path_bytes.ends_with(b"/."));
+
+        let in_root = resolve.is_some_and(|r| r.is_flag_set("RESOLVE_IN_ROOT"));
+        // With RESOLVE_IN_ROOT, an absolute path is walked from the directory, like a relative one
+        if in_root && path.is_absolute() {
+            path = path.components().skip(1).collect();
+        }
+        let start = if path.is_absolute() {
+            Some(PathBuf::from("/"))
+        } else {
+            lookup_dir(relfd, state.cur_dir.as_ref())
+        };
+        let (Some(start), Some(mut path)) =
+            (start, resolve_path(&path, relfd, state.cur_dir.as_ref()))
+        else {
+            return Ok(());
+        };
+        let walk = PathWalk {
+            start: &start,
+            root: if in_root { &start } else { Path::new("/") },
+            same_mount: resolve.is_some_and(|r| r.is_flag_set("RESOLVE_NO_XDEV")),
+        };
+
+        // Add actions for the path walk
+        traverse_path_within(&mut path, &walk, follow_last, actions);
 
         if sc.is_successful()
             && let Some(metadata) = sc.ret_val.as_ref().and_then(|rv| rv.metadata.as_deref())
@@ -1515,49 +1544,79 @@ fn socket_address_uds_path(
     }
 }
 
+/// Get the directory a relative path is looked up from, unless it is a pseudo file
+fn lookup_dir(relfd: Option<&Expression>, cur_dir: &Path) -> Option<PathBuf> {
+    match relfd.and_then(|a| a.metadata()) {
+        Some(metadata) if is_fd_pseudo_path(metadata) => None,
+        Some(metadata) => Some(PathBuf::from(OsStr::from_bytes(metadata))),
+        None => Some(cur_dir.to_owned()),
+    }
+}
+
 /// Make a path absolute if possible, normalizing its separators and `.` components but not its `..` components
 fn resolve_path(path: &Path, relfd: Option<&Expression>, cur_dir: &Path) -> Option<PathBuf> {
     if is_pseudo_path(path) {
         return None;
     }
     let path = if path.is_relative() {
-        let metadata = relfd.and_then(|a| a.metadata());
-        if let Some(metadata) = metadata {
-            if is_fd_pseudo_path(metadata) {
-                return None;
-            }
-            let rel_path = PathBuf::from(OsStr::from_bytes(metadata));
-            rel_path.join(path)
-        } else {
-            cur_dir.join(path)
-        }
+        lookup_dir(relfd, cur_dir)?.join(path)
     } else {
         path.to_path_buf()
     };
     Some(path.components().collect())
 }
 
+/// Bounds of a path walk
+struct PathWalk<'a> {
+    /// Absolute starting directory and required prefix of the walked path
+    start: &'a Path,
+    /// Directory absolute symlink targets restart from, and `..` stops at
+    root: &'a Path,
+    /// Whether every entered path must be on the mount of the start directory
+    same_mount: bool,
+}
+
 /// Resolve the path, following its final symlink only if `follow_last`, and record reads of followed symlinks
 /// and directories exited through `..`
 fn traverse_path(in_path: &mut PathBuf, follow_last: bool, actions: &mut Vec<ProgramAction>) {
+    let root = Path::new("/");
+    let walk = PathWalk {
+        start: root,
+        root,
+        same_mount: false,
+    };
+    traverse_path_within(in_path, &walk, follow_last, actions);
+}
+
+/// Resolve the path within the bounds of a walk, following its final symlink only if `follow_last`, and record
+/// reads of followed symlinks and directories exited through `..`, and the mount requirements of the walk
+fn traverse_path_within(
+    in_path: &mut PathBuf,
+    walk: &PathWalk<'_>,
+    follow_last: bool,
+    actions: &mut Vec<ProgramAction>,
+) {
     /// Max number of symlinks followed in a path walk, like the kernel
     const MAX_LINK_COUNT: usize = 40;
 
-    debug_assert!(in_path.is_absolute());
-    let mut reads = Vec::new();
+    debug_assert!(walk.start.is_absolute() && in_path.starts_with(walk.start));
+    let mut walk_actions = Vec::new();
     let mut link_count = 0;
-    let mut resolved = PathBuf::new();
+    let mut resolved = walk.start.to_owned();
     let mut remaining = in_path.clone();
     let mut components = remaining.components();
+    // The walk starts past the start directory
+    for _ in walk.start.components() {
+        components.next();
+    }
     while let Some(component) = components.next() {
         match component {
-            Component::RootDir => resolved = PathBuf::from("/"),
-            Component::ParentDir => {
-                if resolved.parent().is_some() {
-                    reads.push(resolved.clone());
-                    resolved.pop();
-                }
+            Component::RootDir => walk.root.clone_into(&mut resolved),
+            Component::ParentDir if resolved != walk.root => {
+                walk_actions.push(ProgramAction::Read(resolved.clone()));
+                resolved.pop();
             }
+            Component::ParentDir | Component::CurDir | Component::Prefix(_) => continue,
             Component::Normal(name) => {
                 let path = resolved.join(name);
                 let follow = follow_last || !components.as_path().as_os_str().is_empty();
@@ -1568,7 +1627,7 @@ fn traverse_path(in_path: &mut PathBuf, follow_last: bool, actions: &mut Vec<Pro
                         return;
                     }
                     link_count += 1;
-                    reads.push(path.clone());
+                    walk_actions.push(ProgramAction::Read(path.clone()));
                     // A pseudo file, ie the target of /proc/[PID]/ns/net, has no path to walk
                     if !is_pseudo_path(&target) {
                         // The target is walked in place of the symlink, from the symlink directory if relative
@@ -1579,11 +1638,16 @@ fn traverse_path(in_path: &mut PathBuf, follow_last: bool, actions: &mut Vec<Pro
                 }
                 resolved = path;
             }
-            Component::CurDir | Component::Prefix(_) => {}
+        }
+        if walk.same_mount && resolved != walk.start {
+            walk_actions.push(ProgramAction::RequireSameMount(
+                walk.start.to_owned(),
+                resolved.clone(),
+            ));
         }
     }
     *in_path = resolved;
-    actions.extend(reads.into_iter().map(ProgramAction::Read));
+    actions.extend(walk_actions);
 }
 
 fn is_fd_pseudo_path(path: &[u8]) -> bool {

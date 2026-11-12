@@ -87,6 +87,28 @@ if kind == 'mkdir-p':
     /// Python script making a syscall of a given kind on a path
     const PATH_SYSCALL_SCRIPT: &str = include_str!("path_syscall.py");
 
+    /// Python script opening a path with `openat2` and a resolve flag, from a given working directory, after
+    /// writing given files
+    const OPENAT2_RESOLVE_SCRIPT: &str = "
+import ctypes, os, struct, sys
+
+# Values from <fcntl.h>, <linux/openat2.h> and x86_64 <sys/syscall.h>
+AT_FDCWD = -100
+RESOLVE_FLAGS = {'RESOLVE_NO_XDEV': 0x01, 'RESOLVE_IN_ROOT': 0x10}
+SYS_openat2 = 437
+
+resolve, cwd, path, *written = sys.argv[1:]
+libc = ctypes.CDLL(None, use_errno=True)
+for written_path in written:
+    open(written_path, 'w').close()
+os.chdir(cwd)
+# struct open_how: flags, mode, resolve
+how = struct.pack('QQQ', os.O_RDONLY, 0, RESOLVE_FLAGS[resolve])
+if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(how))) < 0:
+    err = ctypes.get_errno()
+    raise OSError(err, os.strerror(err), path)
+";
+
     /// Build the command making a syscall of a given kind on a path
     fn path_syscall_cmd<'a>(kind: &'a str, path: &'a Path) -> [&'a str; 5] {
         [
@@ -738,6 +760,53 @@ ptrace(PTRACE_DETACH, target_pid)
         let dir = tempfile::tempdir_in("/var/lib").unwrap();
         let path = dir.path().join("file");
         profile_and_run_creating_path(&path_syscall_cmd("openat2", &path), &path);
+    }
+
+    #[test]
+    fn systemd_run_openat2_in_root() {
+        // Open a file through a symlink of a root directory in /var/lib, the working directory, which the walk
+        // reads
+        let root = tempfile::tempdir_in("/var/lib").unwrap();
+        fs::create_dir_all(root.path().join("usr/lib")).unwrap();
+        create_entry("file", &root.path().join("usr/lib/file"));
+        unix::fs::symlink("usr/lib", root.path().join("lib")).unwrap();
+        let cmd = [
+            "python3",
+            "-c",
+            OPENAT2_RESOLVE_SCRIPT,
+            "RESOLVE_IN_ROOT",
+            root.path().to_str().unwrap(),
+            "/lib/file",
+        ];
+        profile_and_run(&cmd, false);
+    }
+
+    #[test]
+    fn systemd_run_openat2_no_xdev() {
+        // Open a pre-existing file in /var/lib, /home or /etc from the root directory, or under /proc/sys from
+        // /proc, a walk crossing no mount of the profiling environment
+        let var_lib_file = tempfile::NamedTempFile::new_in("/var/lib").unwrap();
+        let var_lib_path = var_lib_file.path().to_str().unwrap();
+        let home_file = tempfile::NamedTempFile::new_in("/home").unwrap();
+        let etc_file = tempfile::NamedTempFile::new_in("/etc").unwrap();
+        for (cwd, path, written) in [
+            ("/", var_lib_path, &[][..]),
+            ("/", home_file.path().to_str().unwrap(), &[]),
+            // A write in /var/lib leaves ProtectSystem=full, which binds /etc onto itself
+            ("/", etc_file.path().to_str().unwrap(), &[var_lib_path]),
+            ("/proc", "sys/kernel/hostname", &[]),
+        ] {
+            let mut cmd = vec![
+                "python3",
+                "-c",
+                OPENAT2_RESOLVE_SCRIPT,
+                "RESOLVE_NO_XDEV",
+                cwd,
+                path,
+            ];
+            cmd.extend_from_slice(written);
+            profile_and_run(&cmd, false);
+        }
     }
 
     #[test]
