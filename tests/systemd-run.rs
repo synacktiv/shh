@@ -776,6 +776,78 @@ ptrace(PTRACE_DETACH, target_pid)
     }
 
     #[test]
+    fn systemd_run_create_through_dotdot() {
+        // Create symlinks through paths containing `..`, including symlink targets, reading the exited directory
+        // and writing to the resolved destination directory
+        let target_dir = tempfile::tempdir_in("/tmp").unwrap();
+        let inner_dir = target_dir.path().join("inner");
+        fs::create_dir(&inner_dir).unwrap();
+        fs::create_dir(target_dir.path().join("x")).unwrap();
+        let link_dir = tempfile::tempdir_in("/var/lib").unwrap();
+        let link = link_dir.path().join("link");
+        unix::fs::symlink(&inner_dir, &link).unwrap();
+        let link_dotdot = link_dir.path().join("dotdot");
+        unix::fs::symlink("link/../x", &link_dotdot).unwrap();
+        for (path, created) in [
+            (inner_dir.join("../x/new"), target_dir.path().join("x/new")),
+            (link.join("../new"), target_dir.path().join("new")),
+            (link_dotdot.join("new"), target_dir.path().join("x/new")),
+        ] {
+            let cmd = ["ln", "-s", "/dev/null", path.to_str().unwrap()];
+            profile_and_run_creating_path(&cmd, &created);
+        }
+    }
+
+    #[test]
+    fn systemd_run_create_through_nested_symlink_target() {
+        // Create a symlink in /tmp through a symlink in /var/lib whose relative target starts with another
+        // symlink, reads of both symlinks and a write to the directory of the final target
+        let cache_dir = tempfile::tempdir_in("/tmp").unwrap();
+        let subdir = cache_dir.path().join("subdir");
+        fs::create_dir(&subdir).unwrap();
+        let link_dir = tempfile::tempdir_in("/var/lib").unwrap();
+        let public = link_dir.path().join("public");
+        unix::fs::symlink("bridge/subdir", &public).unwrap();
+        unix::fs::symlink(cache_dir.path(), link_dir.path().join("bridge")).unwrap();
+        let path = public.join("new");
+        let cmd = ["ln", "-s", "/dev/null", path.to_str().unwrap()];
+        profile_and_run_creating_path(&cmd, &subdir.join("new"));
+    }
+
+    #[test]
+    fn systemd_run_rename_through_nested_symlink_target() {
+        // Rename a pre-existing file in /var/lib through a symlink whose target starts with another symlink, to
+        // a directory on the same mount as the final source directory, through Python as `mv` falls back to
+        // copying when the directories are on different mounts
+        let tree = tempfile::tempdir_in("/var/lib").unwrap();
+        let src_dir = tree.path().join("src");
+        let dst_dir = tree.path().join("dst");
+        fs::create_dir_all(src_dir.join("sub")).unwrap();
+        fs::create_dir(&dst_dir).unwrap();
+        let bridge = dst_dir.join("bridge");
+        unix::fs::symlink(bridge.join("sub"), dst_dir.join("alias")).unwrap();
+        unix::fs::symlink(&src_dir, &bridge).unwrap();
+        let src = src_dir.join("sub/file");
+        let src_alias = dst_dir.join("alias/file");
+        let dst = dst_dir.join("new");
+        let cmd = [
+            "python3",
+            "-c",
+            "import os, sys; os.rename(sys.argv[1], sys.argv[2])",
+            src_alias.to_str().unwrap(),
+            dst.to_str().unwrap(),
+        ];
+        for shh_opts in &*ALL_SHH_RUN_OPTS {
+            eprintln!("shh run option: {}", shh_opts.join(" "));
+            fs::write(&src, "").unwrap();
+            let sd_opts = generate_options(&cmd, shh_opts);
+            fs::rename(&dst, &src).unwrap();
+            let _ = systemd_run(&cmd, &sd_opts, false);
+            fs::remove_file(&dst).unwrap();
+        }
+    }
+
+    #[test]
     fn systemd_run_ln_hard() {
         // Hard link a pre-existing file, a read of the source, both directly in /tmp
         let src = tempfile::NamedTempFile::new_in("/tmp").unwrap();

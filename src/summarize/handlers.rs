@@ -6,13 +6,13 @@ use std::{
     collections::HashMap,
     ffi::OsStr,
     fs::{self, File},
-    io::{self, BufRead as _, BufReader, Read},
+    io::{BufRead as _, BufReader, Read},
     net::IpAddr,
     os::{
         fd::RawFd,
         unix::{ffi::OsStrExt as _, fs::FileTypeExt as _},
     },
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     str,
     sync::LazyLock,
 };
@@ -180,7 +180,7 @@ impl SyscallHandler for ChdirHandler {
         }
         let dir = self.path.extract(sc)?.resolve(state.cur_dir.as_ref())?;
         if let Some(mut dir) = dir {
-            traverse_symlinks(&mut dir, actions);
+            traverse_path(&mut dir, true, actions);
             debug_assert!(dir.is_absolute());
             state.cur_dir = dir;
         }
@@ -337,16 +337,16 @@ impl SyscallHandler for ExecHandler {
             }) => PathBuf::from(OsStr::from_bytes(b))
         );
         if let Some(mut path) = resolve_path(&path, relfd, state.cur_dir.as_ref()) {
-            traverse_symlinks(&mut path, actions);
+            traverse_path(&mut path, true, actions);
             actions.push(ProgramAction::Exec(path.clone()));
             let mut cur_path_opt = Some(path);
             while let Some(cur_path) = cur_path_opt {
                 if let Some(mut elf_interpreter) = read_elf_interpreter(&cur_path) {
-                    traverse_symlinks(&mut elf_interpreter, actions);
+                    traverse_path(&mut elf_interpreter, true, actions);
                     actions.push(ProgramAction::Exec(elf_interpreter.clone()));
                     cur_path_opt = Some(elf_interpreter);
                 } else if let Some(mut shebang_interpreter) = read_shebang_interpreter(&cur_path) {
-                    traverse_symlinks(&mut shebang_interpreter, actions);
+                    traverse_path(&mut shebang_interpreter, true, actions);
                     actions.push(ProgramAction::Exec(shebang_interpreter.clone()));
                     cur_path_opt = Some(shebang_interpreter);
                 } else {
@@ -810,12 +810,8 @@ impl SyscallHandler for OpenHandler {
             (true, false, true, false)
         };
 
-        // Add actions for traversed symlinks, an exclusive creation failing on a final one instead of following it
-        if exclusive {
-            traverse_parent_symlinks(&mut path, actions);
-        } else {
-            traverse_symlinks(&mut path, actions);
-        }
+        // Add actions for the path walk, an exclusive creation failing on a final symlink instead of following it
+        traverse_path(&mut path, !exclusive, actions);
 
         if sc.is_successful()
             && let Some(metadata) = sc.ret_val.as_ref().and_then(|rv| rv.metadata.as_deref())
@@ -912,8 +908,8 @@ impl SyscallHandler for RenameHandler {
         };
 
         // A rename acts on the entries themselves, never following their final component
-        traverse_parent_symlinks(&mut path_src, actions);
-        traverse_parent_symlinks(&mut path_dst, actions);
+        traverse_path(&mut path_src, false, actions);
+        traverse_path(&mut path_dst, false, actions);
         let dir_src = path_src.parent().map(Path::to_path_buf);
         let dir_dst = path_dst.parent().map(Path::to_path_buf);
         // Different directories need the same mount
@@ -1168,7 +1164,7 @@ impl SyscallHandler for SetsockoptHandler {
 fn fd_path(fd: &Expression, actions: &mut Vec<ProgramAction>, cur_dir: &Path) -> Option<PathBuf> {
     let path = Path::new(OsStr::from_bytes(fd.metadata()?));
     let mut path = resolve_path(path, None, cur_dir)?;
-    traverse_symlinks(&mut path, actions);
+    traverse_path(&mut path, true, actions);
     Some(path)
 }
 
@@ -1360,11 +1356,7 @@ impl PathHandler {
             return Ok(None);
         };
         if traverse {
-            if follow {
-                traverse_symlinks(&mut path, actions);
-            } else {
-                traverse_parent_symlinks(&mut path, actions);
-            }
+            traverse_path(&mut path, follow, actions);
         }
         if matches!(self.follow, FollowSymlink::Never) && !sc.is_successful() {
             // A removal of an absent entry still writes to its directory
@@ -1517,14 +1509,13 @@ fn socket_address_uds_path(
         type_: BufferType::Unknown,
     })) = members.get("sun_path")
     {
-        resolve_path(&PathBuf::from(OsStr::from_bytes(b)), None, cur_dir)
+        resolve_path(&PathBuf::from(OsStr::from_bytes(b)), None, cur_dir).map(|p| p.clean())
     } else {
         None
     }
 }
 
-/// Resolve relative path if possible, and normalize it
-/// Does not access filesystem to resolve symlinks
+/// Make a path absolute if possible, normalizing its separators and `.` components but not its `..` components
 fn resolve_path(path: &Path, relfd: Option<&Expression>, cur_dir: &Path) -> Option<PathBuf> {
     if is_pseudo_path(path) {
         return None;
@@ -1543,77 +1534,56 @@ fn resolve_path(path: &Path, relfd: Option<&Expression>, cur_dir: &Path) -> Opti
     } else {
         path.to_path_buf()
     };
-    Some(path.clean())
+    Some(path.components().collect())
 }
 
-/// Add actions for traversed symlinks, set symlink target of current path if it is one
-fn traverse_symlinks(in_path: &mut PathBuf, actions: &mut Vec<ProgramAction>) {
-    actions.extend(
-        path_symlinks(in_path)
-            .unwrap_or_default()
-            .into_iter()
-            .map(ProgramAction::Read),
-    );
-}
-
-/// Add actions for symlinks traversed to reach the parent of a path, resolve them in the path
-fn traverse_parent_symlinks(in_path: &mut PathBuf, actions: &mut Vec<ProgramAction>) {
-    let (Some(parent), Some(name)) = (in_path.parent(), in_path.file_name()) else {
-        return;
-    };
-    let mut parent = parent.to_path_buf();
-    traverse_symlinks(&mut parent, actions);
-    parent.push(name);
-    *in_path = parent;
-}
-
-/// Get all symlinks paths that need to be followed to access a path
-fn path_symlinks(in_path: &mut PathBuf) -> io::Result<Vec<PathBuf>> {
-    /// Max number of links to follow before giving up (likely a loop)
-    const MAX_LINK_COUNT: usize = 10;
+/// Resolve the path, following its final symlink only if `follow_last`, and record reads of followed symlinks
+/// and directories exited through `..`
+fn traverse_path(in_path: &mut PathBuf, follow_last: bool, actions: &mut Vec<ProgramAction>) {
+    /// Max number of symlinks followed in a path walk, like the kernel
+    const MAX_LINK_COUNT: usize = 40;
 
     debug_assert!(in_path.is_absolute());
-    let mut links = Vec::new();
-
-    let mut cur_level_path: Option<PathBuf> = None;
-    for component in in_path.components() {
-        let mut cur_path = if let Some(cur_level_path) = &cur_level_path {
-            cur_level_path.join(component).clean()
-        } else {
-            PathBuf::from(&component)
-        };
-        let mut link_count = 0;
-        while let Ok(mut link_target) = cur_path.read_link() {
-            if link_count > MAX_LINK_COUNT {
-                // TODO use ErrorKind::FilesystemLoop when stabilized
-                return Err(io::Error::other("Too many symlinks"));
+    let mut reads = Vec::new();
+    let mut link_count = 0;
+    let mut resolved = PathBuf::new();
+    let mut remaining = in_path.clone();
+    let mut components = remaining.components();
+    while let Some(component) = components.next() {
+        match component {
+            Component::RootDir => resolved = PathBuf::from("/"),
+            Component::ParentDir => {
+                if resolved.parent().is_some() {
+                    reads.push(resolved.clone());
+                    resolved.pop();
+                }
             }
-            links.push(cur_path.clone());
-
-            if is_pseudo_path(&link_target) {
-                // Pseudo file, ie /proc/[PID]/ns/net
-                return Ok(links);
+            Component::Normal(name) => {
+                let path = resolved.join(name);
+                let follow = follow_last || !components.as_path().as_os_str().is_empty();
+                if follow && let Ok(target) = path.read_link() {
+                    if link_count >= MAX_LINK_COUNT {
+                        // A symlink loop fails the lookup
+                        *in_path = in_path.clean();
+                        return;
+                    }
+                    link_count += 1;
+                    reads.push(path.clone());
+                    // A pseudo file, ie the target of /proc/[PID]/ns/net, has no path to walk
+                    if !is_pseudo_path(&target) {
+                        // The target is walked in place of the symlink, from the symlink directory if relative
+                        remaining = target.join(components.as_path());
+                        components = remaining.components();
+                        continue;
+                    }
+                }
+                resolved = path;
             }
-            #[expect(clippy::unwrap_used)]
-            if link_target.is_relative() {
-                link_target = cur_path
-                    .parent()
-                    .or(cur_level_path.as_deref())
-                    .unwrap()
-                    .join(link_target);
-            }
-
-            cur_path = link_target.clean();
-            link_count += 1;
+            Component::CurDir | Component::Prefix(_) => {}
         }
-        cur_level_path = Some(cur_path);
     }
-
-    if let Some(cur_level_path) = cur_level_path {
-        *in_path = cur_level_path;
-    }
-
-    Ok(links)
+    *in_path = resolved;
+    actions.extend(reads.into_iter().map(ProgramAction::Read));
 }
 
 fn is_fd_pseudo_path(path: &[u8]) -> bool {
@@ -1694,6 +1664,7 @@ pub(crate) mod tests {
         fs::{self, File},
         net::IpAddr,
         os::unix,
+        process,
     };
 
     use super::{
@@ -1709,7 +1680,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn path_symlinks_lib() {
+    fn traverse_path_lib() {
         let tmp_dir = tempfile::tempdir().unwrap();
         fs::create_dir_all(tmp_dir.path().join("usr/lib/x86_64-linux-gnu")).unwrap();
         unix::fs::symlink(tmp_dir.path().join("usr/lib"), tmp_dir.path().join("lib")).unwrap();
@@ -1730,13 +1701,17 @@ pub(crate) mod tests {
         .unwrap();
 
         let mut in_path = tmp_dir.path().join("lib/x86_64-linux-gnu/libselinux.so");
+        let mut actions = Vec::new();
+        traverse_path(&mut in_path, true, &mut actions);
         assert_eq!(
-            path_symlinks(&mut in_path).unwrap(),
+            actions,
             vec![
-                tmp_dir.path().join("lib"),
-                tmp_dir
-                    .path()
-                    .join("usr/lib/x86_64-linux-gnu/libselinux.so")
+                ProgramAction::Read(tmp_dir.path().join("lib")),
+                ProgramAction::Read(
+                    tmp_dir
+                        .path()
+                        .join("usr/lib/x86_64-linux-gnu/libselinux.so")
+                )
             ]
         );
         assert_eq!(
@@ -1748,10 +1723,31 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn path_symlinks_parent() {
+    fn traverse_path_parent() {
         let tmp_dir = tempfile::tempdir().unwrap();
         fs::create_dir_all(tmp_dir.path().join("a/b")).unwrap();
         fs::create_dir_all(tmp_dir.path().join("d/e")).unwrap();
+        unix::fs::symlink("../../d", tmp_dir.path().join("a/b/c")).unwrap();
+
+        let mut in_path = tmp_dir.path().join("a/b/c/e");
+        let mut actions = Vec::new();
+        traverse_path(&mut in_path, true, &mut actions);
+        assert_eq!(
+            actions,
+            vec![
+                ProgramAction::Read(tmp_dir.path().join("a/b/c")),
+                ProgramAction::Read(tmp_dir.path().join("a/b")),
+                ProgramAction::Read(tmp_dir.path().join("a"))
+            ]
+        );
+        assert_eq!(in_path, tmp_dir.path().join("d/e"));
+    }
+
+    #[test]
+    fn traverse_path_loop() {
+        let tmp_dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(tmp_dir.path().join("a/b")).unwrap();
+        // Walking the target reaches the symlink itself again
         unix::fs::symlink(
             tmp_dir.path().join("a/b/c/../.."),
             tmp_dir.path().join("a/b/c"),
@@ -1759,11 +1755,72 @@ pub(crate) mod tests {
         .unwrap();
 
         let mut in_path = tmp_dir.path().join("a/b/c/e");
+        let mut actions = Vec::new();
+        traverse_path(&mut in_path, true, &mut actions);
+        assert!(actions.is_empty());
+        assert_eq!(in_path, tmp_dir.path().join("a/b/c/e"));
+    }
+
+    /// Create a chain of `count` symlinks in `dir`, the last one pointing to `target`, and get their paths in walk
+    /// order
+    fn symlink_chain(dir: &Path, count: usize, target: &Path) -> Vec<PathBuf> {
+        let links: Vec<_> = (0..count).map(|i| dir.join(format!("link{i}"))).collect();
+        for (i, link) in links.iter().enumerate() {
+            unix::fs::symlink(links.get(i + 1).map_or(target, PathBuf::as_path), link).unwrap();
+        }
+        links
+    }
+
+    #[test]
+    fn traverse_path_link_limit() {
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let dir = tmp_dir.path().join("dir");
+        fs::create_dir(&dir).unwrap();
+        let mut links = symlink_chain(tmp_dir.path(), 20, &dir);
+        links.extend(symlink_chain(&dir, 20, &dir.join("file")));
+
+        let mut in_path = tmp_dir.path().join("link0/link0");
+        let mut actions = Vec::new();
+        traverse_path(&mut in_path, true, &mut actions);
         assert_eq!(
-            path_symlinks(&mut in_path).unwrap(),
-            vec![tmp_dir.path().join("a/b/c"),]
+            actions,
+            links
+                .into_iter()
+                .map(ProgramAction::Read)
+                .collect::<Vec<_>>()
         );
-        assert_eq!(in_path, tmp_dir.path().join("a/e"));
+        assert_eq!(in_path, dir.join("file"));
+    }
+
+    #[test]
+    fn traverse_path_link_limit_exceeded() {
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let dir = tmp_dir.path().join("dir");
+        fs::create_dir(&dir).unwrap();
+        symlink_chain(tmp_dir.path(), 21, &dir);
+        symlink_chain(&dir, 20, &dir.join("file"));
+
+        let mut in_path = tmp_dir.path().join("link0/link0");
+        let mut actions = Vec::new();
+        traverse_path(&mut in_path, true, &mut actions);
+        assert!(actions.is_empty());
+        assert_eq!(in_path, tmp_dir.path().join("link0/link0"));
+    }
+
+    #[test]
+    fn traverse_path_pseudo_target() {
+        let ns_path = PathBuf::from(format!("/proc/{pid}/ns/net", pid = process::id()));
+        let mut in_path = PathBuf::from("/proc/self/ns/net");
+        let mut actions = Vec::new();
+        traverse_path(&mut in_path, true, &mut actions);
+        assert_eq!(
+            actions,
+            vec![
+                ProgramAction::Read("/proc/self".into()),
+                ProgramAction::Read(ns_path.clone())
+            ]
+        );
+        assert_eq!(in_path, ns_path);
     }
 
     #[test]

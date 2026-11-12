@@ -2507,6 +2507,122 @@ mod tests {
     }
 
     #[test]
+    fn create_through_dotdot() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let link_dir = temp_dir.path().join("links");
+        let target_dir = temp_dir.path().join("target");
+        let inner_dir = target_dir.join("inner");
+        fs::create_dir(&link_dir).unwrap();
+        fs::create_dir_all(&inner_dir).unwrap();
+        fs::create_dir(target_dir.join("x")).unwrap();
+        let link = link_dir.join("link");
+        unix::fs::symlink(&inner_dir, &link).unwrap();
+        let link_dotdot = link_dir.join("dotdot");
+        unix::fs::symlink("link/../x", &link_dotdot).unwrap();
+        // The directory `..` leaves is read, and when reached through a symlink, `..` leaves its target
+        for (path, reads, created) in [
+            (
+                inner_dir.join("../x/new"),
+                vec![inner_dir.clone()],
+                target_dir.join("x/new"),
+            ),
+            (
+                link.join("../new"),
+                vec![link.clone(), inner_dir.clone()],
+                target_dir.join("new"),
+            ),
+            (
+                link_dotdot.join("new"),
+                vec![link_dotdot.clone(), link.clone(), inner_dir.clone()],
+                target_dir.join("x/new"),
+            ),
+        ] {
+            let args = vec![
+                buf_expr(b"/dev/null"),
+                buf_expr(path.as_os_str().as_bytes()),
+            ];
+            assert_eq!(
+                summarize([Ok(syscall("symlink", args))], &[], program_state()).unwrap(),
+                [
+                    reads.into_iter().map(ProgramAction::Read).collect(),
+                    vec![
+                        ProgramAction::Create(created),
+                        ProgramAction::Syscalls(["symlink".into()].into()),
+                    ],
+                ]
+                .concat()
+            );
+        }
+    }
+
+    #[test]
+    fn create_through_nested_symlink_target() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let link_dir = temp_dir.path().join("www");
+        let cache_dir = temp_dir.path().join("cache");
+        fs::create_dir(&link_dir).unwrap();
+        fs::create_dir_all(cache_dir.join("subdir")).unwrap();
+        let public = link_dir.join("public");
+        let bridge = link_dir.join("bridge");
+        unix::fs::symlink("bridge/subdir", &public).unwrap();
+        unix::fs::symlink(&cache_dir, &bridge).unwrap();
+        let args = vec![
+            buf_expr(public.join("new").as_os_str().as_bytes()),
+            int_literal(0o755),
+        ];
+        assert_eq!(
+            summarize([Ok(syscall("mkdir", args))], &[], program_state()).unwrap(),
+            vec![
+                ProgramAction::Read(public),
+                ProgramAction::Read(bridge),
+                ProgramAction::Create(cache_dir.join("subdir/new")),
+                ProgramAction::Syscalls(["mkdir".into()].into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn rename_through_nested_symlink_target() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let src_dir = temp_dir.path().join("src");
+        let dst_dir = temp_dir.path().join("dst");
+        fs::create_dir_all(src_dir.join("sub")).unwrap();
+        fs::create_dir(&dst_dir).unwrap();
+        let alias = dst_dir.join("alias");
+        let bridge = dst_dir.join("bridge");
+        unix::fs::symlink(bridge.join("sub"), &alias).unwrap();
+        unix::fs::symlink(&src_dir, &bridge).unwrap();
+        let old = src_dir.join("sub/file");
+        let new = dst_dir.join("new");
+        let args = vec![
+            named_symbol("AT_FDCWD"),
+            buf_expr(alias.join("file").as_os_str().as_bytes()),
+            named_symbol("AT_FDCWD"),
+            buf_expr(new.as_os_str().as_bytes()),
+        ];
+        assert_eq!(
+            summarize([Ok(syscall("renameat", args))], &[], program_state()).unwrap(),
+            vec![
+                ProgramAction::Read(alias),
+                ProgramAction::Read(bridge),
+                ProgramAction::RequireSameMount(src_dir.join("sub"), dst_dir.clone()),
+                ProgramAction::Read(old.clone()),
+                ProgramAction::Remove(old.clone()),
+                ProgramAction::Create(new.clone()),
+                ProgramAction::RequireNoMountWithin(old),
+                ProgramAction::RequireSameMount(new, dst_dir),
+                ProgramAction::Syscalls(["renameat".into()].into()),
+            ]
+        );
+    }
+
+    #[test]
     fn lsetxattr_failed_symlink_writes() {
         let _ = simple_logger::SimpleLogger::new().init();
 
