@@ -10,6 +10,7 @@ if [ $# -lt 2 ]
 then
     echo "Usage: $0 DISTRIBUTION COMMAND [ARGS...]" >&2
     echo "Environment: TARGET_DIR (default: <repo>/test-env/target/<distribution>)" >&2
+    echo "Environment: MAX_CPUS (default: 4)" >&2
     exit 1
 fi
 
@@ -18,6 +19,7 @@ shift 1
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 readonly PROJECT_DIR
 readonly TARGET_DIR="${TARGET_DIR:-${PROJECT_DIR}/test-env/target/${DISTRIBUTION}}"
+readonly MAX_CPUS="${MAX_CPUS:-4}"
 
 # Ephemeral overlay so the base tree stays unmodified and
 # concurrent instances don't interfere with each other
@@ -57,9 +59,9 @@ mkdir -p "${RESULT}"
 touch "${RESULT}/stdout" "${RESULT}/stderr"
 trap 'kill ${TAIL_STDOUT} ${TAIL_STDERR} 2>/dev/null || true; sudo umount ${EPHEMERAL}/merged 2>/dev/null || true; sudo rm -rf ${EPHEMERAL} ${RESULT}' EXIT
 
-# CPU cores: min(4, host cores)
+# CPU cores: min(MAX_CPUS, host cores)
 NCPUS=$(nproc 2>/dev/null || echo 1)
-NCPUS=$((NCPUS > 4 ? 4 : NCPUS))
+NCPUS=$((NCPUS > MAX_CPUS ? MAX_CPUS : NCPUS))
 readonly NCPUS
 
 sudo setsid -w systemd-vmspawn \
