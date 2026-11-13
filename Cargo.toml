@@ -21,6 +21,9 @@ lto = true
 codegen-units = 1
 strip = true
 
+[profile.test]
+opt-level = 1
+
 [build-dependencies]
 const-gen = { version = "1.6.10", default-features = false, features = ["std", "phf"] }
 
