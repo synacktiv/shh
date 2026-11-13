@@ -496,7 +496,7 @@ pub(crate) fn resolve(
 #[expect(clippy::shadow_unrelated)]
 #[cfg(test)]
 mod tests {
-    use std::{net::IpAddr, num::NonZeroUsize, os::unix, slice};
+    use std::{fs, net::IpAddr, num::NonZeroUsize, os::unix, slice};
 
     use super::*;
     use crate::{
@@ -510,6 +510,13 @@ mod tests {
     };
 
     fn test_options_standard(names: &[&str]) -> (Vec<OptionDescription>, HardeningOptions) {
+        test_options_standard_within(tempfile::tempdir().unwrap().path(), names)
+    }
+
+    fn test_options_standard_within(
+        root: &Path,
+        names: &[&str],
+    ) -> (Vec<OptionDescription>, HardeningOptions) {
         let sd_version = SystemdVersion::new(254, 0);
         let kernel_version = KernelVersion::new(6, 4, 0);
         let hardening_opts = HardeningOptions {
@@ -524,6 +531,7 @@ mod tests {
                 &sysctl,
                 &systemd::InstanceKind::System,
                 false,
+                root,
                 &hardening_opts,
             ),
             hardening_opts,
@@ -545,6 +553,7 @@ mod tests {
                 &sysctl,
                 &systemd::InstanceKind::System,
                 false,
+                tempfile::tempdir().unwrap().path(),
                 &hardening_opts,
             ),
             hardening_opts,
@@ -728,6 +737,114 @@ mod tests {
             assert!(resolve(&opts, slice::from_ref(&action), &hardening_opts).is_empty());
             let actions = [ProgramAction::Create("/tmp/data".into()), action];
             assert_eq!(resolve(&opts, &actions, &hardening_opts), expected);
+        }
+    }
+
+    #[test]
+    fn resolve_symlinked_mount_paths() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let root = tempfile::tempdir().unwrap();
+        for dir in ["var/home", "usr/bin", "usr/lib"] {
+            fs::create_dir_all(root.path().join(dir)).unwrap();
+        }
+        for (target, link) in [
+            ("var/home", "home"),
+            ("/var/config", "etc"),
+            ("/var/lib/tmp", "tmp"),
+            ("/var/lib/vartmp", "var/tmp"),
+            ("/var/lib/efi", "efi"),
+            ("usr/bin", "bin"),
+            ("/opt/lib", "lib"),
+            ("/opt/modules", "usr/lib/modules"),
+        ] {
+            unix::fs::symlink(target, root.path().join(link)).unwrap();
+        }
+        let (opts, hardening_opts) = test_options_standard_within(
+            root.path(),
+            &[
+                "ProtectHome",
+                "ProtectSystem",
+                "PrivateTmp",
+                "ProtectKernelModules",
+            ],
+        );
+
+        for (name, actions, expected) in [
+            (
+                "ProtectHome",
+                vec![ProgramAction::Read("/var/home/user/f".into())],
+                None,
+            ),
+            (
+                "ProtectHome",
+                vec![ProgramAction::Read("/home".into())],
+                Some("ProtectHome=true"),
+            ),
+            (
+                "ProtectSystem",
+                vec![ProgramAction::Write("/var/home/user/f".into())],
+                Some("ProtectSystem=strict"),
+            ),
+            (
+                "ProtectSystem",
+                vec![ProgramAction::RequireSameMount(
+                    "/".into(),
+                    "/var/home".into(),
+                )],
+                Some("ProtectSystem=full"),
+            ),
+            (
+                "ProtectSystem",
+                vec![ProgramAction::Write("/var/lib/efi/f".into())],
+                None,
+            ),
+            (
+                "ProtectSystem",
+                vec![ProgramAction::Write("/var/config/service.conf".into())],
+                Some("ProtectSystem=true"),
+            ),
+            // /bin resolves below /usr, and gets no mount of its own
+            (
+                "ProtectSystem",
+                vec![
+                    ProgramAction::Write("/var/lib/f".into()),
+                    ProgramAction::RequireSameMount("/usr".into(), "/usr/bin/true".into()),
+                ],
+                Some("ProtectSystem=full"),
+            ),
+            (
+                "PrivateTmp",
+                vec![ProgramAction::Read("/var/lib/tmp/f".into())],
+                None,
+            ),
+            (
+                "PrivateTmp",
+                vec![ProgramAction::Read("/var/lib/vartmp/f".into())],
+                None,
+            ),
+            (
+                "PrivateTmp",
+                vec![ProgramAction::Read("/var/tmp".into())],
+                Some("PrivateTmp=true"),
+            ),
+            (
+                "ProtectKernelModules",
+                vec![ProgramAction::Read("/opt/lib/modules/modules.dep".into())],
+                None,
+            ),
+            (
+                "ProtectKernelModules",
+                vec![ProgramAction::Read("/opt/modules/modules.dep".into())],
+                None,
+            ),
+        ] {
+            let candidates = resolve(&opts, &actions, &hardening_opts);
+            let candidate = candidates
+                .iter()
+                .find(|c| c.name == name)
+                .map(ToString::to_string);
+            assert_eq!(candidate.as_deref(), expected);
         }
     }
 

@@ -839,6 +839,16 @@ ptrace(PTRACE_DETACH, target_pid)
     }
 
     #[test]
+    fn systemd_run_symlinked_efi() {
+        // Write to a file in /var/lib, the target of a symlinked /efi, which ProtectSystem mounts at that target
+        let dir = tempfile::tempdir_in("/var/lib").unwrap();
+        unix::fs::symlink(dir.path(), "/efi").unwrap();
+        let path = dir.path().join("file");
+        profile_and_run(&["touch", path.to_str().unwrap()], false);
+        fs::remove_file("/efi").unwrap();
+    }
+
+    #[test]
     fn systemd_run_tmpfile() {
         // Open an unnamed temporary file, a write to its directory, on the tmpfs of the test environment
         let dir = tempfile::tempdir_in("/mnt/tmp").unwrap();

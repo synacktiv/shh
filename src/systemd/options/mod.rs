@@ -15,7 +15,7 @@ use itertools::Itertools as _;
 
 use crate::{
     cl::HardeningOptions,
-    summarize::{NetworkActivity, ProgramAction},
+    summarize::{NetworkActivity, PathWalk, ProgramAction, traverse_path_within},
     sysctl,
     systemd::{self, KernelVersion, SystemdVersion, options::specs::OPTION_SPECS},
 };
@@ -207,7 +207,10 @@ pub(crate) enum PathDescription {
 }
 
 impl PathDescription {
-    pub(crate) fn base(base: &str) -> Self {
+    pub(crate) fn base<P>(base: P) -> Self
+    where
+        P: Into<PathBuf>,
+    {
         Self::Base {
             base: base.into(),
             exceptions: vec![],
@@ -269,7 +272,10 @@ pub(crate) struct EmptyPathDescription {
 }
 
 impl EmptyPathDescription {
-    pub(crate) fn base(base: &str) -> Self {
+    pub(crate) fn base<P>(base: P) -> Self
+    where
+        P: Into<PathBuf>,
+    {
         Self {
             base: base.into(),
             base_ro: false,
@@ -278,12 +284,13 @@ impl EmptyPathDescription {
         }
     }
 
-    pub(crate) fn base_ro(base: &str) -> Self {
+    pub(crate) fn base_ro<P>(base: P) -> Self
+    where
+        P: Into<PathBuf>,
+    {
         Self {
-            base: base.into(),
             base_ro: true,
-            exceptions_ro: vec![],
-            exceptions_rw: vec![],
+            ..Self::base(base)
         }
     }
 
@@ -748,6 +755,8 @@ struct OptionContext<'a> {
     pub sysctl_state: &'a sysctl::State,
     pub instance_kind: &'a systemd::InstanceKind,
     pub container: bool,
+    /// Root directory the paths options mount are resolved in
+    pub root: &'a Path,
     pub hardening_opts: &'a HardeningOptions,
 }
 
@@ -771,6 +780,19 @@ impl OptionContext<'_> {
     fn kernel_min_version(&self, major: u16, minor: u16, patch: u16) -> bool {
         *self.kernel_version >= KernelVersion::new(major, minor, patch)
     }
+
+    /// Resolve the symlinks of an absolute path an option mounts
+    fn mount_path(&self, path: &str) -> PathBuf {
+        let mut resolved = self.root.join(path.trim_start_matches('/'));
+        let walk = PathWalk {
+            start: self.root,
+            root: self.root,
+            same_mount: false,
+        };
+        traverse_path_within(&mut resolved, &walk, true, &mut Vec::new());
+        #[expect(clippy::unwrap_used)] // the walk stays below its root
+        Path::new("/").join(resolved.strip_prefix(self.root).unwrap())
+    }
 }
 
 pub(crate) fn build_options(
@@ -779,6 +801,7 @@ pub(crate) fn build_options(
     sysctl_state: &sysctl::State,
     instance_kind: &systemd::InstanceKind,
     container: bool,
+    root: &Path,
     hardening_opts: &HardeningOptions,
 ) -> Vec<OptionDescription> {
     let ctx = OptionContext {
@@ -787,6 +810,7 @@ pub(crate) fn build_options(
         sysctl_state,
         instance_kind,
         container,
+        root,
         hardening_opts,
     };
 

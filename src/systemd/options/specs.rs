@@ -42,19 +42,23 @@ pub(crate) trait OptionSpec: Sync {
 struct ProtectSystem;
 
 impl OptionSpec for ProtectSystem {
-    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
-        let mut protect_system_yes_nowrite: Vec<_> = [
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        let yes_paths = [
             "/usr/", "/boot/", "/efi/", "/lib/", "/lib64/", "/bin/", "/sbin/",
         ]
-        .iter()
-        .map(|p| OptionValueEffect::DenyWrite(PathDescription::base(p)))
-        .collect();
+        .map(|p| ctx.mount_path(p));
+        // A path below another one gets no mount of its own
+        let mut protect_system_yes_nowrite: Vec<_> = merge_similar_paths(&yes_paths, None)
+            .into_iter()
+            .map(|p| OptionValueEffect::DenyWrite(PathDescription::base(p)))
+            .collect();
         protect_system_yes_nowrite.push(OptionValueEffect::DenyAction(
             DeniableAction::HostMountNamespace,
         ));
         let mut protect_system_full_nowrite = protect_system_yes_nowrite.clone();
-        protect_system_full_nowrite
-            .push(OptionValueEffect::DenyWrite(PathDescription::base("/etc/")));
+        protect_system_full_nowrite.push(OptionValueEffect::DenyWrite(PathDescription::base(
+            ctx.mount_path("/etc/"),
+        )));
         OptionDescription {
             name: "ProtectSystem",
             possible_values: vec![
@@ -85,7 +89,7 @@ impl OptionSpec for ProtectSystem {
                                 "/run/user/",
                             ]
                             .into_iter()
-                            .map(PathBuf::from)
+                            .map(|p| ctx.mount_path(p))
                             .collect(),
                         }),
                         OptionValueEffect::DenyAction(DeniableAction::HostMountNamespace),
@@ -105,8 +109,8 @@ impl OptionSpec for ProtectHome {
         ctx.can_use_namespaces()
     }
 
-    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
-        let home_paths = ["/home/", "/root/", "/run/user/"];
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
+        let home_paths = ["/home/", "/root/", "/run/user/"].map(|p| ctx.mount_path(p));
         OptionDescription {
             name: "ProtectHome",
             possible_values: vec![
@@ -170,8 +174,12 @@ impl OptionSpec for PrivateTmp {
                     OptionValue::Boolean(true)
                 },
                 desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                    OptionValueEffect::EmptyPath(EmptyPathDescription::base("/tmp")),
-                    OptionValueEffect::EmptyPath(EmptyPathDescription::base("/var/tmp")),
+                    OptionValueEffect::EmptyPath(EmptyPathDescription::base(
+                        ctx.mount_path("/tmp"),
+                    )),
+                    OptionValueEffect::EmptyPath(EmptyPathDescription::base(
+                        ctx.mount_path("/var/tmp"),
+                    )),
                     OptionValueEffect::DenyAction(DeniableAction::HostMountNamespace),
                 ])),
             }],
@@ -310,15 +318,19 @@ impl OptionSpec for ProtectKernelModules {
         ctx.can_use_namespaces() && !ctx.container_unit()
     }
 
-    fn build(&self, _ctx: &OptionContext<'_>) -> OptionDescription {
+    fn build(&self, ctx: &OptionContext<'_>) -> OptionDescription {
         OptionDescription {
             name: "ProtectKernelModules",
             possible_values: vec![OptionValueDescription {
                 value: OptionValue::Boolean(true),
                 desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
                     // https://github.com/systemd/systemd/blob/v254/src/core/namespace.c#L140
-                    OptionValueEffect::RemovePath(PathDescription::base("/lib/modules/")),
-                    OptionValueEffect::RemovePath(PathDescription::base("/usr/lib/modules/")),
+                    OptionValueEffect::RemovePath(PathDescription::base(
+                        ctx.mount_path("/lib/modules/"),
+                    )),
+                    OptionValueEffect::RemovePath(PathDescription::base(
+                        ctx.mount_path("/usr/lib/modules/"),
+                    )),
                     OptionValueEffect::DenySyscalls(DenySyscalls::Class("module")),
                     OptionValueEffect::DenyAction(DeniableAction::HostMountNamespace),
                 ])),

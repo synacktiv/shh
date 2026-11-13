@@ -27,6 +27,7 @@ use handlers::{
     ShmCtlHandler, SocketHandler, StatFdHandler, SyscallHandler, TimerCreateHandler,
     UnshareHandler,
 };
+pub(crate) use handlers::{PathWalk, traverse_path_within};
 
 /// A high level program runtime action
 /// This does *not* map 1-1 with a syscall, and does *not* necessarily respect chronology

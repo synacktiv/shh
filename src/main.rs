@@ -39,6 +39,7 @@ fn sd_options(
         sysctl_state,
         instance_kind,
         container,
+        Path::new("/"),
         hardening_opts,
     );
     log::info!(

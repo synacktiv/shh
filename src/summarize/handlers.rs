@@ -1562,13 +1562,13 @@ fn resolve_path(path: &Path, relfd: Option<&Expression>, cur_dir: &Path) -> Opti
 }
 
 /// Bounds of a path walk
-struct PathWalk<'a> {
+pub(crate) struct PathWalk<'a> {
     /// Absolute starting directory and required prefix of the walked path
-    start: &'a Path,
+    pub start: &'a Path,
     /// Directory absolute symlink targets restart from, and `..` stops at
-    root: &'a Path,
+    pub root: &'a Path,
     /// Whether every entered path must be on the mount of the start directory
-    same_mount: bool,
+    pub same_mount: bool,
 }
 
 /// Resolve the path, following its final symlink only if `follow_last`, and record reads of followed symlinks
@@ -1585,7 +1585,7 @@ fn traverse_path(in_path: &mut PathBuf, follow_last: bool, actions: &mut Vec<Pro
 
 /// Resolve the path within the bounds of a walk, following its final symlink only if `follow_last`, and record
 /// reads of followed symlinks and directories exited through `..`, and the mount requirements of the walk
-fn traverse_path_within(
+pub(crate) fn traverse_path_within(
     in_path: &mut PathBuf,
     walk: &PathWalk<'_>,
     follow_last: bool,
