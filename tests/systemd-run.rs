@@ -123,46 +123,57 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
     /// C program making a syscall of a given kind on a path through the 32-bit x86 ABI
     const SYSCALL_32BIT_SRC: &str = include_str!("syscall_32bit.c");
 
-    /// Run `shh run` for a given command, and return generated systemd options
-    fn generate_options(cmd: &[&str], run_opts: &[&str]) -> Vec<String> {
-        const START_OPTION_OUTPUT_SNIPPET_PREFIX: &str =
-            "-------- Start of suggested service options ";
-        const END_OPTION_OUTPUT_SNIPPET_PREFIX: &str = "-------- End of suggested service options ";
-        let bin =
-            env::var("CARGO_BIN_EXE_shh").unwrap_or_else(|_| env!("CARGO_BIN_EXE_shh").to_owned());
-        let output = Command::new(bin)
+    /// Path of the tested `shh` binary
+    fn shh_bin() -> String {
+        env::var("CARGO_BIN_EXE_shh").unwrap_or_else(|_| env!("CARGO_BIN_EXE_shh").to_owned())
+    }
+
+    /// Parse the systemd options suggested by `shh`, from an output holding nothing else
+    fn suggested_options(stdout: &[u8]) -> Vec<String> {
+        const START_MARKER: &str = "-------- Start of suggested service options ";
+        const END_MARKER: &str = "-------- End of suggested service options ";
+        let mut lines = str::from_utf8(stdout).unwrap().lines();
+        assert!(lines.next().unwrap().starts_with(START_MARKER));
+        assert!(lines.next_back().unwrap().starts_with(END_MARKER));
+        lines.map(str::to_owned).collect()
+    }
+
+    /// Profile a command once with `shh run`, and generate systemd options from its profile with each `shh` option
+    /// set, logging the set as its options are taken
+    fn generate_options(
+        cmd: &[&str],
+        shh_opts_sets: &[Vec<&'static str>],
+    ) -> impl Iterator<Item = Vec<String>> {
+        let bin = shh_bin();
+        let profile_dir = tempfile::tempdir().unwrap();
+        let profile = profile_dir.path().join("profile");
+        Command::new(&bin)
             .arg("run")
-            .args(run_opts)
+            .arg("-p")
+            .arg(&profile)
             .arg("--")
             .args(cmd)
             .unwrap();
-        let mut has_end_marker = false;
-        let opts: Vec<_> = output
-            .stdout
-            .lines()
-            // Filter out delimiting lines while letting errors bubble up
-            .skip_while(|r| {
-                r.as_ref()
-                    .is_ok_and(|l| !l.starts_with(START_OPTION_OUTPUT_SNIPPET_PREFIX))
+        let merged_profile = profile_dir.path().join("merged");
+        let all_sd_opts: Vec<_> = shh_opts_sets
+            .iter()
+            .map(|shh_opts| {
+                // Preserve the original profile for subsequent option sets
+                fs::copy(&profile, &merged_profile).unwrap();
+                let output = Command::new(&bin)
+                    .arg("merge-profile-data")
+                    .args(shh_opts)
+                    .arg(&merged_profile)
+                    .unwrap();
+                let opts = suggested_options(&output.stdout);
+                output.assert().success();
+                opts
             })
-            .skip(1)
-            .inspect(|r| {
-                if r.as_ref()
-                    .is_ok_and(|l| l.starts_with(END_OPTION_OUTPUT_SNIPPET_PREFIX))
-                {
-                    has_end_marker = true;
-                }
-            })
-            .take_while(|r| {
-                r.as_ref()
-                    .map_or(true, |l| !l.starts_with(END_OPTION_OUTPUT_SNIPPET_PREFIX))
-            })
-            .collect::<Result<_, _>>()
-            .unwrap();
-        assert!(has_end_marker);
-
-        output.assert().success();
-        opts
+            .collect();
+        iter::zip(shh_opts_sets, all_sd_opts).map(|(shh_opts, sd_opts)| {
+            eprintln!("shh run option: {}", shh_opts.join(" "));
+            sd_opts
+        })
     }
 
     /// Run systemd-run for given command, with options
@@ -238,16 +249,24 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
         combinations
     }
 
-    /// Profile a command with every `shh run` option set, and run it with the generated options as a
-    /// system or user service
+    /// Build every `shh run` option set for a system or user service
+    fn shh_run_opts(user: bool) -> Vec<Vec<&'static str>> {
+        ALL_SHH_RUN_OPTS
+            .iter()
+            .map(|shh_opts| {
+                let mut shh_opts = shh_opts.clone();
+                if user {
+                    shh_opts.extend(["-i", "user"]);
+                }
+                shh_opts
+            })
+            .collect()
+    }
+
+    /// Profile a command, and run it with the options generated for every `shh run` option set as a system or
+    /// user service
     fn profile_and_run(cmd: &[&str], user: bool) {
-        for shh_opts in &*ALL_SHH_RUN_OPTS {
-            let mut shh_opts = shh_opts.clone();
-            if user {
-                shh_opts.extend(["-i", "user"]);
-            }
-            eprintln!("shh run option: {}", shh_opts.join(" "));
-            let sd_opts = generate_options(cmd, &shh_opts);
+        for sd_opts in generate_options(cmd, &shh_run_opts(user)) {
             let _ = systemd_run(cmd, &sd_opts, user);
         }
     }
@@ -272,15 +291,21 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
         }
     }
 
-    /// Profile a command creating a path with every `shh run` option set, and run it as a system service with
-    /// the generated options, removing the path after each step
-    fn profile_and_run_creating_path(cmd: &[&str], path: &Path) {
-        for shh_opts in &*ALL_SHH_RUN_OPTS {
-            eprintln!("shh run option: {}", shh_opts.join(" "));
-            let sd_opts = generate_options(cmd, shh_opts);
+    /// Profile a command creating paths, and run it as a system service with the options generated for every
+    /// `shh run` option set, removing the paths after each step
+    fn profile_and_run_creating_paths<P>(cmd: &[&str], paths: &[P])
+    where
+        P: AsRef<Path>,
+    {
+        let all_sd_opts = generate_options(cmd, &ALL_SHH_RUN_OPTS);
+        for path in paths {
             fs::remove_file(path).unwrap();
+        }
+        for sd_opts in all_sd_opts {
             let _ = systemd_run(cmd, &sd_opts, false);
-            fs::remove_file(path).unwrap();
+            for path in paths {
+                fs::remove_file(path).unwrap();
+            }
         }
     }
 
@@ -301,6 +326,29 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
         // Like `strace -- version 6.13`
         let first_line = output.stdout.lines().next().unwrap().unwrap();
         major_minor(first_line.rsplit(' ').next().unwrap())
+    }
+
+    #[test]
+    fn run_matches_merge_profile_data() {
+        // Generate options with `shh run` directly, as when merging profile data, for option sets covering every
+        // option kind
+        let cmd = ["true"];
+        let shh_opts_sets = [
+            vec!["-m", "generic"],
+            vec!["-m", "aggressive", "-w", "-f"],
+            vec!["-m", "aggressive", "-w", "-f", "-i", "user"],
+        ];
+        for (shh_opts, merged_sd_opts) in
+            iter::zip(&shh_opts_sets, generate_options(&cmd, &shh_opts_sets))
+        {
+            let output = Command::new(shh_bin())
+                .arg("run")
+                .args(shh_opts)
+                .arg("--")
+                .args(cmd)
+                .unwrap();
+            assert_eq!(suggested_options(&output.stdout), merged_sd_opts);
+        }
     }
 
     #[test]
@@ -342,13 +390,7 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
     fn systemd_run_ls_dev() {
         let cmd = ["ls", "/dev/"];
         for user in [false, true] {
-            for shh_opts in &*ALL_SHH_RUN_OPTS {
-                let mut shh_opts = shh_opts.clone();
-                if user {
-                    shh_opts.extend(["-i", "user"]);
-                }
-                eprintln!("shh run option: {}", shh_opts.join(" "));
-                let sd_opts = generate_options(&cmd, &shh_opts);
+            for sd_opts in generate_options(&cmd, &shh_run_opts(user)) {
                 let asrt = systemd_run(&cmd, &sd_opts, user);
                 asrt.stdout(predicate::str::contains("char"))
                     .stdout(predicate::str::contains("log"));
@@ -383,9 +425,7 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
     #[test]
     fn systemd_run_dmesg() {
         let cmd = ["dmesg"];
-        for shh_opts in &*ALL_SHH_RUN_OPTS {
-            eprintln!("shh run option: {}", shh_opts.join(" "));
-            let sd_opts = generate_options(&cmd, shh_opts);
+        for sd_opts in generate_options(&cmd, &ALL_SHH_RUN_OPTS) {
             let asrt = systemd_run(&cmd, &sd_opts, false);
             asrt.stdout(predicate::str::is_match(KERNEL_LOG_REGEX).unwrap());
         }
@@ -395,18 +435,13 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
     fn systemd_run_systemctl() {
         let cmd = ["systemctl"];
         for user in [false, true] {
-            for shh_opts in &*ALL_SHH_RUN_OPTS {
-                if shh_opts.contains(&"aggressive") {
-                    // This one breaks systemctl under load,
-                    // due to divergent code path that makes us deny `@io-event`
-                    continue;
-                }
-                let mut shh_opts = shh_opts.clone();
-                if user {
-                    shh_opts.extend(["-i", "user"]);
-                }
-                eprintln!("shh run option: {}", shh_opts.join(" "));
-                let sd_opts = generate_options(&cmd, &shh_opts);
+            let shh_opts_sets: Vec<_> = shh_run_opts(user)
+                .into_iter()
+                // This one breaks systemctl under load,
+                // due to divergent code path that makes us deny `@io-event`
+                .filter(|shh_opts| !shh_opts.contains(&"aggressive"))
+                .collect();
+            for sd_opts in generate_options(&cmd, &shh_opts_sets) {
                 let _ = systemd_run(&cmd, &sd_opts, user);
             }
         }
@@ -461,15 +496,8 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
             let path = format!("{dir}/shh-test-{id}.sock", id = rand::random::<u16>());
             let code = format!("import socket; socket.socket(socket.AF_UNIX).bind({path:?})");
             let cmd = ["python3", "-c", &code];
-            for shh_opts in &*ALL_SHH_RUN_OPTS {
-                eprintln!("shh run option: {}", shh_opts.join(" "));
-                let _ = fs::remove_file(&path);
-                let sd_opts = generate_options(&cmd, shh_opts);
-                let _ = fs::remove_file(&path);
-                let _ = systemd_run(&cmd, &sd_opts, false);
-                assert!(fs::exists(&path).unwrap());
-                fs::remove_file(&path).unwrap();
-            }
+            let _ = fs::remove_file(&path);
+            profile_and_run_creating_paths(&cmd, &[&path]);
         }
     }
 
@@ -499,7 +527,7 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
             "import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])",
             bound.to_str().unwrap(),
         ];
-        profile_and_run_creating_path(&bind_cmd, &sock_dir.path().join("new"));
+        profile_and_run_creating_paths(&bind_cmd, &[sock_dir.path().join("new")]);
     }
 
     #[test]
@@ -524,11 +552,9 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
 
         let pipe_path = tmp_dir.path().join("pipe");
         let cmd_pipe = ["mknod", pipe_path.as_os_str().to_str().unwrap(), "p"];
-        for shh_opts in &*ALL_SHH_RUN_OPTS {
-            eprintln!("shh run option: {}", shh_opts.join(" "));
-            let mut sd_opts = generate_options(&cmd_pipe, shh_opts);
-            let _ = fs::remove_file(&pipe_path);
-
+        let all_pipe_sd_opts = generate_options(&cmd_pipe, &ALL_SHH_RUN_OPTS);
+        let _ = fs::remove_file(&pipe_path);
+        for mut sd_opts in all_pipe_sd_opts {
             sd_opts.push(format!("BindPaths={}", tmp_dir.path().to_str().unwrap()));
             if let Some(inaccessible_path_opt) = sd_opts
                 .iter_mut()
@@ -554,11 +580,9 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
             "255",
             "255",
         ];
-        for shh_opts in &*ALL_SHH_RUN_OPTS {
-            eprintln!("shh run option: {}", shh_opts.join(" "));
-            let mut sd_opts = generate_options(&cmd_dev, shh_opts);
-            let _ = fs::remove_file(&dev_path);
-
+        let all_dev_sd_opts = generate_options(&cmd_dev, &ALL_SHH_RUN_OPTS);
+        let _ = fs::remove_file(&dev_path);
+        for mut sd_opts in all_dev_sd_opts {
             sd_opts.push(format!("BindPaths={}", tmp_dir.path().to_str().unwrap()));
             if let Some(inaccessible_path_opt) = sd_opts
                 .iter_mut()
@@ -594,13 +618,7 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
         let script_path = script.into_temp_path();
         let cmd = [script_path.to_str().unwrap()];
         for user in [false, true] {
-            for shh_opts in &*ALL_SHH_RUN_OPTS {
-                let mut shh_opts = shh_opts.clone();
-                if user {
-                    shh_opts.extend(["-i", "user"]);
-                }
-                eprintln!("shh run option: {}", shh_opts.join(" "));
-                let sd_opts = generate_options(&cmd, &shh_opts);
+            for sd_opts in generate_options(&cmd, &shh_run_opts(user)) {
                 let asrt = systemd_run(&cmd, &sd_opts, user);
                 asrt.stdout(predicate::str::contains("from a script"));
             }
@@ -611,13 +629,7 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
     fn systemd_run_curl() {
         let cmd = ["curl", "-k", "https://example.com"];
         for user in [false, true] {
-            for shh_opts in &*ALL_SHH_RUN_OPTS {
-                let mut shh_opts = shh_opts.clone();
-                if user {
-                    shh_opts.extend(["-i", "user"]);
-                }
-                eprintln!("shh run option: {}", shh_opts.join(" "));
-                let sd_opts = generate_options(&cmd, &shh_opts);
+            for sd_opts in generate_options(&cmd, &shh_run_opts(user)) {
                 let asrt = systemd_run(&cmd, &sd_opts, user);
                 asrt.stdout(predicate::str::contains("<html"));
             }
@@ -628,13 +640,7 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
     fn systemd_run_ping_4() {
         let cmd = ["ping", "-c", "1", "-4", "127.0.0.1"];
         for user in [false, true] {
-            for shh_opts in &*ALL_SHH_RUN_OPTS {
-                let mut shh_opts = shh_opts.clone();
-                if user {
-                    shh_opts.extend(["-i", "user"]);
-                }
-                eprintln!("shh run option: {}", shh_opts.join(" "));
-                let sd_opts = generate_options(&cmd, &shh_opts);
+            for sd_opts in generate_options(&cmd, &shh_run_opts(user)) {
                 let asrt = systemd_run(&cmd, &sd_opts, user);
                 asrt.stdout(predicate::str::contains(
                 "127.0.0.1 ping statistics ---\n1 packets transmitted, 1 received, 0% packet loss",
@@ -647,13 +653,7 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
     fn systemd_run_ping_6() {
         let cmd = ["ping", "-c", "1", "-6", "::1"];
         for user in [false, true] {
-            for shh_opts in &*ALL_SHH_RUN_OPTS {
-                let mut shh_opts = shh_opts.clone();
-                if user {
-                    shh_opts.extend(["-i", "user"]);
-                }
-                eprintln!("shh run option: {}", shh_opts.join(" "));
-                let sd_opts = generate_options(&cmd, &shh_opts);
+            for sd_opts in generate_options(&cmd, &shh_run_opts(user)) {
                 let asrt = systemd_run(&cmd, &sd_opts, user);
                 asrt.stdout(predicate::str::contains(
                     "::1 ping statistics ---\n1 packets transmitted, 1 received, 0% packet loss",
@@ -673,11 +673,10 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
     fn systemd_netns_create() {
         let ns = format!("t{}", rand::random::<u16>());
         let cmd = ["ip", "netns", "add", &ns];
-        for shh_opts in &*ALL_SHH_RUN_OPTS {
-            eprintln!("shh run option: {}", shh_opts.join(" "));
-            let sd_opts = generate_options(&cmd, shh_opts);
-            assert!(fs::exists(format!("/run/netns/{ns}")).unwrap());
-            del_netns(&ns);
+        let all_sd_opts = generate_options(&cmd, &ALL_SHH_RUN_OPTS);
+        assert!(fs::exists(format!("/run/netns/{ns}")).unwrap());
+        del_netns(&ns);
+        for sd_opts in all_sd_opts {
             let _ = systemd_run(&cmd, &sd_opts, false);
             assert!(fs::exists(format!("/run/netns/{ns}")).unwrap());
             del_netns(&ns);
@@ -692,13 +691,7 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
             );
             let cmd = ["python3", "-c", &code];
             for user in [false, true] {
-                for shh_opts in &*ALL_SHH_RUN_OPTS {
-                    let mut shh_opts = shh_opts.clone();
-                    if user {
-                        shh_opts.extend(["-i", "user"]);
-                    }
-                    eprintln!("shh run option: {}", shh_opts.join(" "));
-                    let sd_opts = generate_options(&cmd, &shh_opts);
+                for sd_opts in generate_options(&cmd, &shh_run_opts(user)) {
                     let asrt = systemd_run(&cmd, &sd_opts, user);
                     asrt.stdout(predicate::str::contains(if sig == "KILL" {
                         "-9"
@@ -759,10 +752,8 @@ ptrace(PTRACE_DETACH, target_pid)
         // Remove a pre-existing file, a write to its directory
         let path = format!("/var/lib/shh-test-{}", rand::random::<u16>());
         let cmd = ["rm", &path];
-        for shh_opts in &*ALL_SHH_RUN_OPTS {
-            eprintln!("shh run option: {}", shh_opts.join(" "));
-            fs::write(&path, "").unwrap();
-            let sd_opts = generate_options(&cmd, shh_opts);
+        fs::write(&path, "").unwrap();
+        for sd_opts in generate_options(&cmd, &ALL_SHH_RUN_OPTS) {
             fs::write(&path, "").unwrap();
             let _ = systemd_run(&cmd, &sd_opts, false);
             let _ = fs::remove_file(&path);
@@ -780,7 +771,7 @@ ptrace(PTRACE_DETACH, target_pid)
             "import ctypes, sys; sys.exit(ctypes.CDLL(None).creat(sys.argv[1].encode(), 0o644) < 0)",
             path.to_str().unwrap(),
         ];
-        profile_and_run_creating_path(&cmd, &path);
+        profile_and_run_creating_paths(&cmd, &[&path]);
     }
 
     #[test]
@@ -788,7 +779,7 @@ ptrace(PTRACE_DETACH, target_pid)
         // Create a file with the openat2 syscall, a write to its directory
         let dir = tempfile::tempdir_in("/var/lib").unwrap();
         let path = dir.path().join("file");
-        profile_and_run_creating_path(&path_syscall_cmd("openat2", &path), &path);
+        profile_and_run_creating_paths(&path_syscall_cmd("openat2", &path), &[&path]);
     }
 
     #[test]
@@ -867,7 +858,7 @@ ptrace(PTRACE_DETACH, target_pid)
         let temp_dir = tempfile::tempdir_in("/var/lib").unwrap();
         let path = temp_dir.path().join("link");
         let cmd = ["ln", "-s", "/dev/null", path.to_str().unwrap()];
-        profile_and_run_creating_path(&cmd, &path);
+        profile_and_run_creating_paths(&cmd, &[&path]);
     }
 
     #[test]
@@ -880,7 +871,7 @@ ptrace(PTRACE_DETACH, target_pid)
         unix::fs::symlink(dir.path(), &link).unwrap();
         let path = link.join("fifo");
         let cmd = ["mkfifo", path.to_str().unwrap()];
-        profile_and_run_creating_path(&cmd, &dir.path().join("fifo"));
+        profile_and_run_creating_paths(&cmd, &[dir.path().join("fifo")]);
     }
 
     #[test]
@@ -902,7 +893,7 @@ ptrace(PTRACE_DETACH, target_pid)
             (link_dotdot.join("new"), target_dir.path().join("x/new")),
         ] {
             let cmd = ["ln", "-s", "/dev/null", path.to_str().unwrap()];
-            profile_and_run_creating_path(&cmd, &created);
+            profile_and_run_creating_paths(&cmd, &[&created]);
         }
     }
 
@@ -919,7 +910,7 @@ ptrace(PTRACE_DETACH, target_pid)
         unix::fs::symlink(cache_dir.path(), link_dir.path().join("bridge")).unwrap();
         let path = public.join("new");
         let cmd = ["ln", "-s", "/dev/null", path.to_str().unwrap()];
-        profile_and_run_creating_path(&cmd, &subdir.join("new"));
+        profile_and_run_creating_paths(&cmd, &[subdir.join("new")]);
     }
 
     #[test]
@@ -945,14 +936,12 @@ ptrace(PTRACE_DETACH, target_pid)
             src_alias.to_str().unwrap(),
             dst.to_str().unwrap(),
         ];
-        for shh_opts in &*ALL_SHH_RUN_OPTS {
-            eprintln!("shh run option: {}", shh_opts.join(" "));
-            fs::write(&src, "").unwrap();
-            let sd_opts = generate_options(&cmd, shh_opts);
+        fs::write(&src, "").unwrap();
+        for sd_opts in generate_options(&cmd, &ALL_SHH_RUN_OPTS) {
             fs::rename(&dst, &src).unwrap();
             let _ = systemd_run(&cmd, &sd_opts, false);
-            fs::remove_file(&dst).unwrap();
         }
+        fs::remove_file(&dst).unwrap();
     }
 
     #[test]
@@ -961,7 +950,7 @@ ptrace(PTRACE_DETACH, target_pid)
         let src = tempfile::NamedTempFile::new_in("/tmp").unwrap();
         let dst = src.path().with_extension("dst");
         let cmd = ["ln", src.path().to_str().unwrap(), dst.to_str().unwrap()];
-        profile_and_run_creating_path(&cmd, &dst);
+        profile_and_run_creating_paths(&cmd, &[&dst]);
     }
 
     #[test]
@@ -982,15 +971,7 @@ ptrace(PTRACE_DETACH, target_pid)
             &created,
             renamed.to_str().unwrap(),
         ];
-        for shh_opts in &*ALL_SHH_RUN_OPTS {
-            eprintln!("shh run option: {}", shh_opts.join(" "));
-            let sd_opts = generate_options(&cmd, shh_opts);
-            fs::remove_file(&link).unwrap();
-            fs::remove_file(&renamed).unwrap();
-            let _ = systemd_run(&cmd, &sd_opts, false);
-            fs::remove_file(&link).unwrap();
-            fs::remove_file(&renamed).unwrap();
-        }
+        profile_and_run_creating_paths(&cmd, &[&link, &renamed]);
     }
 
     #[test]
@@ -1006,10 +987,8 @@ ptrace(PTRACE_DETACH, target_pid)
         fs::write(&target, "").unwrap();
         unix::fs::symlink(&target, &dst).unwrap();
         let cmd = ["mv", "-T", src.to_str().unwrap(), dst.to_str().unwrap()];
-        for shh_opts in &*ALL_SHH_RUN_OPTS {
-            eprintln!("shh run option: {}", shh_opts.join(" "));
-            unix::fs::symlink(&target, &src).unwrap();
-            let sd_opts = generate_options(&cmd, shh_opts);
+        unix::fs::symlink(&target, &src).unwrap();
+        for sd_opts in generate_options(&cmd, &ALL_SHH_RUN_OPTS) {
             unix::fs::symlink(&target, &src).unwrap();
             let _ = systemd_run(&cmd, &sd_opts, false);
         }
@@ -1049,13 +1028,8 @@ ptrace(PTRACE_DETACH, target_pid)
             ),
         ] {
             let cmd = ["sh", "-c", &script];
-            for shh_opts in &*ALL_SHH_RUN_OPTS {
-                eprintln!(
-                    "shh run option: {opts} ({script})",
-                    opts = shh_opts.join(" ")
-                );
-                setup();
-                let sd_opts = generate_options(&cmd, shh_opts);
+            setup();
+            for sd_opts in generate_options(&cmd, &ALL_SHH_RUN_OPTS) {
                 setup();
                 let _ = systemd_run(&cmd, &sd_opts, false);
             }
@@ -1107,10 +1081,9 @@ ptrace(PTRACE_DETACH, target_pid)
                 &src,
                 "held",
             ];
-            for shh_opts in &*ALL_SHH_RUN_OPTS {
-                eprintln!("shh run option: {opts} ({kind})", opts = shh_opts.join(" "));
-                let sd_opts = generate_options(&cmd, shh_opts);
-                let _ = fs::remove_file(&src);
+            let all_sd_opts = generate_options(&cmd, &ALL_SHH_RUN_OPTS);
+            let _ = fs::remove_file(&src);
+            for sd_opts in all_sd_opts {
                 let _ = systemd_run(&cmd, &sd_opts, false);
                 let _ = fs::remove_file(&src);
             }
@@ -1148,15 +1121,12 @@ ptrace(PTRACE_DETACH, target_pid)
                 src.to_str().unwrap(),
                 "free",
             ];
-            for shh_opts in &*ALL_SHH_RUN_OPTS {
-                eprintln!(
-                    "shh run option: {opts} ({kind} on {type_})",
-                    opts = shh_opts.join(" ")
-                );
-                create_entry(type_, &path);
-                let sd_opts = generate_options(&cmd, shh_opts);
-                remove_entry(&path);
-                let _ = fs::remove_file(&src);
+            eprintln!("Pre-existing entry: {type_}");
+            create_entry(type_, &path);
+            let all_sd_opts = generate_options(&cmd, &ALL_SHH_RUN_OPTS);
+            remove_entry(&path);
+            let _ = fs::remove_file(&src);
+            for sd_opts in all_sd_opts {
                 let _ = systemd_run(&cmd, &sd_opts, false);
                 // Created by the service
                 remove_entry(&path);
@@ -1213,12 +1183,7 @@ else:
                     path.to_str().unwrap(),
                     src.to_str().unwrap(),
                 ];
-                for shh_opts in &*ALL_SHH_RUN_OPTS {
-                    eprintln!(
-                        "shh run option: {opts} ({kind} in {path:?})",
-                        opts = shh_opts.join(" ")
-                    );
-                    let sd_opts = generate_options(&cmd, shh_opts);
+                for sd_opts in generate_options(&cmd, &ALL_SHH_RUN_OPTS) {
                     let _ = systemd_run(&cmd, &sd_opts, false);
                 }
                 remove_entry(&path);
@@ -1402,6 +1367,12 @@ else:
             .unwrap();
         let written = tempfile::NamedTempFile::new_in("/mnt/tmp").unwrap();
         let read = tempfile::NamedTempFile::new_in("/tmp").unwrap();
+        let shh_opts_sets: Vec<_> = ALL_SHH_RUN_OPTS
+            .iter()
+            // SystemCallArchitectures=native kills 32-bit programs
+            .filter(|shh_opts| !shh_opts.contains(&"aggressive"))
+            .cloned()
+            .collect();
         for (kind, path) in [
             ("chown32", written.path()),
             ("fchown32", written.path()),
@@ -1417,13 +1388,7 @@ else:
             ("statfs64", read.path()),
         ] {
             let cmd = [bin.to_str().unwrap(), kind, path.to_str().unwrap()];
-            for shh_opts in &*ALL_SHH_RUN_OPTS {
-                if shh_opts.contains(&"aggressive") {
-                    // SystemCallArchitectures=native kills 32-bit programs
-                    continue;
-                }
-                eprintln!("shh run option: {}", shh_opts.join(" "));
-                let sd_opts = generate_options(&cmd, shh_opts);
+            for sd_opts in generate_options(&cmd, &shh_opts_sets) {
                 let _ = systemd_run(&cmd, &sd_opts, false);
             }
         }
@@ -1462,9 +1427,7 @@ else:
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port().to_string();
         let cmd = ["python3", "-c", script, &port];
-        for shh_opts in &*ALL_SHH_RUN_OPTS {
-            eprintln!("shh run option: {opts}", opts = shh_opts.join(" "));
-            let sd_opts = generate_options(&cmd, shh_opts);
+        for sd_opts in generate_options(&cmd, &ALL_SHH_RUN_OPTS) {
             let _ = systemd_run(&cmd, &sd_opts, false);
         }
     }
@@ -1475,7 +1438,7 @@ else:
         let src = tempfile::NamedTempFile::new_in("/tmp").unwrap();
         let dst = src.path().with_extension("dst");
         let cmd = ["cp", src.path().to_str().unwrap(), dst.to_str().unwrap()];
-        profile_and_run_creating_path(&cmd, &dst);
+        profile_and_run_creating_paths(&cmd, &[&dst]);
     }
 
     #[test]
@@ -1491,17 +1454,8 @@ else:
             "sh",
         ];
         cmd.extend(dirs.iter().map(|d| d.path().to_str().unwrap()));
-        for shh_opts in &*ALL_SHH_RUN_OPTS {
-            eprintln!("shh run option: {}", shh_opts.join(" "));
-            let sd_opts = generate_options(&cmd, shh_opts);
-            for dir in &dirs {
-                fs::remove_file(dir.path().join("f")).unwrap();
-            }
-            let _ = systemd_run(&cmd, &sd_opts, false);
-            for dir in &dirs {
-                fs::remove_file(dir.path().join("f")).unwrap();
-            }
-        }
+        let files: Vec<_> = dirs.iter().map(|d| d.path().join("f")).collect();
+        profile_and_run_creating_paths(&cmd, &files);
     }
 
     #[test]
@@ -1510,11 +1464,11 @@ else:
         // them than the largest merge threshold of `all_shh_run_opts`, so that merging the writable exceptions
         // would put them onto the read-only directory
         let dir = tempfile::tempdir_in("/tmp").unwrap();
-        let subdirs: Vec<_> = (0..101)
+        let files: Vec<_> = (0..101)
             .map(|i| {
                 let subdir = dir.path().join(i.to_string());
                 fs::create_dir(&subdir).unwrap();
-                subdir
+                subdir.join("f")
             })
             .collect();
         let cmd = [
@@ -1524,16 +1478,6 @@ else:
             "sh",
             dir.path().to_str().unwrap(),
         ];
-        for shh_opts in &*ALL_SHH_RUN_OPTS {
-            eprintln!("shh run option: {}", shh_opts.join(" "));
-            let sd_opts = generate_options(&cmd, shh_opts);
-            for subdir in &subdirs {
-                fs::remove_file(subdir.join("f")).unwrap();
-            }
-            let _ = systemd_run(&cmd, &sd_opts, false);
-            for subdir in &subdirs {
-                fs::remove_file(subdir.join("f")).unwrap();
-            }
-        }
+        profile_and_run_creating_paths(&cmd, &files);
     }
 }
