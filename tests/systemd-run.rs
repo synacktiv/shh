@@ -683,24 +683,29 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
         }
     }
 
-    #[test]
-    fn systemd_kill() {
-        for sig in ["URG", "KILL"] {
-            let code = format!(
-                "import signal, subprocess; p = subprocess.Popen((\"sleep\", \"0.5s\")); p.send_signal(signal.SIG{sig}); p.wait(); print(f\"rc={{p.returncode}}\")",
-            );
-            let cmd = ["python3", "-c", &code];
-            for user in [false, true] {
-                for sd_opts in generate_options(&cmd, &shh_run_opts(user)) {
-                    let asrt = systemd_run(&cmd, &sd_opts, user);
-                    asrt.stdout(predicate::str::contains(if sig == "KILL" {
-                        "-9"
-                    } else {
-                        "0"
-                    }));
-                }
+    /// Profile and run a command sending a signal to its child as a system and user service, checking the child's
+    /// return code
+    fn kill_child(sig: &str, rc: &str) {
+        let code = format!(
+            "import signal, subprocess; p = subprocess.Popen((\"sleep\", \"0.5s\")); p.send_signal(signal.SIG{sig}); p.wait(); print(f\"rc={{p.returncode}}\")",
+        );
+        let cmd = ["python3", "-c", &code];
+        for user in [false, true] {
+            for sd_opts in generate_options(&cmd, &shh_run_opts(user)) {
+                let asrt = systemd_run(&cmd, &sd_opts, user);
+                asrt.stdout(predicate::str::contains(rc));
             }
         }
+    }
+
+    #[test]
+    fn systemd_kill_sigurg() {
+        kill_child("URG", "0");
+    }
+
+    #[test]
+    fn systemd_kill_sigkill() {
+        kill_child("KILL", "-9");
     }
 
     #[test]
@@ -1054,21 +1059,11 @@ ptrace(PTRACE_DETACH, target_pid)
         profile_and_run(&cmd, false);
     }
 
-    #[test]
-    fn systemd_run_create_held() {
+    /// Profile and run commands creating an entry of each kind over a held one of a type, as a system service
+    fn create_held(type_: &str, kinds: &[&str]) {
         // Create an entry held directly in /tmp, which the service must see; link and rename sources are created
         // by the command
-        for (kind, type_) in [
-            ("open", "file"),
-            ("mkdir", "dir"),
-            ("symlink", "symlink"),
-            ("link", "file"),
-            ("rename", "file"),
-            ("mknod", "fifo"),
-            ("mkfifo", "fifo"),
-            ("open-replace", "file"),
-            ("mkdir-p", "dir"),
-        ] {
+        for kind in kinds {
             let path = format!("/tmp/shh-test-{id}", id = rand::random::<u16>());
             let src = format!("{path}.src");
             create_entry(type_, Path::new(&path));
@@ -1092,7 +1087,28 @@ ptrace(PTRACE_DETACH, target_pid)
     }
 
     #[test]
-    fn systemd_run_create_held_then_free() {
+    fn systemd_run_create_held_file() {
+        create_held("file", &["open", "link", "rename", "open-replace"]);
+    }
+
+    #[test]
+    fn systemd_run_create_held_dir() {
+        create_held("dir", &["mkdir", "mkdir-p"]);
+    }
+
+    #[test]
+    fn systemd_run_create_held_symlink() {
+        create_held("symlink", &["symlink"]);
+    }
+
+    #[test]
+    fn systemd_run_create_held_fifo() {
+        create_held("fifo", &["mknod", "mkfifo"]);
+    }
+
+    /// Profile and run commands creating an entry of each kind where one of a type is held during profiling only,
+    /// as a system service
+    fn create_held_then_free(type_: &str, kinds: &[&str]) {
         // Create an entry in /var/lib held during profiling only, a write to its directory; link and rename
         // sources are created by the command in another directory
         let dir = tempfile::tempdir_in("/var/lib").unwrap();
@@ -1102,16 +1118,7 @@ ptrace(PTRACE_DETACH, target_pid)
         fs::create_dir(&dst_dir).unwrap();
         let src = src_dir.join("file");
         let path = dst_dir.join("entry");
-        for (kind, type_) in [
-            ("open", "file"),
-            ("open", "symlink"),
-            ("mkdir", "dir"),
-            ("symlink", "symlink"),
-            ("link", "file"),
-            ("rename", "file"),
-            ("mknod", "fifo"),
-            ("mkfifo", "fifo"),
-        ] {
+        for kind in kinds {
             let cmd = [
                 "python3",
                 "-c",
@@ -1121,7 +1128,6 @@ ptrace(PTRACE_DETACH, target_pid)
                 src.to_str().unwrap(),
                 "free",
             ];
-            eprintln!("Pre-existing entry: {type_}");
             create_entry(type_, &path);
             let all_sd_opts = generate_options(&cmd, &ALL_SHH_RUN_OPTS);
             remove_entry(&path);
@@ -1136,7 +1142,27 @@ ptrace(PTRACE_DETACH, target_pid)
     }
 
     #[test]
-    fn systemd_run_fail_on_held_entry() {
+    fn systemd_run_create_held_then_free_file() {
+        create_held_then_free("file", &["open", "link", "rename"]);
+    }
+
+    #[test]
+    fn systemd_run_create_held_then_free_symlink() {
+        create_held_then_free("symlink", &["open", "symlink"]);
+    }
+
+    #[test]
+    fn systemd_run_create_held_then_free_dir() {
+        create_held_then_free("dir", &["mkdir"]);
+    }
+
+    #[test]
+    fn systemd_run_create_held_then_free_fifo() {
+        create_held_then_free("fifo", &["mknod", "mkfifo"]);
+    }
+
+    /// Profile and run commands failing on an entry held at a path, as a system service
+    fn fail_on_held_entry(path: &Path) {
         // Fail on an entry held during profiling and the run, which the service must see: a non-empty directory to
         // remove or to rename an empty one onto, or a socket path to bind, directly in /tmp or in /var/lib
         // Python script expecting to fail on an existing entry
@@ -1160,38 +1186,45 @@ except OSError as e:
 else:
     sys.exit(1)
 ";
-        let var_lib_dir = tempfile::tempdir_in("/var/lib").unwrap();
-        let tmp_name = tempfile::NamedTempFile::new_in("/tmp").unwrap();
-        let tmp_path = tmp_name.path().with_extension("entry");
-        for path in [tmp_path, var_lib_dir.path().join("entry")] {
-            let src = path.with_extension("src");
-            for kind in ["rmdir", "rename", "bind"] {
-                if kind == "bind" {
-                    UnixListener::bind(&path).unwrap();
-                } else {
-                    create_entry("dir", &path);
-                    create_entry("file", &path.join("file"));
-                }
-                if kind == "rename" {
-                    create_entry("dir", &src);
-                }
-                let cmd = [
-                    "python3",
-                    "-c",
-                    script,
-                    kind,
-                    path.to_str().unwrap(),
-                    src.to_str().unwrap(),
-                ];
-                for sd_opts in generate_options(&cmd, &ALL_SHH_RUN_OPTS) {
-                    let _ = systemd_run(&cmd, &sd_opts, false);
-                }
-                remove_entry(&path);
-                if kind == "rename" {
-                    remove_entry(&src);
-                }
+        let src = path.with_extension("src");
+        for kind in ["rmdir", "rename", "bind"] {
+            if kind == "bind" {
+                UnixListener::bind(path).unwrap();
+            } else {
+                create_entry("dir", path);
+                create_entry("file", &path.join("file"));
+            }
+            if kind == "rename" {
+                create_entry("dir", &src);
+            }
+            let cmd = [
+                "python3",
+                "-c",
+                script,
+                kind,
+                path.to_str().unwrap(),
+                src.to_str().unwrap(),
+            ];
+            for sd_opts in generate_options(&cmd, &ALL_SHH_RUN_OPTS) {
+                let _ = systemd_run(&cmd, &sd_opts, false);
+            }
+            remove_entry(path);
+            if kind == "rename" {
+                remove_entry(&src);
             }
         }
+    }
+
+    #[test]
+    fn systemd_run_fail_on_held_entry_tmp() {
+        let tmp_name = tempfile::NamedTempFile::new_in("/tmp").unwrap();
+        fail_on_held_entry(&tmp_name.path().with_extension("entry"));
+    }
+
+    #[test]
+    fn systemd_run_fail_on_held_entry_var_lib() {
+        let var_lib_dir = tempfile::tempdir_in("/var/lib").unwrap();
+        fail_on_held_entry(&var_lib_dir.path().join("entry"));
     }
 
     #[test]
@@ -1309,35 +1342,14 @@ else:
         }
     }
 
-    #[test]
-    fn systemd_run_read_path() {
+    /// Profile and run commands making a syscall of each kind on the `file` or `link` entry of a directory, as a
+    /// system service
+    fn read_path(cases: &[(&str, &str)]) {
         // Query a file in /var/lib, or a symlink to it, with a single syscall
         let dir = tempfile::tempdir_in("/var/lib").unwrap();
-        let file = dir.path().join("file");
-        let link = dir.path().join("link");
-        create_entry("file", &file);
-        unix::fs::symlink("file", &link).unwrap();
-        for (kind, path) in [
-            ("access", &file),
-            ("faccessat", &file),
-            ("faccessat2", &file),
-            ("fanotify_mark", &file),
-            ("file_getattr", &file),
-            ("getxattr", &file),
-            ("getxattrat", &file),
-            ("inotify_add_watch", &file),
-            ("lgetxattr", &link),
-            ("listxattr", &file),
-            ("listxattrat", &file),
-            ("llistxattr", &link),
-            ("name_to_handle_at", &file),
-            ("name_to_handle_at-size", &file),
-            ("readlink", &link),
-            ("readlink-file", &file),
-            ("readlinkat", &link),
-            ("statfs", &file),
-            ("statx", &file),
-        ] {
+        create_entry("file", &dir.path().join("file"));
+        unix::fs::symlink("file", dir.path().join("link")).unwrap();
+        for &(kind, entry) in cases {
             let supported = match kind {
                 "getxattrat" | "listxattrat" => kernel_version() >= (6, 13),
                 // Decoded by strace from 6.17
@@ -1348,8 +1360,54 @@ else:
                 eprintln!("Kernel or strace without {kind}, skipping");
                 continue;
             }
-            profile_and_run(&path_syscall_cmd(kind, path), false);
+            profile_and_run(&path_syscall_cmd(kind, &dir.path().join(entry)), false);
         }
+    }
+
+    #[test]
+    fn systemd_run_read_path_access() {
+        read_path(&[
+            ("access", "file"),
+            ("faccessat", "file"),
+            ("faccessat2", "file"),
+        ]);
+    }
+
+    #[test]
+    fn systemd_run_read_path_xattr() {
+        read_path(&[
+            ("getxattr", "file"),
+            ("getxattrat", "file"),
+            ("lgetxattr", "link"),
+            ("listxattr", "file"),
+            ("listxattrat", "file"),
+            ("llistxattr", "link"),
+        ]);
+    }
+
+    #[test]
+    fn systemd_run_read_path_readlink() {
+        read_path(&[
+            ("readlink", "link"),
+            ("readlink-file", "file"),
+            ("readlinkat", "link"),
+        ]);
+    }
+
+    #[test]
+    fn systemd_run_read_path_metadata() {
+        read_path(&[
+            ("file_getattr", "file"),
+            ("name_to_handle_at", "file"),
+            ("name_to_handle_at-size", "file"),
+            ("statfs", "file"),
+            ("statx", "file"),
+        ]);
+    }
+
+    #[test]
+    fn systemd_run_read_path_watch() {
+        read_path(&[("fanotify_mark", "file"), ("inotify_add_watch", "file")]);
     }
 
     #[test]
