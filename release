@@ -3,6 +3,21 @@
 set -o pipefail
 
 readonly VERSION="${1:-$(date +%Y.%-m.%-d)}"
+readonly RELEASE_NOTES_FILEPATH="${2:-}"
+
+TAG_MSG="Version ${VERSION}"
+if [ -n "${RELEASE_NOTES_FILEPATH}" ]
+then
+  RELEASE_NOTES="$(<"${RELEASE_NOTES_FILEPATH}")"
+  if [ -z "${RELEASE_NOTES//[[:space:]]/}" ]
+  then
+    echo "Release notes file ${RELEASE_NOTES_FILEPATH@Q} is empty" >&2
+    exit 1
+  fi
+  rumdl check --enable MD033,MD046 "${RELEASE_NOTES_FILEPATH}"
+  TAG_MSG+=$'\n\n'"${RELEASE_NOTES}"
+fi
+readonly TAG_MSG
 
 cd "$(jj root)"
 
@@ -21,7 +36,8 @@ cargo update
 cargo check
 cargo test
 
-git cliff --tag "v${VERSION}" | head -n -3 > CHANGELOG.md
+git cliff --tag "v${VERSION}" --with-tag-message "${TAG_MSG}" | head -n -3 > CHANGELOG.md
 
 jj new
-jj tag set -r @- "v${VERSION}"
+git tag -a --cleanup=verbatim -m "${TAG_MSG}" "v${VERSION}" HEAD
+diff <(git cliff | head -n -3) CHANGELOG.md

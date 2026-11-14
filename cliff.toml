@@ -12,6 +12,10 @@ body = """
 {% else %}\
     ## Unreleased
 {% endif %}\
+{% set release_notes = message | default(value="") | split(pat="\n") | slice(start=1) | join(sep="\n") | trim %}\
+{% if release_notes %}
+{{ release_notes }}
+{% endif %}\
 {% for group, commits in commits | group_by(attribute="group") %}
     ### {{ group | upper_first }}
     {% for commit in commits %}
