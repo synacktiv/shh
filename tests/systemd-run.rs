@@ -845,6 +845,23 @@ ptrace(PTRACE_DETACH, target_pid)
     }
 
     #[test]
+    fn systemd_run_create_in_home() {
+        // Write to /home or /root themselves, which ProtectHome=tmpfs mounts read only
+        for dir in ["/home", "/root"] {
+            let path = format!("{dir}/shh-test-{id}", id = rand::random::<u16>());
+            profile_and_run_creating_paths(&["touch", &path], &[&path]);
+        }
+        profile_and_run(&["touch", "/home"], false);
+        // Read a file in /home, which ProtectHome=read-only shows
+        let home_file = tempfile::NamedTempFile::new_in("/home").unwrap();
+        let cmd = ["cat", home_file.path().to_str().unwrap()];
+        for sd_opts in generate_options(&cmd, &ALL_SHH_RUN_OPTS) {
+            assert!(sd_opts.contains(&"ProtectHome=read-only".to_owned()));
+            let _ = systemd_run(&cmd, &sd_opts, false);
+        }
+    }
+
+    #[test]
     fn systemd_run_tmpfile() {
         // Open an unnamed temporary file, a write to its directory, on the tmpfs of the test environment
         let dir = tempfile::tempdir_in("/mnt/tmp").unwrap();

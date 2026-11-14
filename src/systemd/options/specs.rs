@@ -115,11 +115,11 @@ impl OptionSpec for ProtectHome {
             name: "ProtectHome",
             possible_values: vec![
                 OptionValueDescription {
-                    value: OptionValue::String("tmpfs".to_owned()),
+                    value: OptionValue::String("read-only".to_owned()),
                     desc: OptionEffect::Simple(OptionValueEffect::Multiple(
                         home_paths
                             .iter()
-                            .map(|p| OptionValueEffect::EmptyPath(EmptyPathDescription::base(p)))
+                            .map(|p| OptionValueEffect::DenyWrite(PathDescription::base(p)))
                             .chain(iter::once(OptionValueEffect::DenyAction(
                                 DeniableAction::HostMountNamespace,
                             )))
@@ -127,7 +127,7 @@ impl OptionSpec for ProtectHome {
                     )),
                 },
                 OptionValueDescription {
-                    value: OptionValue::String("read-only".to_owned()),
+                    value: OptionValue::String("tmpfs".to_owned()),
                     desc: OptionEffect::Simple(OptionValueEffect::Multiple(
                         home_paths
                             .iter()

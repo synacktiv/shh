@@ -626,88 +626,54 @@ mod tests {
 
         let (opts, hardening_opts) = test_options_standard(&["ProtectHome"]);
 
-        let actions = vec![];
-        let candidates = resolve(&opts, &actions, &hardening_opts);
-        assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].to_string(), "ProtectHome=true");
-
-        let actions = vec![ProgramAction::Read("/home/user/data".into())];
-        let candidates = resolve(&opts, &actions, &hardening_opts);
-        assert_eq!(candidates.len(), 0);
-
-        let actions = vec![ProgramAction::Write("/home/user/data".into())];
-        let candidates = resolve(&opts, &actions, &hardening_opts);
-        assert_eq!(candidates.len(), 0);
-
-        let actions = vec![ProgramAction::Create("/home/user/data".into())];
-        let candidates = resolve(&opts, &actions, &hardening_opts);
-        assert_eq!(candidates.len(), 0);
-
-        let actions = vec![
-            ProgramAction::Create("/home/user/data".into()),
-            ProgramAction::Read("/home/user/data".into()),
-        ];
-        let candidates = resolve(&opts, &actions, &hardening_opts);
-        assert_eq!(candidates.len(), 0);
-
-        let actions = vec![
-            ProgramAction::Create("/home/user".into()),
-            ProgramAction::Create("/home/user/data".into()),
-            ProgramAction::Read("/home/user/data".into()),
-        ];
-        let candidates = resolve(&opts, &actions, &hardening_opts);
-        assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].to_string(), "ProtectHome=tmpfs");
-
-        let actions = vec![
-            ProgramAction::Create("/home/user".into()),
-            ProgramAction::Create("/home/user/data".into()),
-            ProgramAction::Write("/home/user/data".into()),
-        ];
-        let candidates = resolve(&opts, &actions, &hardening_opts);
-        assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].to_string(), "ProtectHome=tmpfs");
-
-        let actions = vec![ProgramAction::Read("/home/data".into())];
-        let candidates = resolve(&opts, &actions, &hardening_opts);
-        assert_eq!(candidates.len(), 0);
-
-        let actions = vec![ProgramAction::Write("/home/data".into())];
-        let candidates = resolve(&opts, &actions, &hardening_opts);
-        assert_eq!(candidates.len(), 0);
-
-        let actions = vec![ProgramAction::Create("/home/data".into())];
-        let candidates = resolve(&opts, &actions, &hardening_opts);
-        assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].to_string(), "ProtectHome=tmpfs");
-
-        let actions = vec![ProgramAction::Exec("/home/data".into())];
-        let candidates = resolve(&opts, &actions, &hardening_opts);
-        assert_eq!(candidates.len(), 0);
-
-        let actions = vec![
-            ProgramAction::Create("/home/data".into()),
-            ProgramAction::Read("/home/data".into()),
-        ];
-        let candidates = resolve(&opts, &actions, &hardening_opts);
-        assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].to_string(), "ProtectHome=tmpfs");
-
-        let actions = vec![
-            ProgramAction::Create("/home/data".into()),
-            ProgramAction::Write("/home/data".into()),
-        ];
-        let candidates = resolve(&opts, &actions, &hardening_opts);
-        assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].to_string(), "ProtectHome=tmpfs");
-
-        let actions = vec![
-            ProgramAction::Create("/home/data".into()),
-            ProgramAction::Exec("/home/data".into()),
-        ];
-        let candidates = resolve(&opts, &actions, &hardening_opts);
-        assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].to_string(), "ProtectHome=tmpfs");
+        for (actions, expected) in [
+            (vec![], Some("true")),
+            // Home directories stay visible, read only
+            (
+                vec![ProgramAction::Read("/home/user/data".into())],
+                Some("read-only"),
+            ),
+            (
+                vec![ProgramAction::Read("/home/data".into())],
+                Some("read-only"),
+            ),
+            (
+                vec![ProgramAction::Exec("/home/data".into())],
+                Some("read-only"),
+            ),
+            (vec![ProgramAction::Write("/home/user/data".into())], None),
+            (vec![ProgramAction::Write("/home/data".into())], None),
+            (
+                vec![ProgramAction::Read("/run/user/1000/data".into())],
+                Some("read-only"),
+            ),
+            (
+                vec![ProgramAction::Write("/run/user/1000/data".into())],
+                None,
+            ),
+            // The empty tmpfs is read only, its base included
+            (vec![ProgramAction::Write("/home".into())], None),
+            (vec![ProgramAction::Create("/home/data".into())], None),
+            (vec![ProgramAction::Create("/root/data".into())], None),
+            (vec![ProgramAction::Create("/home/user/data".into())], None),
+            // Home directories are mounts apart from the root
+            (
+                vec![
+                    ProgramAction::Read("/home/data".into()),
+                    ProgramAction::RequireSameMount("/home/data".into(), "/var/lib/data".into()),
+                ],
+                None,
+            ),
+        ] {
+            let candidates: Vec<_> = resolve(&opts, &actions, &hardening_opts)
+                .iter()
+                .map(ToString::to_string)
+                .collect();
+            assert_eq!(
+                candidates,
+                expected.map(|v| format!("ProtectHome={v}")).as_slice()
+            );
+        }
     }
 
     #[test]
@@ -774,7 +740,7 @@ mod tests {
             (
                 "ProtectHome",
                 vec![ProgramAction::Read("/var/home/user/f".into())],
-                None,
+                Some("ProtectHome=read-only"),
             ),
             (
                 "ProtectHome",
