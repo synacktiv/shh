@@ -83,6 +83,7 @@ Parsed(Syscall(Syscall(
           )),
         })),
       ],
+      truncated: false,
     ),
     Integer(IntegerExpression(
       value: Literal(20),

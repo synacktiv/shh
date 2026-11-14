@@ -51,6 +51,7 @@ Parsed(Syscall(Syscall(
           metadata: None,
         ))),
       ],
+      truncated: false,
     ),
   ],
   ret_val: Some(IntegerExpression(

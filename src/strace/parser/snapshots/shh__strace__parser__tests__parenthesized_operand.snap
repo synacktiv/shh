@@ -84,6 +84,7 @@ Parsed(Syscall(Syscall(
                           metadata: None,
                         ))),
                       ],
+                      truncated: false,
                     ),
                     "idiag_dport": Integer(IntegerExpression(
                       value: Macro(
@@ -232,6 +233,7 @@ Parsed(Syscall(Syscall(
                   )),
                 })),
               ],
+              truncated: false,
             ),
             "iov_len": Integer(IntegerExpression(
               value: Literal(72),
@@ -239,6 +241,7 @@ Parsed(Syscall(Syscall(
             )),
           })),
         ],
+        truncated: false,
       ),
       "msg_iovlen": Integer(IntegerExpression(
         value: Literal(1),

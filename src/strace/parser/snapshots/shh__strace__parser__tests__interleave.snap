@@ -1,6 +1,5 @@
 ---
 source: src/strace/parser/mod.rs
-assertion_line: 437
 expression: syscalls
 ---
 [
@@ -46,6 +45,7 @@ expression: syscalls
             metadata: None,
           ))),
         ],
+        truncated: false,
       ),
       Integer(IntegerExpression(
         value: NamedSymbol(Unambiguous("NULL")),

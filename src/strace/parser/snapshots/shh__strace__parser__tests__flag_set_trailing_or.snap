@@ -164,6 +164,7 @@ Parsed(Syscall(Syscall(
             metadata: None,
           ))),
         ],
+        truncated: false,
       ),
       "c_cflag": Integer(IntegerExpression(
         value: BinaryOr([

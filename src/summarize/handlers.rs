@@ -644,6 +644,15 @@ impl SyscallHandler for NetworkHandler {
         for sockaddr in self.sockaddr.extract(sc)? {
             handle_sockaddr(sc, fd, sockaddr, actions, state)?;
         }
+        // Messages received past the printed ones come from unknown peers, while none is sent past them
+        if let SockaddrArg::MmsgHdrs(i) = &self.sockaddr
+            && sc.name.starts_with("recv")
+            && let Expression::Collection {
+                truncated: true, ..
+            } = i.extract(sc)?
+        {
+            push_socket_activity(sc, fd, SetSpecifier::All, SetSpecifier::All, actions, state)?;
+        }
         Ok(())
     }
 }
@@ -690,14 +699,6 @@ fn handle_sockaddr(
             actions.push(ProgramAction::Create(path));
         }
     }
-    let fd_val = unpack_expr!(
-        fd,
-        Expression::Integer(IntegerExpression {
-            value: IntegerExpressionValue::Literal(fd_val),
-            ..
-        }) => fd_val
-    );
-
     let ip_addr: SetSpecifier<NetworkAddress> = match addr_struct
         .iter()
         .find_map(|(k, v)| ["sin_addr", "sin6_addr"].contains(&k.as_str()).then_some(v))
@@ -768,6 +769,25 @@ fn handle_sockaddr(
         SetSpecifier::All
     };
 
+    push_socket_activity(sc, fd, local_port, ip_addr, actions, state)
+}
+
+/// Record the network activity of a syscall on a socket
+fn push_socket_activity(
+    sc: &Syscall,
+    fd: &Expression,
+    local_port: SetSpecifier<NetworkPort>,
+    address: SetSpecifier<NetworkAddress>,
+    actions: &mut Vec<ProgramAction>,
+    state: &ProgramState,
+) -> Result<(), HandlerError> {
+    let fd_val = unpack_expr!(
+        fd,
+        Expression::Integer(IntegerExpression {
+            value: IntegerExpressionValue::Literal(fd_val),
+            ..
+        }) => fd_val
+    );
     let fd_raw =
         TryInto::<RawFd>::try_into(*fd_val).map_err(|_| err_value!(*fd_val, i64 => RawFd))?;
 
@@ -777,7 +797,7 @@ fn handle_sockaddr(
             proto: SetSpecifier::One(info.proto.clone()),
             kind: SetSpecifier::One(NetworkActivityKind::from_sc_name(&sc.name)),
             local_port,
-            address: ip_addr,
+            address,
         };
 
         // Dual-stack: emit an IPv4 action if this AF_INET6 socket can serve IPv4
@@ -1241,6 +1261,7 @@ impl SyscallHandler for SetsockoptHandler {
             Expression::Collection {
                 complement: false,
                 values,
+                ..
             } => values
         );
         let val = if let Some(Expression::Integer(IntegerExpression { value, .. })) =
@@ -4299,6 +4320,7 @@ x86_Thread_features_locked:
                 Expression::Collection {
                     complement: false,
                     values: vec![(None, int_literal(optval))],
+                    truncated: false,
                 },
                 int_literal(4),
             ],

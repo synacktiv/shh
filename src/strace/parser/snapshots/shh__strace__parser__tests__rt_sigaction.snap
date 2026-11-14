@@ -1,6 +1,5 @@
 ---
 source: src/strace/parser/mod.rs
-assertion_line: 245
 expression: "parse_line(\"720313      0.000064 rt_sigaction(SIGTERM, {sa_handler=SIG_DFL, sa_mask=~[RTMIN RT_1], sa_flags=SA_RESTORER, sa_restorer=0x7f6da716c510}, NULL, 8) = 0\",\n&HashSet::from([\"rt_sigaction\"]),).unwrap()"
 ---
 Parsed(Syscall(Syscall(
@@ -33,6 +32,7 @@ Parsed(Syscall(Syscall(
             metadata: None,
           ))),
         ],
+        truncated: false,
       ),
       "sa_restorer": Integer(IntegerExpression(
         value: Literal(140108931450128),

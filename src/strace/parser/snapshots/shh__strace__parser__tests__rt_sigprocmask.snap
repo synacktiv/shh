@@ -1,6 +1,5 @@
 ---
 source: src/strace/parser/mod.rs
-assertion_line: 257
 expression: "parse_line(\"440663      0.002174 rt_sigprocmask(SIG_SETMASK, [], ~[KILL STOP RTMIN RT_1], 8) = 0\",\n&HashSet::from([\"rt_sigprocmask\"]),).unwrap()"
 ---
 Parsed(Syscall(Syscall(
@@ -15,6 +14,7 @@ Parsed(Syscall(Syscall(
     Collection(
       complement: false,
       values: [],
+      truncated: false,
     ),
     Collection(
       complement: true,
@@ -36,6 +36,7 @@ Parsed(Syscall(Syscall(
           metadata: None,
         ))),
       ],
+      truncated: false,
     ),
     Integer(IntegerExpression(
       value: Literal(8),

@@ -23,6 +23,7 @@ Parsed(Syscall(Syscall(
           type_: Unknown,
         ))),
       ],
+      truncated: false,
     ),
     Collection(
       complement: false,
@@ -34,6 +35,7 @@ Parsed(Syscall(Syscall(
           type_: Unknown,
         ))),
       ],
+      truncated: false,
     ),
   ],
   ret_val: Some(IntegerExpression(

@@ -401,16 +401,20 @@ fn parse_expression_set(i: &str) -> IResult<&str, Expression> {
             opt(char('~')),
             delimited(
                 char('['),
-                separated_list0(char(' '), parse_int),
-                (opt(tag(" ...")), char(']')),
+                pair(
+                    separated_list0(char(' '), parse_int),
+                    map(opt(tag(" ...")), |t| t.is_some()),
+                ),
+                char(']'),
             ),
         ),
-        |(neg, values)| Expression::Collection {
+        |(neg, (values, truncated))| Expression::Collection {
             complement: neg.is_some(),
             values: values
                 .into_iter()
                 .map(|ie| (None, Expression::Integer(ie)))
                 .collect(),
+            truncated,
         },
     )
     .parse(i)
@@ -423,21 +427,25 @@ fn parse_expression_array(i: &str) -> IResult<&str, Expression> {
     map(
         delimited(
             char('['),
-            separated_list0(
-                tag(", "),
-                (
-                    opt(terminated(
-                        delimited(char('['), terminated(parse_int, parse_comment), char(']')),
-                        char('='),
-                    )),
-                    parse_expression,
+            pair(
+                separated_list0(
+                    tag(", "),
+                    (
+                        opt(terminated(
+                            delimited(char('['), terminated(parse_int, parse_comment), char(']')),
+                            char('='),
+                        )),
+                        parse_expression,
+                    ),
                 ),
+                map(opt(tag(", ...")), |t| t.is_some()),
             ),
             char(']'),
         ),
-        |values| Expression::Collection {
+        |(values, truncated)| Expression::Collection {
             complement: false,
             values,
+            truncated,
         },
     )
     .parse(i)
@@ -959,10 +967,36 @@ mod tests {
                                 metadata: None
                             })
                         )
-                    ]
+                    ],
+                    truncated: false,
                 }
             )
         );
+    }
+
+    #[test]
+    fn parse_expression_collection_truncated() {
+        let expected = Expression::Collection {
+            complement: false,
+            values: [0, 1]
+                .map(|i| {
+                    (
+                        None,
+                        Expression::Integer(IntegerExpression {
+                            value: IntegerExpressionValue::Literal(i),
+                            metadata: None,
+                        }),
+                    )
+                })
+                .into(),
+            truncated: true,
+        };
+        for parsed in [
+            parse_expression_array("[0, 1, ...]"),
+            parse_expression_set("[0 1 ...]"),
+        ] {
+            assert_eq!(parsed.unwrap(), ("", expected.clone()));
+        }
     }
 
     #[test]

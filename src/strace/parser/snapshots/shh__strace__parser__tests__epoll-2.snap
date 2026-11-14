@@ -1,6 +1,5 @@
 ---
 source: src/strace/parser/mod.rs
-assertion_line: 408
 expression: "parse_line(\"3487       0.000130 epoll_pwait(4<\\\\x61\\\\x6e\\\\x6f\\\\x6e\\\\x5f\\\\x69\\\\x6e\\\\x6f\\\\x64\\\\x65\\\\x3a\\\\x5b\\\\x65\\\\x76\\\\x65\\\\x6e\\\\x74\\\\x70\\\\x6f\\\\x6c\\\\x6c\\\\x5d>, [{events=EPOLLOUT, data={u32=833093633, u64=9163493471957811201}}, {events=EPOLLOUT, data={u32=800587777, u64=9163493471925305345}}], 128, 0, NULL, 0) = 2\",\n&HashSet::from([\"epoll_pwait\"]),).unwrap()"
 ---
 Parsed(Syscall(Syscall(
@@ -71,6 +70,7 @@ Parsed(Syscall(Syscall(
           )),
         })),
       ],
+      truncated: false,
     ),
     Integer(IntegerExpression(
       value: Literal(128),

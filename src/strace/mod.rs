@@ -132,6 +132,8 @@ pub(crate) enum Expression {
         complement: bool,
         // First element of tuple is index if explicitly set
         values: Vec<(Option<IntegerExpression>, Expression)>,
+        // Elements past the printed ones were left out
+        truncated: bool,
     },
     // Only used for strace pseudo macro invocations, see `test_macro_addr_arg` for an example
     DestinationAddress(String),

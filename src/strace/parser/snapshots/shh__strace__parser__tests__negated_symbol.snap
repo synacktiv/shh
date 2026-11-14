@@ -117,11 +117,14 @@ Parsed(Syscall(Syscall(
                     type_: Unknown,
                   ))),
                 ],
+                truncated: false,
               )),
             ],
+            truncated: false,
           ),
         })),
       ],
+      truncated: false,
     ),
     Integer(IntegerExpression(
       value: Literal(16384),
@@ -153,6 +156,7 @@ Parsed(Syscall(Syscall(
           metadata: None,
         ))),
       ],
+      truncated: false,
     ),
   ],
   ret_val: Some(IntegerExpression(

@@ -1109,7 +1109,7 @@ mod tests {
     }
 
     /// Build an `mmsghdr` array expression with a message per socket address
-    fn mmsghdrs(names: Vec<Expression>) -> Expression {
+    fn mmsghdrs(names: Vec<Expression>, truncated: bool) -> Expression {
         Expression::Collection {
             complement: false,
             values: names
@@ -1121,6 +1121,7 @@ mod tests {
                     )
                 })
                 .collect(),
+            truncated,
         }
     }
 
@@ -1177,7 +1178,7 @@ mod tests {
                 "sendmmsg",
                 vec![
                     int_literal(3),
-                    mmsghdrs(vec![sockaddr(&sock_link)]),
+                    mmsghdrs(vec![sockaddr(&sock_link)], false),
                     int_literal(1),
                     int_literal(0),
                 ],
@@ -1247,7 +1248,7 @@ mod tests {
                 "recvmmsg",
                 vec![
                     int_literal(3),
-                    mmsghdrs(vec![sockaddr(&sock_link)]),
+                    mmsghdrs(vec![sockaddr(&sock_link)], false),
                     int_literal(1),
                     int_literal(0),
                     named_symbol("NULL"),
@@ -1881,6 +1882,7 @@ mod tests {
                 Expression::Collection {
                     complement: false,
                     values: vec![(None, int_literal(0))],
+                    truncated: false,
                 },
             ),
             ioctl(
@@ -1896,6 +1898,7 @@ mod tests {
                 Expression::Collection {
                     complement: false,
                     values: vec![(None, int_literal(0))],
+                    truncated: false,
                 },
             ),
             ioctl("FS_IOC32_SETVERSION", buf_expr(b"\x00\x00\x00\x00")),
@@ -3277,6 +3280,7 @@ mod tests {
                         Expression::Collection {
                             complement: false,
                             values: vec![(None, int_literal(42))],
+                            truncated: false,
                         },
                         flags_with(&["AT_HANDLE_FID"], "AT_SYMLINK_FOLLOW", follow),
                     ],
@@ -3568,25 +3572,26 @@ mod tests {
                 .into(),
             )
         };
+        let peer = |addr: &str| SetSpecifier::One(addr.parse::<IpAddr>().unwrap().into());
         for (name, msgs, ret, peers) in [
             (
                 "sendmsg",
                 msghdr(sockaddr("127.0.0.1")),
                 1,
-                vec!["127.0.0.1"],
+                vec![peer("127.0.0.1")],
             ),
             (
                 "recvmsg",
                 msghdr(sockaddr("127.0.0.2")),
                 1,
-                vec!["127.0.0.2"],
+                vec![peer("127.0.0.2")],
             ),
             // A zero-length datagram
             (
                 "recvmsg",
                 msghdr(sockaddr("127.0.0.2")),
                 0,
-                vec!["127.0.0.2"],
+                vec![peer("127.0.0.2")],
             ),
             // On a connected socket
             ("sendmsg", msghdr(named_symbol("NULL")), 1, vec![]),
@@ -3594,28 +3599,42 @@ mod tests {
             ("recvmsg", msghdr(int_literal(0x7ffc_19ef_9970)), 1, vec![]),
             (
                 "sendmmsg",
-                mmsghdrs(vec![sockaddr("127.0.0.1"), sockaddr("127.0.0.2")]),
+                mmsghdrs(vec![sockaddr("127.0.0.1"), sockaddr("127.0.0.2")], false),
                 2,
-                vec!["127.0.0.1", "127.0.0.2"],
+                vec![peer("127.0.0.1"), peer("127.0.0.2")],
             ),
             // The first message to the connected peer
             (
                 "sendmmsg",
-                mmsghdrs(vec![named_symbol("NULL"), sockaddr("127.0.0.2")]),
+                mmsghdrs(vec![named_symbol("NULL"), sockaddr("127.0.0.2")], false),
                 2,
-                vec!["127.0.0.2"],
+                vec![peer("127.0.0.2")],
             ),
             (
                 "recvmmsg",
-                mmsghdrs(vec![sockaddr("127.0.0.1"), sockaddr("127.0.0.2")]),
+                mmsghdrs(vec![sockaddr("127.0.0.1"), sockaddr("127.0.0.2")], false),
                 2,
-                vec!["127.0.0.1", "127.0.0.2"],
+                vec![peer("127.0.0.1"), peer("127.0.0.2")],
             ),
             (
                 "recvmmsg_time64",
-                mmsghdrs(vec![sockaddr("127.0.0.1")]),
+                mmsghdrs(vec![sockaddr("127.0.0.1")], false),
                 1,
-                vec!["127.0.0.1"],
+                vec![peer("127.0.0.1")],
+            ),
+            // The kernel sends no message past the printed ones
+            (
+                "sendmmsg",
+                mmsghdrs(vec![sockaddr("127.0.0.1")], true),
+                1024,
+                vec![peer("127.0.0.1")],
+            ),
+            // The messages past the printed ones come from unknown peers
+            (
+                "recvmmsg",
+                mmsghdrs(vec![sockaddr("127.0.0.1")], true),
+                1025,
+                vec![peer("127.0.0.1"), SetSpecifier::All],
             ),
             // Empty batches
             ("sendmmsg", named_symbol("NULL"), 0, vec![]),
@@ -3638,12 +3657,11 @@ mod tests {
                 NetworkActivityKind::SocketCreation,
                 SetSpecifier::All,
             )];
-            expected.extend(peers.into_iter().map(|peer| {
-                activity(
-                    NetworkActivityKind::SendRecv,
-                    SetSpecifier::One(peer.parse::<IpAddr>().unwrap().into()),
-                )
-            }));
+            expected.extend(
+                peers
+                    .into_iter()
+                    .map(|address| activity(NetworkActivityKind::SendRecv, address)),
+            );
             expected.push(ProgramAction::Syscalls(
                 ["socket".into(), name.into()].into(),
             ));

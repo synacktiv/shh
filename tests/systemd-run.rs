@@ -126,7 +126,7 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
     /// C program attaching a shared memory segment with execute permission
     const SHMAT_EXEC_SRC: &str = include_str!("shmat_exec.c");
 
-    /// C program sending or receiving a UDP datagram through `sendmmsg` or `recvmmsg`
+    /// C program sending or receiving UDP datagrams through `sendmmsg` or `recvmmsg`
     const MMSG_UDP_SRC: &str = include_str!("mmsg_udp.c");
 
     /// Path of the tested `shh` binary
@@ -293,6 +293,62 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
             }
         });
         (port, stop)
+    }
+
+    /// Send 1024 UDP datagrams from 127.0.0.2 then one from 127.0.0.3 to a free port of 127.0.0.1, each time
+    /// 127.0.0.4 receives a datagram on that port
+    #[expect(clippy::infinite_loop)]
+    fn send_udp_batches_to_free_port() -> u16 {
+        let port = UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let ready = UdpSocket::bind(("127.0.0.4", port)).unwrap();
+        let [first, last] =
+            ["127.0.0.2", "127.0.0.3"].map(|addr| UdpSocket::bind((addr, 0)).unwrap());
+        thread::spawn(move || {
+            loop {
+                ready.recv(&mut [0]).unwrap();
+                for i in 1..=1024 {
+                    first.send_to(b"x", ("127.0.0.1", port)).unwrap();
+                    // Keeps the receive queue below half its default size
+                    while i % 10 == 0 && udp_rx_queue(port) > 100_000 {
+                        thread::sleep(Duration::from_millis(1));
+                    }
+                }
+                last.send_to(b"x", ("127.0.0.1", port)).unwrap();
+            }
+        });
+        port
+    }
+
+    /// Size of the receive queue of the UDP socket bound to a port of 127.0.0.1, in bytes
+    fn udp_rx_queue(port: u16) -> usize {
+        let local_address = format!("0100007F:{port:04X}");
+        let sockets = fs::read_to_string("/proc/net/udp").unwrap();
+        let socket = sockets
+            .lines()
+            .find(|line| line.split_whitespace().nth(1) == Some(local_address.as_str()))
+            .unwrap();
+        let (_, rx_queue) = socket
+            .split_whitespace()
+            .nth(4)
+            .unwrap()
+            .split_once(':')
+            .unwrap();
+        usize::from_str_radix(rx_queue, 16).unwrap()
+    }
+
+    /// Compile a C program from its source
+    fn compile_c(src: &str, gcc_args: &[&str], output: &Path) {
+        Command::new("gcc")
+            .args(gcc_args)
+            .args(["-x", "c", "-o"])
+            .arg(output)
+            .arg("-")
+            .write_stdin(src)
+            .unwrap();
     }
 
     /// Create an entry of a type: `file`, `dir`, `fifo`, or `symlink` to `/dev/null`
@@ -585,15 +641,8 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
         let bin_dir = tempfile::tempdir_in("/var/lib").unwrap();
         let bin = bin_dir.path().join("mmsg_udp");
         let bin_32bit = bin_dir.path().join("mmsg_udp_32bit");
-        for (output, gcc_args) in [(&bin, &[][..]), (&bin_32bit, &["-m32"][..])] {
-            Command::new("gcc")
-                .args(gcc_args)
-                .args(["-x", "c", "-o"])
-                .arg(output)
-                .arg("-")
-                .write_stdin(MMSG_UDP_SRC)
-                .unwrap();
-        }
+        compile_c(MMSG_UDP_SRC, &[], &bin);
+        compile_c(MMSG_UDP_SRC, &["-m32"], &bin_32bit);
         let shh_opts_sets_32bit: Vec<_> = ALL_SHH_RUN_OPTS
             .iter()
             // SystemCallArchitectures=native kills 32-bit programs
@@ -607,10 +656,23 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
             (&bin, "recvmmsg", &recv_port, ALL_SHH_RUN_OPTS.as_slice()),
             (&bin_32bit, "recvmmsg", &recv_port, &shh_opts_sets_32bit),
         ] {
-            let cmd = [program.to_str().unwrap(), kind, port];
+            let cmd = [program.to_str().unwrap(), kind, port, "1"];
             for sd_opts in generate_options(&cmd, shh_opts_sets) {
                 let _ = systemd_run(&cmd, &sd_opts, false);
             }
+        }
+    }
+
+    #[test]
+    fn systemd_run_mmsg_udp_truncated() {
+        // Pass sendmmsg and recvmmsg more messages than strace prints of an mmsghdr array, the last one received
+        // from an address no printed message names
+        let bin_dir = tempfile::tempdir_in("/var/lib").unwrap();
+        let bin = bin_dir.path().join("mmsg_udp");
+        compile_c(MMSG_UDP_SRC, &[], &bin);
+        let recv_port = send_udp_batches_to_free_port().to_string();
+        for (kind, port) in [("sendmmsg", "9"), ("recvmmsg", recv_port.as_str())] {
+            profile_and_run(&[bin.to_str().unwrap(), kind, port, "1025"], false);
         }
     }
 
@@ -1540,12 +1602,7 @@ else:
         // inode number fitting in the 16 bits of oldstat
         let bin_dir = tempfile::tempdir_in("/var/lib").unwrap();
         let bin = bin_dir.path().join("syscall_32bit");
-        Command::new("gcc")
-            .args(["-m32", "-x", "c", "-o"])
-            .arg(&bin)
-            .arg("-")
-            .write_stdin(SYSCALL_32BIT_SRC)
-            .unwrap();
+        compile_c(SYSCALL_32BIT_SRC, &["-m32"], &bin);
         let written = tempfile::NamedTempFile::new_in("/mnt/tmp").unwrap();
         let read = tempfile::NamedTempFile::new_in("/tmp").unwrap();
         let shh_opts_sets: Vec<_> = ALL_SHH_RUN_OPTS
@@ -1688,12 +1745,7 @@ if libc.timer_create(clock, None, ctypes.byref(ctypes.c_void_p())) != 0:
         // A C program, since Python's ctypes maps writable and executable memory on import
         let bin_dir = tempfile::tempdir_in("/var/lib").unwrap();
         let bin = bin_dir.path().join("shmat_exec");
-        Command::new("gcc")
-            .args(["-x", "c", "-o"])
-            .arg(&bin)
-            .arg("-")
-            .write_stdin(SHMAT_EXEC_SRC)
-            .unwrap();
+        compile_c(SHMAT_EXEC_SRC, &[], &bin);
         profile_and_run(&[bin.to_str().unwrap()], false);
     }
 }
