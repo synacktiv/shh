@@ -66,7 +66,7 @@ mod tests {
                 service_log(service_name);
                 panic!("Timed out waiting for {service_name} to become active");
             }
-            thread::sleep(Duration::from_millis(500));
+            thread::sleep(Duration::from_millis(50));
         }
     }
 
