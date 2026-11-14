@@ -1282,12 +1282,12 @@ impl SyscallHandler for IoctlHandler {
     }
 }
 
-/// Handle `timer_create` syscall
-pub(crate) struct TimerCreateHandler {
+/// Handle timer creation and sleep syscalls
+pub(crate) struct TimerHandler {
     pub clockid: usize,
 }
 
-impl SyscallHandler for TimerCreateHandler {
+impl SyscallHandler for TimerHandler {
     fn handle(
         &self,
         sc: &Syscall,
@@ -1295,15 +1295,15 @@ impl SyscallHandler for TimerCreateHandler {
         _state: &mut ProgramState,
     ) -> Result<(), HandlerError> {
         const PRIVILEGED_CLOCK_NAMES: [&str; 2] = ["CLOCK_REALTIME_ALARM", "CLOCK_BOOTTIME_ALARM"];
-        let clockid = self.clockid.extract(sc)?;
-        let clock_name = unpack_expr!(
-            clockid,
-            Expression::Integer(IntegerExpression {
-                value: IntegerExpressionValue::NamedSymbol(NamedSymbol::Unambiguous(clock_name)),
-                ..
-            }) => clock_name
+        // Dynamic clocks, like CPU clocks, are integer literals
+        let clockid = unpack_expr!(
+            self.clockid.extract(sc)?,
+            Expression::Integer(IntegerExpression { value, .. }) => value
         );
-        if PRIVILEGED_CLOCK_NAMES.contains(&clock_name.as_str()) {
+        if PRIVILEGED_CLOCK_NAMES
+            .iter()
+            .any(|name| clockid.is_flag_set(name))
+        {
             actions.push(ProgramAction::SetAlarm);
         }
         Ok(())
@@ -3928,67 +3928,28 @@ x86_Thread_features_locked:
     }
 
     #[test]
-    fn timer_create_handler_monotonic() {
-        let handler = TimerCreateHandler { clockid: 0 };
-        let sc = make_syscall(
-            "timer_create",
-            vec![named_symbol("CLOCK_MONOTONIC"), int_literal(0)],
-            0,
-        );
-        let mut actions = vec![];
-        let mut state = program_state();
-
-        let result = handler.handle(&sc, &mut actions, &mut state);
-        assert!(result.is_ok());
-        assert!(actions.is_empty());
-    }
-
-    #[test]
-    fn timer_create_handler_realtime() {
-        let handler = TimerCreateHandler { clockid: 0 };
-        let sc = make_syscall(
-            "timer_create",
-            vec![named_symbol("CLOCK_REALTIME"), int_literal(0)],
-            0,
-        );
-        let mut actions = vec![];
-        let mut state = program_state();
-
-        let result = handler.handle(&sc, &mut actions, &mut state);
-        assert!(result.is_ok());
-        assert!(actions.is_empty());
-    }
-
-    #[test]
-    fn timer_create_handler_realtime_alarm() {
-        let handler = TimerCreateHandler { clockid: 0 };
-        let sc = make_syscall(
-            "timer_create",
-            vec![named_symbol("CLOCK_REALTIME_ALARM"), int_literal(0)],
-            0,
-        );
-        let mut actions = vec![];
-        let mut state = program_state();
-
-        let result = handler.handle(&sc, &mut actions, &mut state);
-        assert!(result.is_ok());
-        assert_eq!(actions, vec![ProgramAction::SetAlarm]);
-    }
-
-    #[test]
-    fn timer_create_handler_boottime_alarm() {
-        let handler = TimerCreateHandler { clockid: 0 };
-        let sc = make_syscall(
-            "timer_create",
-            vec![named_symbol("CLOCK_BOOTTIME_ALARM"), int_literal(0)],
-            0,
-        );
-        let mut actions = vec![];
-        let mut state = program_state();
-
-        let result = handler.handle(&sc, &mut actions, &mut state);
-        assert!(result.is_ok());
-        assert_eq!(actions, vec![ProgramAction::SetAlarm]);
+    fn timer_handler_clocks() {
+        for (clock, expected) in [
+            (named_symbol("CLOCK_MONOTONIC"), vec![]),
+            (named_symbol("CLOCK_REALTIME"), vec![]),
+            (
+                named_symbol("CLOCK_REALTIME_ALARM"),
+                vec![ProgramAction::SetAlarm],
+            ),
+            (
+                named_symbol("CLOCK_BOOTTIME_ALARM"),
+                vec![ProgramAction::SetAlarm],
+            ),
+            // MAKE_THREAD_CPUCLOCK(3264, CPUCLOCK_SCHED)
+            (int_literal(-26114), vec![]),
+        ] {
+            let sc = make_syscall("timer_create", vec![clock, int_literal(0)], 0);
+            let mut actions = vec![];
+            TimerHandler { clockid: 0 }
+                .handle(&sc, &mut actions, &mut program_state())
+                .unwrap();
+            assert_eq!(actions, expected);
+        }
     }
 
     #[test]

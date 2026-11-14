@@ -24,8 +24,7 @@ use handlers::{
     FdWriteHandler, FollowSymlink, ForkHandler, IoctlHandler, KillHandler, LinkHandler,
     MemfdCreateHandler, MknodHandler, MmapHandler, MountHandler, NetworkHandler, OpenHandler,
     PathHandler, RemoveHandler, RenameHandler, SetSchedulerHandler, SetsockoptHandler,
-    ShmCtlHandler, SocketHandler, StatFdHandler, SyscallHandler, TimerCreateHandler,
-    UnshareHandler,
+    ShmCtlHandler, SocketHandler, StatFdHandler, SyscallHandler, TimerHandler, UnshareHandler,
 };
 pub(crate) use handlers::{PathWalk, traverse_path_within};
 
@@ -309,6 +308,7 @@ static SYSCALL_MAP: phf::Map<&'static str, &'static dyn SyscallHandler> = phf::p
         follow: FollowSymlink::Always,
         action: ProgramAction::Write,
     },
+    "clock_nanosleep" | "clock_nanosleep_time64" => &TimerHandler { clockid: 0 },
     // Note: strace decodes clone's arguments as a struct, like clone3
     "clone" => &Clone3Handler { args: 0 },
     "clone3" => &Clone3Handler { args: 0 },
@@ -712,7 +712,7 @@ static SYSCALL_MAP: phf::Map<&'static str, &'static dyn SyscallHandler> = phf::p
         follow: FollowSymlink::Never,
         action: ProgramAction::Create,
     },
-    "timer_create" => &TimerCreateHandler { clockid: 0 },
+    "timer_create" | "timerfd_create" => &TimerHandler { clockid: 0 },
     "truncate" | "truncate64" => &PathHandler {
         relfd: None,
         path: 0,
@@ -3424,6 +3424,29 @@ mod tests {
                     0,
                 )),
                 expected
+            );
+        }
+    }
+
+    #[test]
+    fn alarm_clock_timers_set_alarm() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        for name in [
+            "clock_nanosleep",
+            "clock_nanosleep_time64",
+            "timerfd_create",
+        ] {
+            assert_eq!(
+                summarize_syscall(make_syscall(
+                    name,
+                    vec![named_symbol("CLOCK_REALTIME_ALARM"), int_literal(0)],
+                    0,
+                )),
+                vec![
+                    ProgramAction::SetAlarm,
+                    ProgramAction::Syscalls([name.into()].into()),
+                ]
             );
         }
     }

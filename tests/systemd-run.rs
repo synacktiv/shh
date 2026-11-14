@@ -1555,4 +1555,25 @@ else:
         ];
         profile_and_run_creating_paths(&cmd, &files);
     }
+
+    #[test]
+    fn systemd_run_timerfd_alarm() {
+        // Create a timerfd on clock 8, CLOCK_REALTIME_ALARM, which Python's time module lacks; a user service
+        // lacks the capability it needs
+        profile_and_run(&["python3", "-c", "import os; os.timerfd_create(8)"], false);
+    }
+
+    #[test]
+    fn systemd_run_timer_cpu_clock() {
+        // Create a timer on the CPU clock of the thread, a dynamic clock
+        let script = "
+import ctypes, threading, time
+
+libc = ctypes.CDLL(None, use_errno=True)
+clock = time.pthread_getcpuclockid(threading.get_ident())
+if libc.timer_create(clock, None, ctypes.byref(ctypes.c_void_p())) != 0:
+    raise OSError(ctypes.get_errno(), 'timer_create')
+";
+        profile_and_run(&["python3", "-c", script], false);
+    }
 }
