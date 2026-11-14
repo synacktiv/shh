@@ -1025,6 +1025,31 @@ impl SyscallHandler for SetSchedulerHandler {
     }
 }
 
+/// Handle `shmat` syscall
+pub(crate) struct ShmAtHandler {
+    pub flags: usize,
+}
+
+impl SyscallHandler for ShmAtHandler {
+    fn handle(
+        &self,
+        sc: &Syscall,
+        actions: &mut Vec<ProgramAction>,
+        _state: &mut ProgramState,
+    ) -> Result<(), HandlerError> {
+        let flags = self.flags.extract(sc)?;
+
+        let flags = unpack_expr!(
+            flags,
+            Expression::Integer(IntegerExpression { value: flags, .. }) => flags
+        );
+        if flags.is_flag_set("SHM_EXEC") {
+            actions.push(ProgramAction::WriteExecuteMemoryMapping);
+        }
+        Ok(())
+    }
+}
+
 /// Handle `shmctl` syscall
 pub(crate) struct ShmCtlHandler {
     pub op: usize,

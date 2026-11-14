@@ -24,7 +24,8 @@ use handlers::{
     FdWriteHandler, FollowSymlink, ForkHandler, IoctlHandler, KillHandler, LinkHandler,
     MemfdCreateHandler, MknodHandler, MmapHandler, MountHandler, NetworkHandler, OpenHandler,
     PathHandler, RemoveHandler, RenameHandler, SetSchedulerHandler, SetsockoptHandler,
-    ShmCtlHandler, SocketHandler, StatFdHandler, SyscallHandler, TimerHandler, UnshareHandler,
+    ShmAtHandler, ShmCtlHandler, SocketHandler, StatFdHandler, SyscallHandler, TimerHandler,
+    UnshareHandler,
 };
 pub(crate) use handlers::{PathWalk, traverse_path_within};
 
@@ -66,8 +67,7 @@ pub(crate) enum ProgramAction {
     Wakeup,
     /// Modify a path on its filesystem (content, metadata...)
     Write(PathBuf),
-    /// Memory mapping with write and execute bits, or execute bit added
-    /// after initial mapping
+    /// Executable mapping of writable memory, or execute permission set on an existing mapping
     WriteExecuteMemoryMapping,
 }
 
@@ -677,6 +677,7 @@ static SYSCALL_MAP: phf::Map<&'static str, &'static dyn SyscallHandler> = phf::p
         },
         action: ProgramAction::Write,
     },
+    "shmat" => &ShmAtHandler { flags: 2 },
     "shmctl" => &ShmCtlHandler { op: 1 },
     "socket" => &SocketHandler { af: 0, flags: 1 },
     "stat" | "stat64" | "oldstat" => &PathHandler {
@@ -3447,6 +3448,34 @@ mod tests {
                     ProgramAction::SetAlarm,
                     ProgramAction::Syscalls([name.into()].into()),
                 ]
+            );
+        }
+    }
+
+    #[test]
+    fn shmat_exec() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        for (flags, mut expected) in [
+            (int_literal(0), vec![]),
+            (named_symbol("SHM_RDONLY"), vec![]),
+            (
+                named_symbol("SHM_EXEC"),
+                vec![ProgramAction::WriteExecuteMemoryMapping],
+            ),
+            (
+                binary_or_flags(&["SHM_RDONLY", "SHM_EXEC"]),
+                vec![ProgramAction::WriteExecuteMemoryMapping],
+            ),
+        ] {
+            expected.push(ProgramAction::Syscalls(["shmat".into()].into()));
+            assert_eq!(
+                summarize_syscall(make_syscall(
+                    "shmat",
+                    vec![int_literal(3), named_symbol("NULL"), flags],
+                    0x7f00_0000_0000,
+                )),
+                expected
             );
         }
     }

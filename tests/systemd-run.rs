@@ -123,6 +123,9 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
     /// C program making a syscall of a given kind on a path through the 32-bit x86 ABI
     const SYSCALL_32BIT_SRC: &str = include_str!("syscall_32bit.c");
 
+    /// C program attaching a shared memory segment with execute permission
+    const SHMAT_EXEC_SRC: &str = include_str!("shmat_exec.c");
+
     /// Path of the tested `shh` binary
     fn shh_bin() -> String {
         env::var("CARGO_BIN_EXE_shh").unwrap_or_else(|_| env!("CARGO_BIN_EXE_shh").to_owned())
@@ -1575,5 +1578,19 @@ if libc.timer_create(clock, None, ctypes.byref(ctypes.c_void_p())) != 0:
     raise OSError(ctypes.get_errno(), 'timer_create')
 ";
         profile_and_run(&["python3", "-c", script], false);
+    }
+
+    #[test]
+    fn systemd_run_shmat_exec() {
+        // A C program, since Python's ctypes maps writable and executable memory on import
+        let bin_dir = tempfile::tempdir_in("/var/lib").unwrap();
+        let bin = bin_dir.path().join("shmat_exec");
+        Command::new("gcc")
+            .args(["-x", "c", "-o"])
+            .arg(&bin)
+            .arg("-")
+            .write_stdin(SHMAT_EXEC_SRC)
+            .unwrap();
+        profile_and_run(&[bin.to_str().unwrap()], false);
     }
 }
