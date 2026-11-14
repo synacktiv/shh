@@ -9,15 +9,15 @@ mod tests {
         fs::{self, Permissions},
         io::{BufRead as _, Write as _},
         iter,
-        net::TcpListener,
+        net::{TcpListener, UdpSocket},
         os::unix::{
             self,
             fs::{FileTypeExt as _, PermissionsExt as _},
-            net::UnixListener,
+            net::{UnixDatagram, UnixListener},
         },
         path::Path,
         process,
-        sync::LazyLock,
+        sync::{LazyLock, mpsc},
         thread,
         time::Duration,
     };
@@ -125,6 +125,9 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
 
     /// C program attaching a shared memory segment with execute permission
     const SHMAT_EXEC_SRC: &str = include_str!("shmat_exec.c");
+
+    /// C program sending or receiving a UDP datagram through `sendmmsg` or `recvmmsg`
+    const MMSG_UDP_SRC: &str = include_str!("mmsg_udp.c");
 
     /// Path of the tested `shh` binary
     fn shh_bin() -> String {
@@ -272,6 +275,24 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
         for sd_opts in generate_options(cmd, &shh_run_opts(user)) {
             let _ = systemd_run(cmd, &sd_opts, user);
         }
+    }
+
+    /// Send UDP datagrams from 127.0.0.2 to a free port of 127.0.0.1 every `WRITE_INTERVAL`, until the returned
+    /// sender is dropped
+    fn send_udp_to_free_port() -> (u16, mpsc::Sender<()>) {
+        let port = UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let socket = UdpSocket::bind("127.0.0.2:0").unwrap();
+        let (stop, stopped) = mpsc::channel();
+        thread::spawn(move || {
+            while stopped.recv_timeout(WRITE_INTERVAL) == Err(mpsc::RecvTimeoutError::Timeout) {
+                socket.send_to(b"x", ("127.0.0.1", port)).unwrap();
+            }
+        });
+        (port, stop)
     }
 
     /// Create an entry of a type: `file`, `dir`, `fifo`, or `symlink` to `/dev/null`
@@ -531,6 +552,88 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
             bound.to_str().unwrap(),
         ];
         profile_and_run_creating_paths(&bind_cmd, &[sock_dir.path().join("new")]);
+    }
+
+    #[test]
+    fn systemd_run_sendmsg_udp() {
+        // Send a UDP datagram to an address given only to sendmsg
+        let cmd = [
+            "python3",
+            "-c",
+            "import socket; socket.socket(socket.AF_INET, socket.SOCK_DGRAM).sendmsg([b'x'], [], 0, ('127.0.0.1', 9))",
+        ];
+        profile_and_run(&cmd, false);
+    }
+
+    #[test]
+    fn systemd_run_recvmsg_udp() {
+        // Receive a UDP datagram from an address returned only by recvmsg
+        let (port, _sending) = send_udp_to_free_port();
+        let cmd = [
+            "python3",
+            "-c",
+            "import socket, sys; s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.bind(('127.0.0.1', int(sys.argv[1]))); s.settimeout(10); s.recvmsg(1)",
+            &port.to_string(),
+        ];
+        profile_and_run(&cmd, false);
+    }
+
+    #[test]
+    fn systemd_run_mmsg_udp() {
+        // Send a UDP datagram to an address given only to sendmmsg, and receive one from an address returned only
+        // by recvmmsg, which 32-bit x86 programs call as recvmmsg_time64
+        let bin_dir = tempfile::tempdir_in("/var/lib").unwrap();
+        let bin = bin_dir.path().join("mmsg_udp");
+        let bin_32bit = bin_dir.path().join("mmsg_udp_32bit");
+        for (output, gcc_args) in [(&bin, &[][..]), (&bin_32bit, &["-m32"][..])] {
+            Command::new("gcc")
+                .args(gcc_args)
+                .args(["-x", "c", "-o"])
+                .arg(output)
+                .arg("-")
+                .write_stdin(MMSG_UDP_SRC)
+                .unwrap();
+        }
+        let shh_opts_sets_32bit: Vec<_> = ALL_SHH_RUN_OPTS
+            .iter()
+            // SystemCallArchitectures=native kills 32-bit programs
+            .filter(|shh_opts| !shh_opts.contains(&"aggressive"))
+            .cloned()
+            .collect();
+        let (recv_port, _sending) = send_udp_to_free_port();
+        let recv_port = recv_port.to_string();
+        for (program, kind, port, shh_opts_sets) in [
+            (&bin, "sendmmsg", "9", ALL_SHH_RUN_OPTS.as_slice()),
+            (&bin, "recvmmsg", &recv_port, ALL_SHH_RUN_OPTS.as_slice()),
+            (&bin_32bit, "recvmmsg", &recv_port, &shh_opts_sets_32bit),
+        ] {
+            let cmd = [program.to_str().unwrap(), kind, port];
+            for sd_opts in generate_options(&cmd, shh_opts_sets) {
+                let _ = systemd_run(&cmd, &sd_opts, false);
+            }
+        }
+    }
+
+    #[test]
+    fn systemd_run_sendmsg_unix() {
+        // Send a datagram to a Unix socket in /tmp named only to sendmsg
+        let sock_dir = tempfile::tempdir_in("/tmp").unwrap();
+        let sock = sock_dir.path().join("sock");
+        let receiver = UnixDatagram::bind(&sock).unwrap();
+        // Empties the bounded socket queue, until an empty datagram
+        let draining = thread::spawn(move || while receiver.recv(&mut [0]).unwrap() > 0 {});
+        let cmd = [
+            "python3",
+            "-c",
+            "import socket, sys; socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM).sendmsg([b'x'], [], 0, sys.argv[1])",
+            sock.to_str().unwrap(),
+        ];
+        profile_and_run(&cmd, false);
+        UnixDatagram::unbound()
+            .unwrap()
+            .send_to(&[], &sock)
+            .unwrap();
+        draining.join().unwrap();
     }
 
     #[test]

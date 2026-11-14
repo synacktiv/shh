@@ -581,10 +581,52 @@ fn ipv4_equivalent_specifier(
     }
 }
 
+/// Argument holding the socket addresses of a network syscall
+pub(crate) enum SockaddrArg {
+    /// `sockaddr` struct
+    Sockaddr(usize),
+    /// `msghdr` struct, with the address in `msg_name`
+    MsgHdr(usize),
+    /// Array of `mmsghdr` structs, with an address per message
+    MmsgHdrs(usize),
+}
+
+impl ExtractArg for SockaddrArg {
+    type Output<'a> = Vec<&'a Expression>;
+
+    fn extract<'a>(&self, sc: &'a Syscall) -> Result<Vec<&'a Expression>, HandlerError> {
+        match self {
+            Self::Sockaddr(i) => Ok(vec![i.extract(sc)?]),
+            Self::MsgHdr(i) => Ok(vec![msg_name(i.extract(sc)?)?]),
+            Self::MmsgHdrs(i) => match i.extract(sc)? {
+                Expression::Collection { values, .. } => values
+                    .iter()
+                    .map(|(_, msg)| {
+                        let members = unpack_expr!(msg, Expression::Struct(members) => members);
+                        msg_name(unpack_struct_member!(members, "msg_hdr"))
+                    })
+                    .collect(),
+                // An empty batch
+                Expression::Integer(IntegerExpression {
+                    value: IntegerExpressionValue::NamedSymbol(NamedSymbol::Unambiguous(s)),
+                    ..
+                }) if s == "NULL" => Ok(vec![]),
+                other => Err(err_expr_type!(other)),
+            },
+        }
+    }
+}
+
+/// Get the socket address of a `msghdr` struct
+fn msg_name(msghdr: &Expression) -> Result<&Expression, HandlerError> {
+    let members = unpack_expr!(msghdr, Expression::Struct(members) => members);
+    Ok(unpack_struct_member!(members, "msg_name"))
+}
+
 /// Handle network syscalls
 pub(crate) struct NetworkHandler {
     pub fd: usize,
-    pub sockaddr: usize,
+    pub sockaddr: SockaddrArg,
 }
 
 impl SyscallHandler for NetworkHandler {
@@ -594,63 +636,86 @@ impl SyscallHandler for NetworkHandler {
         actions: &mut Vec<ProgramAction>,
         state: &mut ProgramState,
     ) -> Result<(), HandlerError> {
-        let fd = self.fd.extract(sc)?;
-        let sockaddr = self.sockaddr.extract(sc)?;
-
-        let (af_str, addr_struct) = if let Expression::Struct(members) = sockaddr {
-            let af_expr = unpack_struct_member!(members, "sa_family");
-            let af = unpack_expr!(
-                af_expr,
-                Expression::Integer(IntegerExpression {
-                    value: IntegerExpressionValue::NamedSymbol(NamedSymbol::Unambiguous(af)),
-                    ..
-                }) => af
-            );
-            (af.as_str(), members)
-        } else {
-            // Can be NULL in some cases, ie AF_NETLINK sockets
+        // A failed receive returns no address
+        if sc.name.starts_with("recv") && !sc.is_successful() {
             return Ok(());
-        };
-        if af_str == "AF_UNIX"
-            // A peer address returned by other calls is not looked up
-            && matches!(sc.name.as_str(), "bind" | "connect" | "sendto")
-            // Extract path for socket address structure if it's a non abstract one
-            && let Some(Expression::Buffer(BufferExpression {
-                value: b,
-                type_: BufferType::Unknown,
-            })) = addr_struct.get("sun_path")
-            && let Some(mut path) =
-                resolve_path(Path::new(OsStr::from_bytes(b)), None, &state.cur_dir)
-        {
-            // A bind creates its last component, a connect or sendto looks up the socket it names
-            let bind = sc.name == "bind";
-            traverse_path(&mut path, !bind, actions);
-            // Peers outside the service reach the socket through its path
-            actions.push(ProgramAction::Read(path.clone()));
-            if bind {
-                actions.push(ProgramAction::Create(path));
-            }
         }
-        let fd_val = unpack_expr!(
-            fd,
-            Expression::Integer(IntegerExpression {
-                value: IntegerExpressionValue::Literal(fd_val),
-                ..
-            }) => fd_val
-        );
+        let fd = self.fd.extract(sc)?;
+        for sockaddr in self.sockaddr.extract(sc)? {
+            handle_sockaddr(sc, fd, sockaddr, actions, state)?;
+        }
+        Ok(())
+    }
+}
 
-        let ip_addr: SetSpecifier<NetworkAddress> = match addr_struct
-            .iter()
-            .find_map(|(k, v)| ["sin_addr", "sin6_addr"].contains(&k.as_str()).then_some(v))
-        {
-            Some(Expression::Integer(IntegerExpression {
-                value:
-                    IntegerExpressionValue::Macro {
-                        name: macro_name,
-                        args,
-                    },
+/// Handle a socket address of a network syscall
+fn handle_sockaddr(
+    sc: &Syscall,
+    fd: &Expression,
+    sockaddr: &Expression,
+    actions: &mut Vec<ProgramAction>,
+    state: &ProgramState,
+) -> Result<(), HandlerError> {
+    let (af_str, addr_struct) = if let Expression::Struct(members) = sockaddr {
+        let af_expr = unpack_struct_member!(members, "sa_family");
+        let af = unpack_expr!(
+            af_expr,
+            Expression::Integer(IntegerExpression {
+                value: IntegerExpressionValue::NamedSymbol(NamedSymbol::Unambiguous(af)),
                 ..
-            })) if macro_name == "inet_addr" => match args.first() {
+            }) => af
+        );
+        (af.as_str(), members)
+    } else {
+        // No decoded socket address is available
+        return Ok(());
+    };
+    if af_str == "AF_UNIX"
+        // A peer address returned by other calls is not looked up
+        && matches!(sc.name.as_str(), "bind" | "connect" | "sendto" | "sendmsg" | "sendmmsg")
+        // Extract path for socket address structure if it's a non abstract one
+        && let Some(Expression::Buffer(BufferExpression {
+            value: b,
+            type_: BufferType::Unknown,
+        })) = addr_struct.get("sun_path")
+        && let Some(mut path) =
+            resolve_path(Path::new(OsStr::from_bytes(b)), None, &state.cur_dir)
+    {
+        // A bind creates its last component, other calls look up the socket it names
+        let bind = sc.name == "bind";
+        traverse_path(&mut path, !bind, actions);
+        // Peers outside the service reach the socket through its path
+        actions.push(ProgramAction::Read(path.clone()));
+        if bind {
+            actions.push(ProgramAction::Create(path));
+        }
+    }
+    let fd_val = unpack_expr!(
+        fd,
+        Expression::Integer(IntegerExpression {
+            value: IntegerExpressionValue::Literal(fd_val),
+            ..
+        }) => fd_val
+    );
+
+    let ip_addr: SetSpecifier<NetworkAddress> = match addr_struct
+        .iter()
+        .find_map(|(k, v)| ["sin_addr", "sin6_addr"].contains(&k.as_str()).then_some(v))
+    {
+        Some(Expression::Integer(IntegerExpression {
+            value:
+                IntegerExpressionValue::Macro {
+                    name: macro_name,
+                    args,
+                },
+            ..
+        })) if matches!(macro_name.as_str(), "inet_addr" | "inet_pton") => {
+            let arg = if macro_name == "inet_addr" {
+                args.first()
+            } else {
+                args.get(1)
+            };
+            match arg {
                 Some(Expression::Buffer(BufferExpression { value, .. })) => {
                     let ip_str =
                         str::from_utf8(value).map_err(|_| err_value!(value, &[u8] => &str))?;
@@ -660,7 +725,16 @@ impl SyscallHandler for NetworkHandler {
                     SetSpecifier::One(ip.into())
                 }
                 _ => unreachable!(),
-            },
+            }
+        }
+        _ => SetSpecifier::None,
+    };
+
+    let local_port = if sc.name == "bind" {
+        match addr_struct
+            .iter()
+            .find_map(|(k, v)| k.ends_with("_port").then_some(v))
+        {
             Some(Expression::Integer(IntegerExpression {
                 value:
                     IntegerExpressionValue::Macro {
@@ -668,94 +742,62 @@ impl SyscallHandler for NetworkHandler {
                         args,
                     },
                 ..
-            })) if macro_name == "inet_pton" => match args.get(1) {
-                Some(Expression::Buffer(BufferExpression { value, .. })) => {
-                    let ip_str =
-                        str::from_utf8(value).map_err(|_| err_value!(value, &[u8] => &str))?;
-                    let ip = ip_str
-                        .parse::<IpAddr>()
-                        .map_err(|_| err_value!(ip_str, &str => IpAddr))?;
-                    SetSpecifier::One(ip.into())
+            })) if macro_name == "htons" => match args.first() {
+                Some(Expression::Integer(IntegerExpression {
+                    value: IntegerExpressionValue::Literal(port_val),
+                    ..
+                })) => {
+                    if *port_val == 0 {
+                        // 0 means bind random port, we don't know which one, but this is not
+                        // denied by SocketBindDeny
+                        SetSpecifier::None
+                    } else {
+                        SetSpecifier::One(NetworkPort(
+                            TryInto::<u16>::try_into(*port_val)
+                                .ok()
+                                .and_then(|i| i.try_into().ok())
+                                .ok_or_else(|| err_value!(*port_val, i64 => NetworkPort))?,
+                        ))
+                    }
                 }
                 _ => unreachable!(),
             },
             _ => SetSpecifier::None,
+        }
+    } else {
+        SetSpecifier::All
+    };
+
+    let fd_raw =
+        TryInto::<RawFd>::try_into(*fd_val).map_err(|_| err_value!(*fd_val, i64 => RawFd))?;
+
+    if let Some(info) = state.proc_fd.get_sock_info(sc.pid, fd_raw) {
+        let activity = NetworkActivity {
+            af: SetSpecifier::One(info.af.family()),
+            proto: SetSpecifier::One(info.proto.clone()),
+            kind: SetSpecifier::One(NetworkActivityKind::from_sc_name(&sc.name)),
+            local_port,
+            address: ip_addr,
         };
 
-        let local_port = if sc.name == "bind" {
-            match addr_struct
-                .iter()
-                .find_map(|(k, v)| k.ends_with("_port").then_some(v))
-            {
-                Some(Expression::Integer(IntegerExpression {
-                    value:
-                        IntegerExpressionValue::Macro {
-                            name: macro_name,
-                            args,
-                        },
-                    ..
-                })) if macro_name == "htons" => match args.first() {
-                    Some(Expression::Integer(IntegerExpression {
-                        value: IntegerExpressionValue::Literal(port_val),
-                        ..
-                    })) => {
-                        if *port_val == 0 {
-                            // 0 means bind random port, we don't know which one, but this is not
-                            // denied by SocketBindDeny
-                            SetSpecifier::None
-                        } else {
-                            SetSpecifier::One(NetworkPort(
-                                TryInto::<u16>::try_into(*port_val)
-                                    .ok()
-                                    .and_then(|i| i.try_into().ok())
-                                    .ok_or_else(|| err_value!(*port_val, i64 => NetworkPort))?,
-                            ))
-                        }
-                    }
-                    _ => unreachable!(),
-                },
-                _ => SetSpecifier::None,
-            }
-        } else {
-            SetSpecifier::All
-        };
-
-        let fd_raw =
-            TryInto::<RawFd>::try_into(*fd_val).map_err(|_| err_value!(*fd_val, i64 => RawFd))?;
-
-        if let Some(info) = state.proc_fd.get_sock_info(sc.pid, fd_raw) {
-            let kind = SetSpecifier::One(NetworkActivityKind::from_sc_name(&sc.name));
-
-            // Dual-stack: emit an IPv4 action if this AF_INET6 socket can serve IPv4
-            if info.af.is_dual_stack(state.bindv6only_default)
-                && let Some(ipv4_addr) = ipv4_equivalent_specifier(&ip_addr)
-            {
-                actions.push(ProgramAction::NetworkActivity(
-                    NetworkActivity {
-                        af: SetSpecifier::One(SocketFamily::Ipv4),
-                        proto: SetSpecifier::One(info.proto.clone()),
-                        kind: kind.clone(),
-                        local_port: local_port.clone(),
-                        address: ipv4_addr,
-                    }
-                    .into(),
-                ));
-            }
-
+        // Dual-stack: emit an IPv4 action if this AF_INET6 socket can serve IPv4
+        if info.af.is_dual_stack(state.bindv6only_default)
+            && let Some(ipv4_addr) = ipv4_equivalent_specifier(&activity.address)
+        {
             actions.push(ProgramAction::NetworkActivity(
                 NetworkActivity {
-                    af: SetSpecifier::One(info.af.family()),
-                    proto: SetSpecifier::One(info.proto.clone()),
-                    kind,
-                    local_port,
-                    address: ip_addr,
+                    af: SetSpecifier::One(SocketFamily::Ipv4),
+                    address: ipv4_addr,
+                    ..activity.clone()
                 }
                 .into(),
             ));
         }
 
-        Ok(())
+        actions.push(ProgramAction::NetworkActivity(activity.into()));
     }
+
+    Ok(())
 }
 
 /// Handle open-like syscalls
@@ -3007,7 +3049,10 @@ x86_Thread_features_locked:
     fn bind_handler_socket_protocol_shared_across_pids() {
         let socket_handler = SocketHandler { af: 0, flags: 1 };
         let clone_handler = Clone3Handler { args: 0 };
-        let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
+        let network_handler = NetworkHandler {
+            fd: 0,
+            sockaddr: SockaddrArg::Sockaddr(1),
+        };
 
         let mut socket_sc = make_syscall(
             "socket",
@@ -3096,7 +3141,10 @@ x86_Thread_features_locked:
     #[test]
     fn bind_handler_socket_protocol_isolated_between_processes() {
         let socket_handler = SocketHandler { af: 0, flags: 1 };
-        let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
+        let network_handler = NetworkHandler {
+            fd: 0,
+            sockaddr: SockaddrArg::Sockaddr(1),
+        };
 
         let mut socket_pid_1000 = make_syscall(
             "socket",
@@ -3175,7 +3223,10 @@ x86_Thread_features_locked:
     fn fork_copies_fd_table() {
         let socket_handler = SocketHandler { af: 0, flags: 1 };
         let fork_handler = ForkHandler;
-        let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
+        let network_handler = NetworkHandler {
+            fd: 0,
+            sockaddr: SockaddrArg::Sockaddr(1),
+        };
 
         let mut actions = vec![];
         let mut state = program_state();
@@ -3220,7 +3271,10 @@ x86_Thread_features_locked:
     fn fork_independent_tables() {
         let socket_handler = SocketHandler { af: 0, flags: 1 };
         let fork_handler = ForkHandler;
-        let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
+        let network_handler = NetworkHandler {
+            fd: 0,
+            sockaddr: SockaddrArg::Sockaddr(1),
+        };
 
         let mut actions = vec![];
         let mut state = program_state();
@@ -3294,7 +3348,10 @@ x86_Thread_features_locked:
     fn clone_files_shares_fd_table() {
         let socket_handler = SocketHandler { af: 0, flags: 1 };
         let clone_handler = Clone3Handler { args: 0 };
-        let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
+        let network_handler = NetworkHandler {
+            fd: 0,
+            sockaddr: SockaddrArg::Sockaddr(1),
+        };
 
         let mut actions = vec![];
         let mut state = program_state();
@@ -3348,7 +3405,10 @@ x86_Thread_features_locked:
     fn clone_without_clone_files_copies_fd_table() {
         let socket_handler = SocketHandler { af: 0, flags: 1 };
         let clone_handler = Clone3Handler { args: 0 };
-        let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
+        let network_handler = NetworkHandler {
+            fd: 0,
+            sockaddr: SockaddrArg::Sockaddr(1),
+        };
 
         let mut actions = vec![];
         let mut state = program_state();
@@ -3403,7 +3463,10 @@ x86_Thread_features_locked:
         let socket_handler = SocketHandler { af: 0, flags: 1 };
         let clone_handler = Clone3Handler { args: 0 };
         let unshare_handler = UnshareHandler { flags: 0 };
-        let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
+        let network_handler = NetworkHandler {
+            fd: 0,
+            sockaddr: SockaddrArg::Sockaddr(1),
+        };
 
         let mut actions = vec![];
         let mut state = program_state();
@@ -3521,7 +3584,10 @@ x86_Thread_features_locked:
     fn multiple_children_share_fd_table() {
         let socket_handler = SocketHandler { af: 0, flags: 1 };
         let clone_handler = Clone3Handler { args: 0 };
-        let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
+        let network_handler = NetworkHandler {
+            fd: 0,
+            sockaddr: SockaddrArg::Sockaddr(1),
+        };
 
         let mut actions = vec![];
         let mut state = program_state();
@@ -3578,7 +3644,10 @@ x86_Thread_features_locked:
     // Bind with unknown fd (no prior socket call) produces no network action
     #[test]
     fn bind_unknown_fd_no_action() {
-        let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
+        let network_handler = NetworkHandler {
+            fd: 0,
+            sockaddr: SockaddrArg::Sockaddr(1),
+        };
 
         let mut actions = vec![];
         let mut state = program_state();
@@ -3596,7 +3665,10 @@ x86_Thread_features_locked:
     fn grandchild_inherits_shared_table() {
         let socket_handler = SocketHandler { af: 0, flags: 1 };
         let clone_handler = Clone3Handler { args: 0 };
-        let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
+        let network_handler = NetworkHandler {
+            fd: 0,
+            sockaddr: SockaddrArg::Sockaddr(1),
+        };
 
         let mut actions = vec![];
         let mut state = program_state();
@@ -3648,7 +3720,10 @@ x86_Thread_features_locked:
         let socket_handler = SocketHandler { af: 0, flags: 1 };
         let fork_handler = ForkHandler;
         let clone_handler = Clone3Handler { args: 0 };
-        let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
+        let network_handler = NetworkHandler {
+            fd: 0,
+            sockaddr: SockaddrArg::Sockaddr(1),
+        };
 
         let mut actions = vec![];
         let mut state = program_state();
@@ -3729,7 +3804,10 @@ x86_Thread_features_locked:
     #[test]
     fn same_fd_different_unrelated_processes() {
         let socket_handler = SocketHandler { af: 0, flags: 1 };
-        let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
+        let network_handler = NetworkHandler {
+            fd: 0,
+            sockaddr: SockaddrArg::Sockaddr(1),
+        };
 
         let mut actions = vec![];
         let mut state = program_state();
@@ -4400,7 +4478,10 @@ x86_Thread_features_locked:
     #[test]
     fn dual_stack_bind_unspecified() {
         let socket_handler = SocketHandler { af: 0, flags: 1 };
-        let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
+        let network_handler = NetworkHandler {
+            fd: 0,
+            sockaddr: SockaddrArg::Sockaddr(1),
+        };
 
         let mut actions = vec![];
         let mut state = program_state();
@@ -4452,7 +4533,10 @@ x86_Thread_features_locked:
     #[test]
     fn dual_stack_connect_v4mapped() {
         let socket_handler = SocketHandler { af: 0, flags: 1 };
-        let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
+        let network_handler = NetworkHandler {
+            fd: 0,
+            sockaddr: SockaddrArg::Sockaddr(1),
+        };
 
         let mut actions = vec![];
         let mut state = program_state();
@@ -4512,7 +4596,10 @@ x86_Thread_features_locked:
             optname: 2,
             optval: 3,
         };
-        let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
+        let network_handler = NetworkHandler {
+            fd: 0,
+            sockaddr: SockaddrArg::Sockaddr(1),
+        };
 
         let mut actions = vec![];
         let mut state = program_state();
@@ -4560,7 +4647,10 @@ x86_Thread_features_locked:
     #[test]
     fn dual_stack_pure_ipv6_no_ipv4() {
         let socket_handler = SocketHandler { af: 0, flags: 1 };
-        let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
+        let network_handler = NetworkHandler {
+            fd: 0,
+            sockaddr: SockaddrArg::Sockaddr(1),
+        };
 
         let mut actions = vec![];
         let mut state = program_state();
@@ -4600,7 +4690,10 @@ x86_Thread_features_locked:
     #[test]
     fn dual_stack_loopback_no_ipv4() {
         let socket_handler = SocketHandler { af: 0, flags: 1 };
-        let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
+        let network_handler = NetworkHandler {
+            fd: 0,
+            sockaddr: SockaddrArg::Sockaddr(1),
+        };
 
         let mut actions = vec![];
         let mut state = program_state();
@@ -4641,7 +4734,10 @@ x86_Thread_features_locked:
     #[test]
     fn bindv6only_default_true_no_ipv4() {
         let socket_handler = SocketHandler { af: 0, flags: 1 };
-        let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
+        let network_handler = NetworkHandler {
+            fd: 0,
+            sockaddr: SockaddrArg::Sockaddr(1),
+        };
 
         let mut actions = vec![];
         let mut state = ProgramState::new("/", true);
@@ -4722,7 +4818,10 @@ x86_Thread_features_locked:
     #[test]
     fn dual_stack_sendto() {
         let socket_handler = SocketHandler { af: 0, flags: 1 };
-        let network_handler = NetworkHandler { fd: 0, sockaddr: 4 };
+        let network_handler = NetworkHandler {
+            fd: 0,
+            sockaddr: SockaddrArg::Sockaddr(4),
+        };
 
         let mut actions = vec![];
         let mut state = program_state();
@@ -4777,7 +4876,10 @@ x86_Thread_features_locked:
     #[test]
     fn ipv4_socket_no_dual_stack() {
         let socket_handler = SocketHandler { af: 0, flags: 1 };
-        let network_handler = NetworkHandler { fd: 0, sockaddr: 1 };
+        let network_handler = NetworkHandler {
+            fd: 0,
+            sockaddr: SockaddrArg::Sockaddr(1),
+        };
 
         let mut actions = vec![];
         let mut state = program_state();

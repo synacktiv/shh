@@ -24,8 +24,8 @@ use handlers::{
     FdWriteHandler, FollowSymlink, ForkHandler, IoctlHandler, KillHandler, LinkHandler,
     MemfdCreateHandler, MknodHandler, MmapHandler, MountHandler, NetworkHandler, OpenHandler,
     PathHandler, RemoveHandler, RenameHandler, SetSchedulerHandler, SetsockoptHandler,
-    ShmAtHandler, ShmCtlHandler, SocketHandler, StatFdHandler, SyscallHandler, TimerHandler,
-    UnshareHandler,
+    ShmAtHandler, ShmCtlHandler, SockaddrArg, SocketHandler, StatFdHandler, SyscallHandler,
+    TimerHandler, UnshareHandler,
 };
 pub(crate) use handlers::{PathWalk, traverse_path_within};
 
@@ -177,7 +177,8 @@ impl NetworkActivityKind {
             "bind" => NetworkActivityKind::Bind,
             "connect" => NetworkActivityKind::Connect,
             "accept" | "accept4" => NetworkActivityKind::Accept,
-            "sendto" | "recvfrom" => NetworkActivityKind::SendRecv,
+            "sendto" | "recvfrom" | "sendmsg" | "recvmsg" | "sendmmsg" | "recvmmsg"
+            | "recvmmsg_time64" => NetworkActivityKind::SendRecv,
             _ => unreachable!("{:?}", sc),
         }
     }
@@ -281,8 +282,8 @@ enum FdOrPath<T> {
 // 32-bit ABI names share the entry of their 64-bit call, the only exception to the alphabetical order of keys
 //
 static SYSCALL_MAP: phf::Map<&'static str, &'static dyn SyscallHandler> = phf::phf_map! {
-    "accept" => &NetworkHandler { fd: 0, sockaddr: 1 },
-    "accept4" => &NetworkHandler { fd: 0, sockaddr: 1 },
+    "accept" => &NetworkHandler { fd: 0, sockaddr: SockaddrArg::Sockaddr(1) },
+    "accept4" => &NetworkHandler { fd: 0, sockaddr: SockaddrArg::Sockaddr(1) },
     "access" => &AccessHandler {
         path: PathHandler {
             relfd: None,
@@ -292,7 +293,7 @@ static SYSCALL_MAP: phf::Map<&'static str, &'static dyn SyscallHandler> = phf::p
         },
         mode: 1,
     },
-    "bind" => &NetworkHandler { fd: 0, sockaddr: 1 },
+    "bind" => &NetworkHandler { fd: 0, sockaddr: SockaddrArg::Sockaddr(1) },
     "chdir" => &ChdirHandler {
         path: FdOrPath::Path(0),
     },
@@ -312,7 +313,7 @@ static SYSCALL_MAP: phf::Map<&'static str, &'static dyn SyscallHandler> = phf::p
     // Note: strace decodes clone's arguments as a struct, like clone3
     "clone" => &Clone3Handler { args: 0 },
     "clone3" => &Clone3Handler { args: 0 },
-    "connect" => &NetworkHandler { fd: 0, sockaddr: 1 },
+    "connect" => &NetworkHandler { fd: 0, sockaddr: SockaddrArg::Sockaddr(1) },
     "creat" => &OpenHandler {
         relfd: None,
         path: 0,
@@ -609,7 +610,9 @@ static SYSCALL_MAP: phf::Map<&'static str, &'static dyn SyscallHandler> = phf::p
         follow: FollowSymlink::OnTrailingSlash,
         action: ProgramAction::Read,
     },
-    "recvfrom" => &NetworkHandler { fd: 0, sockaddr: 4 },
+    "recvfrom" => &NetworkHandler { fd: 0, sockaddr: SockaddrArg::Sockaddr(4) },
+    "recvmmsg" | "recvmmsg_time64" => &NetworkHandler { fd: 0, sockaddr: SockaddrArg::MmsgHdrs(1) },
+    "recvmsg" => &NetworkHandler { fd: 0, sockaddr: SockaddrArg::MsgHdr(1) },
     "removexattr" => &PathHandler {
         relfd: None,
         path: 0,
@@ -655,7 +658,9 @@ static SYSCALL_MAP: phf::Map<&'static str, &'static dyn SyscallHandler> = phf::p
         },
     },
     "sched_setscheduler" => &SetSchedulerHandler { policy: 1 },
-    "sendto" => &NetworkHandler { fd: 0, sockaddr: 4 },
+    "sendmmsg" => &NetworkHandler { fd: 0, sockaddr: SockaddrArg::MmsgHdrs(1) },
+    "sendmsg" => &NetworkHandler { fd: 0, sockaddr: SockaddrArg::MsgHdr(1) },
+    "sendto" => &NetworkHandler { fd: 0, sockaddr: SockaddrArg::Sockaddr(4) },
     "setsockopt" => &SetsockoptHandler {
         fd: 0,
         level: 1,
@@ -1098,6 +1103,27 @@ mod tests {
         );
     }
 
+    /// Build a `msghdr` expression naming a socket address
+    fn msghdr(name: Expression) -> Expression {
+        Expression::Struct(HashMap::from([("msg_name".to_owned(), name)]))
+    }
+
+    /// Build an `mmsghdr` array expression with a message per socket address
+    fn mmsghdrs(names: Vec<Expression>) -> Expression {
+        Expression::Collection {
+            complement: false,
+            values: names
+                .into_iter()
+                .map(|name| {
+                    (
+                        None,
+                        Expression::Struct(HashMap::from([("msg_hdr".to_owned(), msghdr(name))])),
+                    )
+                })
+                .collect(),
+        }
+    }
+
     #[test]
     fn uds_through_symlink() {
         let _ = simple_logger::SimpleLogger::new().init();
@@ -1139,6 +1165,21 @@ mod tests {
                     int_literal(0),
                     sockaddr(&sock_link),
                     int_literal(110),
+                ],
+                lookup_actions.clone(),
+            ),
+            (
+                "sendmsg",
+                vec![int_literal(3), msghdr(sockaddr(&sock_link)), int_literal(0)],
+                lookup_actions.clone(),
+            ),
+            (
+                "sendmmsg",
+                vec![
+                    int_literal(3),
+                    mmsghdrs(vec![sockaddr(&sock_link)]),
+                    int_literal(1),
+                    int_literal(0),
                 ],
                 lookup_actions,
             ),
@@ -1194,6 +1235,22 @@ mod tests {
                     int_literal(0),
                     sockaddr(&sock_link),
                     int_literal(110),
+                ],
+                vec![],
+            ),
+            (
+                "recvmsg",
+                vec![int_literal(3), msghdr(sockaddr(&sock_link)), int_literal(0)],
+                vec![],
+            ),
+            (
+                "recvmmsg",
+                vec![
+                    int_literal(3),
+                    mmsghdrs(vec![sockaddr(&sock_link)]),
+                    int_literal(1),
+                    int_literal(0),
+                    named_symbol("NULL"),
                 ],
                 vec![],
             ),
@@ -3476,6 +3533,156 @@ mod tests {
                     0x7f00_0000_0000,
                 )),
                 expected
+            );
+        }
+    }
+
+    #[test]
+    fn msg_peer_addresses() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let sockaddr = |addr: &str| {
+            Expression::Struct(HashMap::from([
+                ("sa_family".to_owned(), named_symbol("AF_INET")),
+                (
+                    "sin_addr".to_owned(),
+                    Expression::Integer(IntegerExpression {
+                        value: IntegerExpressionValue::Macro {
+                            name: "inet_addr".to_owned(),
+                            args: vec![buf_expr(addr.as_bytes())],
+                        },
+                        metadata: None,
+                    }),
+                ),
+            ]))
+        };
+        let activity = |kind, address| {
+            ProgramAction::NetworkActivity(
+                NetworkActivity {
+                    af: SetSpecifier::One(SocketFamily::Ipv4),
+                    proto: SetSpecifier::One(SocketProtocol::Udp),
+                    kind: SetSpecifier::One(kind),
+                    local_port: SetSpecifier::All,
+                    address,
+                }
+                .into(),
+            )
+        };
+        for (name, msgs, ret, peers) in [
+            (
+                "sendmsg",
+                msghdr(sockaddr("127.0.0.1")),
+                1,
+                vec!["127.0.0.1"],
+            ),
+            (
+                "recvmsg",
+                msghdr(sockaddr("127.0.0.2")),
+                1,
+                vec!["127.0.0.2"],
+            ),
+            // A zero-length datagram
+            (
+                "recvmsg",
+                msghdr(sockaddr("127.0.0.2")),
+                0,
+                vec!["127.0.0.2"],
+            ),
+            // On a connected socket
+            ("sendmsg", msghdr(named_symbol("NULL")), 1, vec![]),
+            // From an unbound peer
+            ("recvmsg", msghdr(int_literal(0x7ffc_19ef_9970)), 1, vec![]),
+            (
+                "sendmmsg",
+                mmsghdrs(vec![sockaddr("127.0.0.1"), sockaddr("127.0.0.2")]),
+                2,
+                vec!["127.0.0.1", "127.0.0.2"],
+            ),
+            // The first message to the connected peer
+            (
+                "sendmmsg",
+                mmsghdrs(vec![named_symbol("NULL"), sockaddr("127.0.0.2")]),
+                2,
+                vec!["127.0.0.2"],
+            ),
+            (
+                "recvmmsg",
+                mmsghdrs(vec![sockaddr("127.0.0.1"), sockaddr("127.0.0.2")]),
+                2,
+                vec!["127.0.0.1", "127.0.0.2"],
+            ),
+            (
+                "recvmmsg_time64",
+                mmsghdrs(vec![sockaddr("127.0.0.1")]),
+                1,
+                vec!["127.0.0.1"],
+            ),
+            // Empty batches
+            ("sendmmsg", named_symbol("NULL"), 0, vec![]),
+            ("recvmmsg", named_symbol("NULL"), 0, vec![]),
+        ] {
+            let syscalls = [
+                make_syscall(
+                    "socket",
+                    vec![
+                        named_symbol("AF_INET"),
+                        named_symbol("SOCK_DGRAM"),
+                        named_symbol("IPPROTO_IP"),
+                    ],
+                    3,
+                ),
+                make_syscall(name, vec![int_literal(3), msgs, int_literal(0)], ret),
+            ]
+            .map(|sc| Ok(SyscallItem::Complete(Box::new(sc))));
+            let mut expected = vec![activity(
+                NetworkActivityKind::SocketCreation,
+                SetSpecifier::All,
+            )];
+            expected.extend(peers.into_iter().map(|peer| {
+                activity(
+                    NetworkActivityKind::SendRecv,
+                    SetSpecifier::One(peer.parse::<IpAddr>().unwrap().into()),
+                )
+            }));
+            expected.push(ProgramAction::Syscalls(
+                ["socket".into(), name.into()].into(),
+            ));
+            assert_eq!(summarize(syscalls, &[], program_state()).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn failed_msg_calls() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let sock = temp_dir.path().join("sock");
+        for (name, msgs, mut actions) in [
+            // A failed receive returns no address
+            (
+                "recvmsg",
+                Expression::Struct(HashMap::from([("msg_namelen".to_owned(), int_literal(16))])),
+                vec![],
+            ),
+            ("recvmmsg", int_literal(0x7ffc_e32a_da50), vec![]),
+            // A send failing on a full peer queue has looked up its destination
+            (
+                "sendmsg",
+                msghdr(Expression::Struct(HashMap::from([
+                    ("sa_family".to_owned(), named_symbol("AF_UNIX")),
+                    ("sun_path".to_owned(), buf_expr(sock.as_os_str().as_bytes())),
+                ]))),
+                vec![ProgramAction::Read(sock.clone())],
+            ),
+        ] {
+            actions.push(ProgramAction::Syscalls([name.into()].into()));
+            assert_eq!(
+                summarize_syscall(make_failed_syscall(
+                    name,
+                    vec![int_literal(3), msgs, int_literal(1)],
+                    "EAGAIN"
+                )),
+                actions
             );
         }
     }
