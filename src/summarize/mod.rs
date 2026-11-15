@@ -178,7 +178,8 @@ impl NetworkActivityKind {
             "connect" => NetworkActivityKind::Connect,
             "accept" | "accept4" => NetworkActivityKind::Accept,
             "sendto" | "recvfrom" | "sendmsg" | "recvmsg" | "sendmmsg" | "recvmmsg"
-            | "recvmmsg_time64" => NetworkActivityKind::SendRecv,
+            | "recvmmsg_time64" | "read" | "readv" | "preadv2" | "recv" | "splice" | "sendfile"
+            | "sendfile64" => NetworkActivityKind::SendRecv,
             _ => unreachable!("{:?}", sc),
         }
     }
@@ -258,12 +259,15 @@ impl From<SocketFamily> for SocketAfInfo {
     }
 }
 
-/// Combined socket info: protocol and address family details
+/// Tracked socket information
 #[derive(Debug, Clone)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
 pub(crate) struct SocketInfo {
     pub proto: SocketProtocol,
     pub af: SocketAfInfo,
+    pub connected: bool,
+    /// Label of the socket's descriptor metadata
+    pub label: Option<Vec<u8>>,
 }
 
 #[derive(Debug)]
@@ -598,6 +602,8 @@ static SYSCALL_MAP: phf::Map<&'static str, &'static dyn SyscallHandler> = phf::p
         flags: None,
         fd: None,
     },
+    "preadv2" => &NetworkHandler { fd: 0, sockaddr: SockaddrArg::None },
+    "read" => &NetworkHandler { fd: 0, sockaddr: SockaddrArg::None },
     "readlink" => &PathHandler {
         relfd: None,
         path: 0,
@@ -610,6 +616,8 @@ static SYSCALL_MAP: phf::Map<&'static str, &'static dyn SyscallHandler> = phf::p
         follow: FollowSymlink::OnTrailingSlash,
         action: ProgramAction::Read,
     },
+    "readv" => &NetworkHandler { fd: 0, sockaddr: SockaddrArg::None },
+    "recv" => &NetworkHandler { fd: 0, sockaddr: SockaddrArg::None },
     "recvfrom" => &NetworkHandler { fd: 0, sockaddr: SockaddrArg::Sockaddr(4) },
     "recvmmsg" | "recvmmsg_time64" => &NetworkHandler { fd: 0, sockaddr: SockaddrArg::MmsgHdrs(1) },
     "recvmsg" => &NetworkHandler { fd: 0, sockaddr: SockaddrArg::MsgHdr(1) },
@@ -658,6 +666,7 @@ static SYSCALL_MAP: phf::Map<&'static str, &'static dyn SyscallHandler> = phf::p
         },
     },
     "sched_setscheduler" => &SetSchedulerHandler { policy: 1 },
+    "sendfile" | "sendfile64" => &NetworkHandler { fd: 1, sockaddr: SockaddrArg::None },
     "sendmmsg" => &NetworkHandler { fd: 0, sockaddr: SockaddrArg::MmsgHdrs(1) },
     "sendmsg" => &NetworkHandler { fd: 0, sockaddr: SockaddrArg::MsgHdr(1) },
     "sendto" => &NetworkHandler { fd: 0, sockaddr: SockaddrArg::Sockaddr(4) },
@@ -685,6 +694,7 @@ static SYSCALL_MAP: phf::Map<&'static str, &'static dyn SyscallHandler> = phf::p
     "shmat" => &ShmAtHandler { flags: 2 },
     "shmctl" => &ShmCtlHandler { op: 1 },
     "socket" => &SocketHandler { af: 0, flags: 1 },
+    "splice" => &NetworkHandler { fd: 0, sockaddr: SockaddrArg::None },
     "stat" | "stat64" | "oldstat" => &PathHandler {
         relfd: None,
         path: 0,
@@ -1123,6 +1133,23 @@ mod tests {
                 .collect(),
             truncated,
         }
+    }
+
+    /// Build an `AF_INET` socket address expression
+    fn inet_sockaddr(addr: &str) -> Expression {
+        Expression::Struct(HashMap::from([
+            ("sa_family".to_owned(), named_symbol("AF_INET")),
+            (
+                "sin_addr".to_owned(),
+                Expression::Integer(IntegerExpression {
+                    value: IntegerExpressionValue::Macro {
+                        name: "inet_addr".to_owned(),
+                        args: vec![buf_expr(addr.as_bytes())],
+                    },
+                    metadata: None,
+                }),
+            ),
+        ]))
     }
 
     #[test]
@@ -3563,94 +3590,82 @@ mod tests {
     fn msg_peer_addresses() {
         let _ = simple_logger::SimpleLogger::new().init();
 
-        let sockaddr = |addr: &str| {
-            Expression::Struct(HashMap::from([
-                ("sa_family".to_owned(), named_symbol("AF_INET")),
-                (
-                    "sin_addr".to_owned(),
-                    Expression::Integer(IntegerExpression {
-                        value: IntegerExpressionValue::Macro {
-                            name: "inet_addr".to_owned(),
-                            args: vec![buf_expr(addr.as_bytes())],
-                        },
-                        metadata: None,
-                    }),
-                ),
-            ]))
-        };
-        let activity = |kind, address| {
-            ProgramAction::NetworkActivity(
-                NetworkActivity {
-                    af: SetSpecifier::One(SocketFamily::Ipv4),
-                    proto: SetSpecifier::One(SocketProtocol::Udp),
-                    kind: SetSpecifier::One(kind),
-                    local_port: SetSpecifier::All,
-                    address,
-                }
-                .into(),
-            )
-        };
+        let activity = |kind, address| inet_activity(SocketProtocol::Udp, kind, address);
         let peer = |addr: &str| SetSpecifier::One(addr.parse::<IpAddr>().unwrap().into());
         for (name, msgs, ret, peers) in [
             (
                 "sendmsg",
-                msghdr(sockaddr("127.0.0.1")),
+                msghdr(inet_sockaddr("127.0.0.1")),
                 1,
                 vec![peer("127.0.0.1")],
             ),
             (
                 "recvmsg",
-                msghdr(sockaddr("127.0.0.2")),
+                msghdr(inet_sockaddr("127.0.0.2")),
                 1,
                 vec![peer("127.0.0.2")],
             ),
             // A zero-length datagram
             (
                 "recvmsg",
-                msghdr(sockaddr("127.0.0.2")),
+                msghdr(inet_sockaddr("127.0.0.2")),
                 0,
                 vec![peer("127.0.0.2")],
             ),
             // On a connected socket
             ("sendmsg", msghdr(named_symbol("NULL")), 1, vec![]),
-            // From an unbound peer
-            ("recvmsg", msghdr(int_literal(0x7ffc_19ef_9970)), 1, vec![]),
+            // From a peer without a decoded address
+            (
+                "recvmsg",
+                msghdr(int_literal(0x7ffc_19ef_9970)),
+                1,
+                vec![SetSpecifier::All],
+            ),
             (
                 "sendmmsg",
-                mmsghdrs(vec![sockaddr("127.0.0.1"), sockaddr("127.0.0.2")], false),
+                mmsghdrs(
+                    vec![inet_sockaddr("127.0.0.1"), inet_sockaddr("127.0.0.2")],
+                    false,
+                ),
                 2,
                 vec![peer("127.0.0.1"), peer("127.0.0.2")],
             ),
             // The first message to the connected peer
             (
                 "sendmmsg",
-                mmsghdrs(vec![named_symbol("NULL"), sockaddr("127.0.0.2")], false),
+                mmsghdrs(
+                    vec![named_symbol("NULL"), inet_sockaddr("127.0.0.2")],
+                    false,
+                ),
                 2,
                 vec![peer("127.0.0.2")],
             ),
             (
                 "recvmmsg",
-                mmsghdrs(vec![sockaddr("127.0.0.1"), sockaddr("127.0.0.2")], false),
+                mmsghdrs(
+                    vec![inet_sockaddr("127.0.0.1"), inet_sockaddr("127.0.0.2")],
+                    false,
+                ),
                 2,
                 vec![peer("127.0.0.1"), peer("127.0.0.2")],
             ),
             (
                 "recvmmsg_time64",
-                mmsghdrs(vec![sockaddr("127.0.0.1")], false),
+                mmsghdrs(vec![inet_sockaddr("127.0.0.1")], false),
                 1,
                 vec![peer("127.0.0.1")],
             ),
             // The kernel sends no message past the printed ones
             (
                 "sendmmsg",
-                mmsghdrs(vec![sockaddr("127.0.0.1")], true),
+                mmsghdrs(vec![inet_sockaddr("127.0.0.1")], true),
                 1024,
                 vec![peer("127.0.0.1")],
             ),
             // The messages past the printed ones come from unknown peers
             (
                 "recvmmsg",
-                mmsghdrs(vec![sockaddr("127.0.0.1")], true),
+                mmsghdrs(vec![inet_sockaddr("127.0.0.1")], true),
                 1025,
                 vec![peer("127.0.0.1"), SetSpecifier::All],
             ),
@@ -3658,19 +3673,6 @@ mod tests {
             ("sendmmsg", named_symbol("NULL"), 0, vec![]),
             ("recvmmsg", named_symbol("NULL"), 0, vec![]),
         ] {
-            let syscalls = [
-                make_syscall(
-                    "socket",
-                    vec![
-                        named_symbol("AF_INET"),
-                        named_symbol("SOCK_DGRAM"),
-                        named_symbol("IPPROTO_IP"),
-                    ],
-                    3,
-                ),
-                make_syscall(name, vec![int_literal(3), msgs, int_literal(0)], ret),
-            ]
-            .map(|sc| Ok(SyscallItem::Complete(Box::new(sc))));
             let mut expected = vec![activity(
                 NetworkActivityKind::SocketCreation,
                 SetSpecifier::All,
@@ -3680,10 +3682,21 @@ mod tests {
                     .into_iter()
                     .map(|address| activity(NetworkActivityKind::SendRecv, address)),
             );
-            expected.push(ProgramAction::Syscalls(
-                ["socket".into(), name.into()].into(),
-            ));
-            assert_eq!(summarize(syscalls, &[], program_state()).unwrap(), expected);
+            assert_network_activities(
+                vec![
+                    make_syscall(
+                        "socket",
+                        vec![
+                            named_symbol("AF_INET"),
+                            named_symbol("SOCK_DGRAM"),
+                            named_symbol("IPPROTO_IP"),
+                        ],
+                        3,
+                    ),
+                    make_syscall(name, vec![int_literal(3), msgs, int_literal(0)], ret),
+                ],
+                expected,
+            );
         }
     }
 
@@ -3719,6 +3732,388 @@ mod tests {
                     "EAGAIN"
                 )),
                 actions
+            );
+        }
+    }
+
+    /// Build a `socket` call returning descriptor 3 for an `AF_INET` socket of a type, with its metadata
+    fn inet_socket(type_: &str, metadata: &str) -> Syscall {
+        let mut sc = make_syscall(
+            "socket",
+            vec![
+                named_symbol("AF_INET"),
+                named_symbol(type_),
+                named_symbol("IPPROTO_IP"),
+            ],
+            3,
+        );
+        sc.ret_val.as_mut().unwrap().metadata = Some(metadata.as_bytes().to_vec());
+        sc
+    }
+
+    /// Build descriptor 3 with metadata lacking decoded socket details
+    fn sock() -> Expression {
+        fd_expr(3, "socket:[7]")
+    }
+
+    /// Build a `recvfrom` call on `sock`, with a source address argument
+    fn recvfrom(addr: Expression) -> Syscall {
+        make_syscall(
+            "recvfrom",
+            vec![
+                sock(),
+                buf_expr(b"x"),
+                int_literal(16),
+                int_literal(0),
+                addr,
+                named_symbol("NULL"),
+            ],
+            1,
+        )
+    }
+
+    /// Build a `recvmmsg` or `recvmmsg_time64` call on `sock`
+    fn recvmmsg(name: &str, msgs: Expression, ret: i64) -> Syscall {
+        make_syscall(
+            name,
+            vec![
+                sock(),
+                msgs,
+                int_literal(1024),
+                int_literal(0),
+                named_symbol("NULL"),
+            ],
+            ret,
+        )
+    }
+
+    /// Build a `read` call on a descriptor
+    fn read(fd: Expression) -> Syscall {
+        make_syscall("read", vec![fd, buf_expr(b"x"), int_literal(16)], 1)
+    }
+
+    /// Build the activity of an `AF_INET` socket on any local port
+    fn inet_activity(
+        proto: SocketProtocol,
+        kind: NetworkActivityKind,
+        address: SetSpecifier<NetworkAddress>,
+    ) -> ProgramAction {
+        ProgramAction::NetworkActivity(
+            NetworkActivity {
+                af: SetSpecifier::One(SocketFamily::Ipv4),
+                proto: SetSpecifier::One(proto),
+                kind: SetSpecifier::One(kind),
+                local_port: SetSpecifier::All,
+                address,
+            }
+            .into(),
+        )
+    }
+
+    /// Summarize calls, and check their actions are network activities followed by the names of the calls
+    fn assert_network_activities(calls: Vec<Syscall>, activities: Vec<ProgramAction>) {
+        let names = calls.iter().map(|sc| sc.name.clone()).collect();
+        let syscalls = calls
+            .into_iter()
+            .map(|sc| Ok(SyscallItem::Complete(Box::new(sc))));
+        assert_eq!(
+            summarize(syscalls, &[], program_state()).unwrap(),
+            [activities, vec![ProgramAction::Syscalls(names)]].concat()
+        );
+    }
+
+    #[test]
+    fn recv_unnamed_peer() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let null = || named_symbol("NULL");
+        let other_fd = || fd_expr(4, "pipe:[5]");
+        let splice = |fd_in, fd_out| {
+            make_syscall(
+                "splice",
+                vec![
+                    fd_in,
+                    null(),
+                    fd_out,
+                    null(),
+                    int_literal(16),
+                    int_literal(0),
+                ],
+                1,
+            )
+        };
+        let sendfile = |name, fd_out, fd_in| {
+            make_syscall(name, vec![fd_out, fd_in, null(), int_literal(16)], 1)
+        };
+        for (call, received) in [
+            (recvfrom(null()), true),
+            // An address buffer of zero length
+            (recvfrom(int_literal(0x7ffc_9a69_7f90)), true),
+            // Address buffers too short for the IP address
+            (
+                recvfrom(Expression::Struct(HashMap::from([(
+                    "sa_family".to_owned(),
+                    named_symbol("AF_INET"),
+                )]))),
+                true,
+            ),
+            (
+                recvfrom(Expression::Struct(HashMap::from([
+                    ("sa_family".to_owned(), named_symbol("AF_INET6")),
+                    ("sa_data".to_owned(), buf_expr(b"\xb2\x0c")),
+                ]))),
+                true,
+            ),
+            (
+                make_syscall("recvmsg", vec![sock(), msghdr(null()), int_literal(0)], 1),
+                true,
+            ),
+            (recvmmsg("recvmmsg", mmsghdrs(vec![null()], false), 1), true),
+            (
+                recvmmsg("recvmmsg_time64", mmsghdrs(vec![null()], false), 1),
+                true,
+            ),
+            (read(sock()), true),
+            (
+                make_syscall("readv", vec![sock(), int_literal(0), int_literal(1)], 1),
+                true,
+            ),
+            (
+                make_syscall(
+                    "preadv2",
+                    vec![
+                        sock(),
+                        int_literal(0),
+                        int_literal(1),
+                        int_literal(-1),
+                        int_literal(0),
+                    ],
+                    1,
+                ),
+                true,
+            ),
+            (
+                make_syscall(
+                    "recv",
+                    vec![sock(), buf_expr(b"x"), int_literal(16), int_literal(0)],
+                    1,
+                ),
+                true,
+            ),
+            (splice(sock(), other_fd()), true),
+            (sendfile("sendfile", other_fd(), sock()), true),
+            (sendfile("sendfile64", other_fd(), sock()), true),
+            // Failed receives
+            (
+                make_failed_syscall(
+                    "read",
+                    vec![sock(), int_literal(0), int_literal(16)],
+                    "EAGAIN",
+                ),
+                false,
+            ),
+            (
+                make_failed_syscall(
+                    "recvfrom",
+                    vec![
+                        sock(),
+                        int_literal(0),
+                        int_literal(16),
+                        int_literal(0),
+                        null(),
+                        null(),
+                    ],
+                    "EAGAIN",
+                ),
+                false,
+            ),
+            // Sends to the socket
+            (splice(other_fd(), sock()), false),
+            (sendfile("sendfile", sock(), other_fd()), false),
+        ] {
+            let mut activities = vec![inet_activity(
+                SocketProtocol::Udp,
+                NetworkActivityKind::SocketCreation,
+                SetSpecifier::All,
+            )];
+            if received {
+                activities.push(inet_activity(
+                    SocketProtocol::Udp,
+                    NetworkActivityKind::SendRecv,
+                    SetSpecifier::All,
+                ));
+            }
+            assert_network_activities(
+                vec![inet_socket("SOCK_DGRAM", "socket:[7]"), call],
+                activities,
+            );
+        }
+    }
+
+    #[test]
+    fn recv_unnamed_peer_socket_state() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let udp_socket = || inet_socket("SOCK_DGRAM", "socket:[7]");
+        let connect = |addr| make_syscall("connect", vec![sock(), addr, int_literal(16)], 0);
+        let connect_peer = || connect(inet_sockaddr("127.0.0.3"));
+        let disconnect = || {
+            connect(Expression::Struct(HashMap::from([(
+                "sa_family".to_owned(),
+                named_symbol("AF_UNSPEC"),
+            )])))
+        };
+        let peer = || SetSpecifier::One("127.0.0.3".parse::<IpAddr>().unwrap().into());
+        let created = || {
+            inet_activity(
+                SocketProtocol::Udp,
+                NetworkActivityKind::SocketCreation,
+                SetSpecifier::All,
+            )
+        };
+        let received =
+            |address| inet_activity(SocketProtocol::Udp, NetworkActivityKind::SendRecv, address);
+        let connected =
+            |address| inet_activity(SocketProtocol::Udp, NetworkActivityKind::Connect, address);
+        for (calls, activities) in [
+            // A socket with its details in metadata
+            (
+                vec![
+                    inet_socket("SOCK_DGRAM", "UDP:[7]"),
+                    read(fd_expr(3, "UDP:[127.0.0.1:41021]")),
+                ],
+                vec![created(), received(SetSpecifier::All)],
+            ),
+            // Other files reusing the descriptor number of the socket
+            (
+                vec![
+                    inet_socket("SOCK_DGRAM", "UDP:[7]"),
+                    read(fd_expr(3, "/tmp/file")),
+                ],
+                vec![created()],
+            ),
+            (
+                vec![
+                    inet_socket("SOCK_DGRAM", "UDP:[7]"),
+                    read(fd_expr(3, "pipe:[5]")),
+                ],
+                vec![created()],
+            ),
+            (
+                vec![
+                    inet_socket("SOCK_DGRAM", "UDP:[7]"),
+                    read(fd_expr(3, "TCP:[127.0.0.1:1->127.0.0.2:2]")),
+                ],
+                vec![created()],
+            ),
+            // A stream socket receives only once connected to a named peer
+            (
+                vec![inet_socket("SOCK_STREAM", "socket:[7]"), read(sock())],
+                vec![inet_activity(
+                    SocketProtocol::Tcp,
+                    NetworkActivityKind::SocketCreation,
+                    SetSpecifier::All,
+                )],
+            ),
+            // A connected socket receives only from its peer
+            (
+                vec![udp_socket(), connect_peer(), recvfrom(named_symbol("NULL"))],
+                vec![created(), connected(peer())],
+            ),
+            (
+                vec![
+                    udp_socket(),
+                    connect_peer(),
+                    recvmmsg(
+                        "recvmmsg",
+                        mmsghdrs(vec![inet_sockaddr("127.0.0.3")], true),
+                        1025,
+                    ),
+                ],
+                vec![created(), connected(peer()), received(peer())],
+            ),
+            (
+                vec![
+                    udp_socket(),
+                    connect_peer(),
+                    disconnect(),
+                    recvfrom(named_symbol("NULL")),
+                ],
+                vec![
+                    created(),
+                    connected(peer()),
+                    connected(SetSpecifier::None),
+                    received(SetSpecifier::All),
+                ],
+            ),
+            // A failed connect leaves the socket unconnected
+            (
+                vec![
+                    udp_socket(),
+                    make_failed_syscall(
+                        "connect",
+                        vec![sock(), inet_sockaddr("127.0.0.3"), int_literal(16)],
+                        "EAGAIN",
+                    ),
+                    recvfrom(named_symbol("NULL")),
+                ],
+                vec![created(), connected(peer()), received(SetSpecifier::All)],
+            ),
+        ] {
+            assert_network_activities(calls, activities);
+        }
+    }
+
+    #[test]
+    fn recv_unnamed_peer_ipv6() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let activity = |af, kind| {
+            ProgramAction::NetworkActivity(
+                NetworkActivity {
+                    af: SetSpecifier::One(af),
+                    proto: SetSpecifier::One(SocketProtocol::Udp),
+                    kind: SetSpecifier::One(kind),
+                    local_port: SetSpecifier::All,
+                    address: SetSpecifier::All,
+                }
+                .into(),
+            )
+        };
+        let created = activity(SocketFamily::Ipv6, NetworkActivityKind::SocketCreation);
+        let received = |af| activity(af, NetworkActivityKind::SendRecv);
+        for (bindv6only, activities) in [
+            // A dual-stack socket also receives from IPv4 peers
+            (
+                false,
+                vec![
+                    created.clone(),
+                    received(SocketFamily::Ipv4),
+                    received(SocketFamily::Ipv6),
+                ],
+            ),
+            (true, vec![created.clone(), received(SocketFamily::Ipv6)]),
+        ] {
+            let mut socket = make_syscall(
+                "socket",
+                vec![
+                    named_symbol("AF_INET6"),
+                    named_symbol("SOCK_DGRAM"),
+                    named_symbol("IPPROTO_IP"),
+                ],
+                3,
+            );
+            socket.ret_val.as_mut().unwrap().metadata = Some(b"socket:[7]".to_vec());
+            let syscalls = [socket, read(sock())].map(|sc| Ok(SyscallItem::Complete(Box::new(sc))));
+            assert_eq!(
+                summarize(syscalls, &[], ProgramState::new("/", bindv6only)).unwrap(),
+                [
+                    activities,
+                    vec![ProgramAction::Syscalls(
+                        ["socket".into(), "read".into()].into()
+                    )]
+                ]
+                .concat()
             );
         }
     }

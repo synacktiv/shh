@@ -868,7 +868,7 @@ mod tests {
 
     #[test]
     fn socket_details() {
-        let decorated_int = |value, details: &str| IntegerExpression {
+        let int_with_metadata = |value, details: &str| IntegerExpression {
             value: IntegerExpressionValue::Literal(value),
             metadata: Some(details.as_bytes().to_vec()),
         };
@@ -893,8 +893,8 @@ mod tests {
                     pid: 14384,
                     rel_ts: 1e-5,
                     name: "dup".into(),
-                    args: vec![Expression::Integer(decorated_int(3, details))],
-                    ret_val: Some(decorated_int(4, details)),
+                    args: vec![Expression::Integer(int_with_metadata(3, details))],
+                    ret_val: Some(int_with_metadata(4, details)),
                 }))
             );
         }

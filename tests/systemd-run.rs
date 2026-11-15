@@ -129,6 +129,9 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
     /// C program sending or receiving UDP datagrams through `sendmmsg` or `recvmmsg`
     const MMSG_UDP_SRC: &str = include_str!("mmsg_udp.c");
 
+    /// C program receiving a UDP datagram through a call naming no sender
+    const RECV_UNNAMED_PEER_SRC: &str = include_str!("recv_unnamed_peer.c");
+
     /// Path of the tested `shh` binary
     fn shh_bin() -> String {
         env::var("CARGO_BIN_EXE_shh").unwrap_or_else(|_| env!("CARGO_BIN_EXE_shh").to_owned())
@@ -266,6 +269,16 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
                 }
                 shh_opts
             })
+            .collect()
+    }
+
+    /// Build every `shh run` option set for a 32-bit program
+    fn shh_run_opts_32bit() -> Vec<Vec<&'static str>> {
+        ALL_SHH_RUN_OPTS
+            .iter()
+            // SystemCallArchitectures=native kills 32-bit programs
+            .filter(|shh_opts| !shh_opts.contains(&"aggressive"))
+            .cloned()
             .collect()
     }
 
@@ -643,12 +656,7 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
         let bin_32bit = bin_dir.path().join("mmsg_udp_32bit");
         compile_c(MMSG_UDP_SRC, &[], &bin);
         compile_c(MMSG_UDP_SRC, &["-m32"], &bin_32bit);
-        let shh_opts_sets_32bit: Vec<_> = ALL_SHH_RUN_OPTS
-            .iter()
-            // SystemCallArchitectures=native kills 32-bit programs
-            .filter(|shh_opts| !shh_opts.contains(&"aggressive"))
-            .cloned()
-            .collect();
+        let shh_opts_sets_32bit = shh_run_opts_32bit();
         let (recv_port, _sending) = send_udp_to_free_port();
         let recv_port = recv_port.to_string();
         for (program, kind, port, shh_opts_sets) in [
@@ -673,6 +681,43 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
         let recv_port = send_udp_batches_to_free_port().to_string();
         for (kind, port) in [("sendmmsg", "9"), ("recvmmsg", recv_port.as_str())] {
             profile_and_run(&[bin.to_str().unwrap(), kind, port, "1025"], false);
+        }
+    }
+
+    #[test]
+    fn systemd_run_recv_unnamed_peer() {
+        // Receive a UDP datagram from 127.0.0.2 through calls naming no sender, on a socket bound to 127.0.0.1, which
+        // 32-bit x86 programs call as recvmmsg_time64 and sendfile64
+        let bin_dir = tempfile::tempdir_in("/var/lib").unwrap();
+        let bin = bin_dir.path().join("recv_unnamed_peer");
+        let bin_32bit = bin_dir.path().join("recv_unnamed_peer_32bit");
+        compile_c(RECV_UNNAMED_PEER_SRC, &[], &bin);
+        compile_c(
+            RECV_UNNAMED_PEER_SRC,
+            &["-m32", "-D_FILE_OFFSET_BITS=64"],
+            &bin_32bit,
+        );
+        let shh_opts_sets_32bit = shh_run_opts_32bit();
+        let (port, _sending) = send_udp_to_free_port();
+        let port = port.to_string();
+        for (program, call, shh_opts_sets) in [
+            (&bin, "recvfrom", ALL_SHH_RUN_OPTS.as_slice()),
+            (&bin, "recvfrom-empty-addr", ALL_SHH_RUN_OPTS.as_slice()),
+            (&bin, "recvfrom-short-addr", ALL_SHH_RUN_OPTS.as_slice()),
+            (&bin, "recvmsg", ALL_SHH_RUN_OPTS.as_slice()),
+            (&bin, "recvmmsg", ALL_SHH_RUN_OPTS.as_slice()),
+            (&bin, "read", ALL_SHH_RUN_OPTS.as_slice()),
+            (&bin, "readv", ALL_SHH_RUN_OPTS.as_slice()),
+            (&bin, "preadv2", ALL_SHH_RUN_OPTS.as_slice()),
+            (&bin, "splice", ALL_SHH_RUN_OPTS.as_slice()),
+            (&bin, "sendfile", ALL_SHH_RUN_OPTS.as_slice()),
+            (&bin_32bit, "recvmmsg", &shh_opts_sets_32bit),
+            (&bin_32bit, "sendfile", &shh_opts_sets_32bit),
+        ] {
+            let cmd = [program.to_str().unwrap(), call, &port];
+            for sd_opts in generate_options(&cmd, shh_opts_sets) {
+                let _ = systemd_run(&cmd, &sd_opts, false);
+            }
         }
     }
 
@@ -1605,12 +1650,7 @@ else:
         compile_c(SYSCALL_32BIT_SRC, &["-m32"], &bin);
         let written = tempfile::NamedTempFile::new_in("/mnt/tmp").unwrap();
         let read = tempfile::NamedTempFile::new_in("/tmp").unwrap();
-        let shh_opts_sets: Vec<_> = ALL_SHH_RUN_OPTS
-            .iter()
-            // SystemCallArchitectures=native kills 32-bit programs
-            .filter(|shh_opts| !shh_opts.contains(&"aggressive"))
-            .cloned()
-            .collect();
+        let shh_opts_sets = shh_run_opts_32bit();
         for (kind, path) in [
             ("chown32", written.path()),
             ("fchown32", written.path()),

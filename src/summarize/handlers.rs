@@ -589,30 +589,39 @@ pub(crate) enum SockaddrArg {
     MsgHdr(usize),
     /// Array of `mmsghdr` structs, with an address per message
     MmsgHdrs(usize),
+    /// No address argument
+    None,
 }
 
 impl ExtractArg for SockaddrArg {
-    type Output<'a> = Vec<&'a Expression>;
+    /// The socket addresses, and whether the call may carry messages from addresses not among them
+    type Output<'a> = (Vec<&'a Expression>, bool);
 
-    fn extract<'a>(&self, sc: &'a Syscall) -> Result<Vec<&'a Expression>, HandlerError> {
+    fn extract<'a>(&self, sc: &'a Syscall) -> Result<Self::Output<'a>, HandlerError> {
         match self {
-            Self::Sockaddr(i) => Ok(vec![i.extract(sc)?]),
-            Self::MsgHdr(i) => Ok(vec![msg_name(i.extract(sc)?)?]),
+            Self::Sockaddr(i) => Ok((vec![i.extract(sc)?], false)),
+            Self::MsgHdr(i) => Ok((vec![msg_name(i.extract(sc)?)?], false)),
             Self::MmsgHdrs(i) => match i.extract(sc)? {
-                Expression::Collection { values, .. } => values
-                    .iter()
-                    .map(|(_, msg)| {
-                        let members = unpack_expr!(msg, Expression::Struct(members) => members);
-                        msg_name(unpack_struct_member!(members, "msg_hdr"))
-                    })
-                    .collect(),
+                Expression::Collection {
+                    values, truncated, ..
+                } => Ok((
+                    values
+                        .iter()
+                        .map(|(_, msg)| {
+                            let members = unpack_expr!(msg, Expression::Struct(members) => members);
+                            msg_name(unpack_struct_member!(members, "msg_hdr"))
+                        })
+                        .collect::<Result<_, _>>()?,
+                    *truncated,
+                )),
                 // An empty batch
                 Expression::Integer(IntegerExpression {
                     value: IntegerExpressionValue::NamedSymbol(NamedSymbol::Unambiguous(s)),
                     ..
-                }) if s == "NULL" => Ok(vec![]),
+                }) if s == "NULL" => Ok((vec![], false)),
                 other => Err(err_expr_type!(other)),
             },
+            Self::None => Ok((vec![], true)),
         }
     }
 }
@@ -636,35 +645,34 @@ impl SyscallHandler for NetworkHandler {
         actions: &mut Vec<ProgramAction>,
         state: &mut ProgramState,
     ) -> Result<(), HandlerError> {
-        // A failed receive returns no address
-        if sc.name.starts_with("recv") && !sc.is_successful() {
+        // Calls without an address argument read from their descriptor
+        let receive = sc.name.starts_with("recv") || matches!(self.sockaddr, SockaddrArg::None);
+        // A failed receive gets no message, nor its address
+        if receive && !sc.is_successful() {
             return Ok(());
         }
         let fd = self.fd.extract(sc)?;
-        for sockaddr in self.sockaddr.extract(sc)? {
-            handle_sockaddr(sc, fd, sockaddr, actions, state)?;
+        // Messages received without a decoded address, or past the printed ones, come from peers the trace does
+        // not name, while none is sent past them
+        let (sockaddrs, mut unnamed) = self.sockaddr.extract(sc)?;
+        for sockaddr in sockaddrs {
+            unnamed |= !handle_sockaddr(sc, fd, sockaddr, actions, state)?;
         }
-        // Messages received past the printed ones come from unknown peers, while none is sent past them
-        if let SockaddrArg::MmsgHdrs(i) = &self.sockaddr
-            && sc.name.starts_with("recv")
-            && let Expression::Collection {
-                truncated: true, ..
-            } = i.extract(sc)?
-        {
-            push_socket_activity(sc, fd, SetSpecifier::All, SetSpecifier::All, actions, state)?;
+        if receive && unnamed {
+            push_unnamed_peer_activity(sc, fd, actions, state)?;
         }
         Ok(())
     }
 }
 
-/// Handle a socket address of a network syscall
+/// Handle a socket address of a network syscall, and return whether the trace decodes it
 fn handle_sockaddr(
     sc: &Syscall,
     fd: &Expression,
     sockaddr: &Expression,
     actions: &mut Vec<ProgramAction>,
-    state: &ProgramState,
-) -> Result<(), HandlerError> {
+    state: &mut ProgramState,
+) -> Result<bool, HandlerError> {
     let (af_str, addr_struct) = if let Expression::Struct(members) = sockaddr {
         let af_expr = unpack_struct_member!(members, "sa_family");
         let af = unpack_expr!(
@@ -677,8 +685,15 @@ fn handle_sockaddr(
         (af.as_str(), members)
     } else {
         // No decoded socket address is available
-        return Ok(());
+        return Ok(false);
     };
+    // A connect associates the socket with a peer, or dissolves the association for an AF_UNSPEC address
+    if sc.name == "connect"
+        && sc.is_successful()
+        && let Some(info) = state.proc_fd.get_sock_info_mut(sc.pid, fd_number(fd)?)
+    {
+        info.connected = af_str != "AF_UNSPEC";
+    }
     if af_str == "AF_UNIX"
         // A peer address returned by other calls is not looked up
         && matches!(sc.name.as_str(), "bind" | "connect" | "sendto" | "sendmsg" | "sendmmsg")
@@ -728,6 +743,8 @@ fn handle_sockaddr(
                 _ => unreachable!(),
             }
         }
+        // An address buffer too short for the IP address
+        None if matches!(af_str, "AF_INET" | "AF_INET6") => return Ok(false),
         _ => SetSpecifier::None,
     };
 
@@ -769,7 +786,8 @@ fn handle_sockaddr(
         SetSpecifier::All
     };
 
-    push_socket_activity(sc, fd, local_port, ip_addr, actions, state)
+    push_socket_activity(sc, fd, local_port, ip_addr, actions, state)?;
+    Ok(true)
 }
 
 /// Record the network activity of a syscall on a socket
@@ -781,17 +799,7 @@ fn push_socket_activity(
     actions: &mut Vec<ProgramAction>,
     state: &ProgramState,
 ) -> Result<(), HandlerError> {
-    let fd_val = unpack_expr!(
-        fd,
-        Expression::Integer(IntegerExpression {
-            value: IntegerExpressionValue::Literal(fd_val),
-            ..
-        }) => fd_val
-    );
-    let fd_raw =
-        TryInto::<RawFd>::try_into(*fd_val).map_err(|_| err_value!(*fd_val, i64 => RawFd))?;
-
-    if let Some(info) = state.proc_fd.get_sock_info(sc.pid, fd_raw) {
+    if let Some(info) = state.proc_fd.get_sock_info(sc.pid, fd_number(fd)?) {
         let activity = NetworkActivity {
             af: SetSpecifier::One(info.af.family()),
             proto: SetSpecifier::One(info.proto.clone()),
@@ -818,6 +826,45 @@ fn push_socket_activity(
     }
 
     Ok(())
+}
+
+/// Record a receive from any peer, on a socket whose peers the trace may not name
+fn push_unnamed_peer_activity(
+    sc: &Syscall,
+    fd: &Expression,
+    actions: &mut Vec<ProgramAction>,
+    state: &ProgramState,
+) -> Result<(), HandlerError> {
+    let label = fd.metadata().map(fd_label);
+    if state
+        .proc_fd
+        .get_sock_info(sc.pid, fd_number(fd)?)
+        .is_some_and(|info| {
+            // Another file may reuse the descriptor number of a closed socket
+            info.label.as_deref() == label
+                // Stream and connected sockets receive only from their peer
+                && info.proto != SocketProtocol::Tcp
+                && !info.connected
+        })
+    {
+        push_socket_activity(sc, fd, SetSpecifier::All, SetSpecifier::All, actions, state)?;
+    }
+    Ok(())
+}
+
+/// Get the number of a descriptor argument
+fn fd_number(fd: &Expression) -> Result<RawFd, HandlerError> {
+    let fd = unpack_expr!(fd, Expression::Integer(fd) => fd);
+    let value = fd.value().ok_or_else(|| err_value!(fd, RawFd))?;
+    RawFd::try_from(value).map_err(|_| err_value!(value, i64 => RawFd))
+}
+
+/// Get the label of descriptor metadata, its part before any bracketed details
+fn fd_label(metadata: &[u8]) -> &[u8] {
+    metadata
+        .windows(2)
+        .position(|w| w == b":[")
+        .map_or(metadata, |i| metadata.split_at(i).0)
 }
 
 /// Handle open-like syscalls
@@ -1186,6 +1233,8 @@ impl SyscallHandler for SocketHandler {
                 SocketInfo {
                     proto: proto.clone(),
                     af: af.clone().into(),
+                    connected: false,
+                    label: ret_val.metadata.as_deref().map(|m| fd_label(m).to_vec()),
                 },
             );
         }
@@ -1247,13 +1296,7 @@ impl SyscallHandler for SetsockoptHandler {
         }
 
         // Extract fd value
-        let fd_value =
-            unpack_expr!(fd, Expression::Integer(IntegerExpression { value, .. }) => value);
-        let fd_val = fd_value
-            .value()
-            .ok_or_else(|| err_value!(fd_value, RawFd))?;
-        let fd_raw =
-            TryInto::<RawFd>::try_into(fd_val).map_err(|_| err_value!(fd_val, i64 => RawFd))?;
+        let fd_raw = fd_number(fd)?;
 
         // Extract optval from collection like [0] or [1]
         let values = unpack_expr!(
@@ -2939,6 +2982,8 @@ x86_Thread_features_locked:
             Some(SocketInfo {
                 proto: SocketProtocol::Tcp,
                 af: SocketAfInfo::Ipv4,
+                connected: false,
+                label: None,
             })
             .as_ref()
         );
@@ -2978,6 +3023,8 @@ x86_Thread_features_locked:
             Some(SocketInfo {
                 proto: SocketProtocol::Udp,
                 af: SocketAfInfo::Ipv6 { v6only: None },
+                connected: false,
+                label: None,
             })
             .as_ref()
         );
@@ -3601,6 +3648,8 @@ x86_Thread_features_locked:
             Some(&SocketInfo {
                 proto: SocketProtocol::Tcp,
                 af: SocketAfInfo::Ipv4,
+                connected: false,
+                label: None,
             })
         );
     }
@@ -4324,6 +4373,8 @@ x86_Thread_features_locked:
             SocketInfo {
                 proto: SocketProtocol::Tcp,
                 af: SocketAfInfo::Ipv6 { v6only: None },
+                connected: false,
+                label: None,
             },
         );
     }
@@ -4367,6 +4418,8 @@ x86_Thread_features_locked:
             Some(SocketInfo {
                 proto: SocketProtocol::Tcp,
                 af: SocketAfInfo::Ipv6 { v6only: Some(true) },
+                connected: false,
+                label: None,
             })
             .as_ref()
         );
@@ -4395,6 +4448,8 @@ x86_Thread_features_locked:
                 af: SocketAfInfo::Ipv6 {
                     v6only: Some(false)
                 },
+                connected: false,
+                label: None,
             })
             .as_ref()
         );
@@ -4422,6 +4477,8 @@ x86_Thread_features_locked:
             Some(SocketInfo {
                 proto: SocketProtocol::Tcp,
                 af: SocketAfInfo::Ipv6 { v6only: None },
+                connected: false,
+                label: None,
             })
             .as_ref()
         );
