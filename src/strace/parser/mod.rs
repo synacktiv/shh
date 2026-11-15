@@ -198,6 +198,7 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
+    use crate::strace::IntegerExpressionValue;
 
     macro_rules! assert_snapshot {
         ($e:expr) => {
@@ -863,6 +864,40 @@ mod tests {
             )
             .unwrap()
         );
+    }
+
+    #[test]
+    fn socket_details() {
+        let decorated_int = |value, details: &str| IntegerExpression {
+            value: IntegerExpressionValue::Literal(value),
+            metadata: Some(details.as_bytes().to_vec()),
+        };
+        for details in [
+            "UDP:[4951101]",
+            "UDP:[127.0.0.1:41021]",
+            "TCP:[127.0.0.1:41022->127.0.0.2:54817]",
+            "TCPv6:[[::]:35791]",
+            "TCPv6:[[::ffff:127.0.0.1]:35791->[::ffff:127.0.0.3]:35299]",
+            r#"UNIX-STREAM:[4913847,"\x2f\x74\x6d\x70\x2f\x73"]"#,
+            r#"UNIX-STREAM:[4913849->4913848,"\x2f\x74\x6d\x70\x2f\x73"]"#,
+            "NETLINK:[ROUTE:917]",
+            "L2TP/IP:[4951101]",
+        ] {
+            assert_eq!(
+                parse_line(
+                    &format!("14384      0.000010 dup(3<{details}>) = 4<{details}>"),
+                    &HashSet::from(["dup"]),
+                )
+                .unwrap(),
+                ParseLineResult::Parsed(ParsedSyscall::Syscall(Syscall {
+                    pid: 14384,
+                    rel_ts: 1e-5,
+                    name: "dup".into(),
+                    args: vec![Expression::Integer(decorated_int(3, details))],
+                    ret_val: Some(decorated_int(4, details)),
+                }))
+            );
+        }
     }
 }
 

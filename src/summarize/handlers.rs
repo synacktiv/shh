@@ -1290,8 +1290,8 @@ impl SyscallHandler for SetsockoptHandler {
 
 /// Push the actions to reach the path of a file descriptor, and return that path
 fn fd_path(fd: &Expression, actions: &mut Vec<ProgramAction>, cur_dir: &Path) -> Option<PathBuf> {
-    let path = Path::new(OsStr::from_bytes(fd.metadata()?));
-    let mut path = resolve_path(path, None, cur_dir)?;
+    let metadata = fd.metadata().filter(|m| !is_fd_pseudo_path(m))?;
+    let mut path = resolve_path(Path::new(OsStr::from_bytes(metadata)), None, cur_dir)?;
     traverse_path(&mut path, true, actions);
     Some(path)
 }
@@ -1638,9 +1638,6 @@ fn lookup_dir(relfd: Option<&Expression>, cur_dir: &Path) -> Option<PathBuf> {
 
 /// Make a path absolute if possible, normalizing its separators and `.` components but not its `..` components
 fn resolve_path(path: &Path, relfd: Option<&Expression>, cur_dir: &Path) -> Option<PathBuf> {
-    if is_pseudo_path(path) {
-        return None;
-    }
     let path = if path.is_relative() {
         lookup_dir(relfd, cur_dir)?.join(path)
     } else {
@@ -1733,16 +1730,23 @@ pub(crate) fn traverse_path_within(
     actions.extend(walk_actions);
 }
 
-fn is_fd_pseudo_path(path: &[u8]) -> bool {
+/// Tell whether fd metadata names no file of the filesystem tree
+fn is_fd_pseudo_path(metadata: &[u8]) -> bool {
     #[expect(clippy::unwrap_used)]
-    static FD_PSEUDO_PATH_REGEX_BYTES: LazyLock<regex::bytes::Regex> = LazyLock::new(|| {
-        regex::bytes::Regex::new(r"^(?:[a-z]+:\[[0-9a-z]+\]/?$|/memfd:)").unwrap()
+    static SOCKET_DETAILS_REGEX_BYTES: LazyLock<regex::bytes::Regex> = LazyLock::new(|| {
+        regex::bytes::Regex::new(r"(?s-u)^[0-9A-Za-z][0-9A-Za-z/-]*:\[.*\]$").unwrap()
     });
-    FD_PSEUDO_PATH_REGEX_BYTES.is_match(path)
+    is_pseudo_path(Path::new(OsStr::from_bytes(metadata)))
+        || SOCKET_DETAILS_REGEX_BYTES.is_match(metadata)
 }
 
+/// Tell whether a path is the kernel's name for a file outside the filesystem tree
 fn is_pseudo_path(path: &Path) -> bool {
-    is_fd_pseudo_path(path.as_os_str().as_bytes())
+    #[expect(clippy::unwrap_used)]
+    static PSEUDO_PATH_REGEX_BYTES: LazyLock<regex::bytes::Regex> = LazyLock::new(|| {
+        regex::bytes::Regex::new(r"^(?:[a-z]+:\[[0-9a-z]+\]/?$|/memfd:)").unwrap()
+    });
+    PSEUDO_PATH_REGEX_BYTES.is_match(path.as_os_str().as_bytes())
 }
 
 /// Parse ELF and return interpreter path if we can
@@ -1824,6 +1828,7 @@ pub(crate) mod tests {
         assert!(!is_fd_pseudo_path("plop".as_bytes()));
         assert!(is_fd_pseudo_path("pipe:[12334]".as_bytes()));
         assert!(is_fd_pseudo_path("socket:[1234]/".as_bytes()));
+        assert!(!is_fd_pseudo_path("/srv/data:[1234]".as_bytes()));
     }
 
     #[test]
@@ -2082,11 +2087,11 @@ x86_Thread_features_locked:
         })
     }
 
-    // Helper to create a descriptor expression with path metadata
-    pub(crate) fn fd_expr(fd: i64, path: impl AsRef<OsStr>) -> Expression {
+    // Helper to create a descriptor expression with metadata
+    pub(crate) fn fd_expr(fd: i64, metadata: impl AsRef<OsStr>) -> Expression {
         Expression::Integer(IntegerExpression {
             value: IntegerExpressionValue::Literal(fd),
-            metadata: Some(path.as_ref().as_bytes().to_vec()),
+            metadata: Some(metadata.as_ref().as_bytes().to_vec()),
         })
     }
 
@@ -3986,15 +3991,26 @@ x86_Thread_features_locked:
     }
 
     #[test]
-    fn stat_fd_handler_no_metadata() {
+    fn stat_fd_handler_no_path() {
         let handler = StatFdHandler { fd: 0 };
-        let sc = make_syscall("fstat", vec![int_literal(3)], 0);
-        let mut actions = vec![];
-        let mut state = program_state();
+        for fd in [
+            int_literal(3),
+            fd_expr(3, "UDP:[4951101]"),
+            fd_expr(3, "TCP:[127.0.0.1:41022->127.0.0.2:54817]"),
+            fd_expr(
+                3,
+                r#"UNIX-STREAM:[4913849->4913848,"\x2f\x74\x6d\x70\x2f\x73"]"#,
+            ),
+            fd_expr(3, "L2TP/IP:[4951101]"),
+        ] {
+            let sc = make_syscall("fstat", vec![fd], 0);
+            let mut actions = vec![];
+            let mut state = program_state();
 
-        let result = handler.handle(&sc, &mut actions, &mut state);
-        assert!(result.is_ok());
-        assert!(actions.is_empty());
+            let result = handler.handle(&sc, &mut actions, &mut state);
+            assert!(result.is_ok());
+            assert!(actions.is_empty());
+        }
     }
 
     #[test]
@@ -4274,11 +4290,14 @@ x86_Thread_features_locked:
         );
     }
 
-    // Pseudo path (eg pipe:[12345]) returns None
+    // A pathname shaped like a pseudo file (eg pipe:[12345]) is a relative path
     #[test]
-    fn resolve_pseudo_path() {
+    fn resolve_pseudo_file_name() {
         let path = FdOrPath::Path(&buf_expr(b"pipe:[12345]"));
-        assert_eq!(path.resolve(Path::new("/")).unwrap(), None);
+        assert_eq!(
+            path.resolve(Path::new("/")).unwrap(),
+            Some(PathBuf::from("/pipe:[12345]"))
+        );
     }
 
     // Fd with pipe pseudo metadata returns None

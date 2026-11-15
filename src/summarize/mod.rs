@@ -1446,6 +1446,24 @@ mod tests {
     }
 
     #[test]
+    fn creat_creates_pseudo_file_name() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let syscalls = [Ok(syscall(
+            "creat",
+            vec![buf_expr(b"backup:[20261115]"), int_literal(0o644)],
+        ))];
+        assert_eq!(
+            summarize(syscalls, &[], program_state()).unwrap(),
+            vec![
+                ProgramAction::Create("/backup:[20261115]".into()),
+                ProgramAction::Write("/backup:[20261115]".into()),
+                ProgramAction::Syscalls(["creat".into()].into()),
+            ]
+        );
+    }
+
+    #[test]
     fn openat2_actions_follow_flags() {
         let _ = simple_logger::SimpleLogger::new().init();
 

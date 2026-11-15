@@ -11,7 +11,7 @@ use nom::{
         self, alpha1, alphanumeric1, char, digit1, hex_digit1, none_of, oct_digit1, space1,
     },
     combinator::{map, map_opt, map_res, opt, peek, recognize, rest, value, verify},
-    multi::{count, many_till, many0_count, separated_list0, separated_list1},
+    multi::{count, many_till, many0, many0_count, separated_list0, separated_list1},
     number::complete::double,
     sequence::{delimited, pair, preceded, separated_pair, terminated},
 };
@@ -770,8 +770,21 @@ fn parse_int_metadata(i: &str) -> IResult<&str, Option<Vec<u8>>> {
     dbg_parser_entry!(i);
     opt(delimited(
         char('<'),
-        map(many_till(parse_buffer_byte, char('>')), |r| r.0),
-        opt(tag("(deleted)")),
+        alt((
+            // Socket details, printed unescaped
+            map(
+                recognize((
+                    alphanumeric1,
+                    many0_count(alt((alphanumeric1, tag("/"), tag("-")))),
+                    tag(":["),
+                    take_until("]>"),
+                    char(']'),
+                )),
+                |s: &str| s.as_bytes().to_vec(),
+            ),
+            many0(parse_buffer_byte),
+        )),
+        (char('>'), opt(tag("(deleted)"))),
     ))
     .parse(i)
     .inspect(|r| dbg_parser_success!(r))
@@ -1198,5 +1211,11 @@ mod tests {
             skip_args("(5<...>, [{nlmsg_len=36, nlmsg_type=NLMSG_ERROR, nlmsg_flags=NLM_F_CAPPED}, {error=0, msg={nlmsg_len=40, nlmsg_type=0x14 /* NLMSG_??? */, nlmsg_flags=NLM_F_REQUEST|NLM_F_ACK|0x600}}], 1024, 0, NULL, NULL) ").unwrap(),
             ("", ())
         );
+    }
+
+    #[test]
+    fn parse_int_metadata_left_shift() {
+        let input = "<<3, 5<UDP:[127.0.0.1:41021]>";
+        assert_eq!(parse_int_metadata(input).unwrap(), (input, None));
     }
 }
