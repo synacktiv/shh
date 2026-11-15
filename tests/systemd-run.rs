@@ -10,10 +10,13 @@ mod tests {
         io::{BufRead as _, Write as _},
         iter,
         net::{TcpListener, UdpSocket},
-        os::unix::{
-            self,
-            fs::{FileTypeExt as _, PermissionsExt as _},
-            net::{UnixDatagram, UnixListener},
+        os::{
+            fd::AsRawFd as _,
+            unix::{
+                self,
+                fs::{FileTypeExt as _, PermissionsExt as _},
+                net::{UnixDatagram, UnixListener},
+            },
         },
         path::Path,
         process,
@@ -26,7 +29,10 @@ mod tests {
         Command,
         assert::{Assert, OutputAssertExt as _},
     };
-    use nix::{sys::stat, unistd};
+    use nix::{
+        sys::{socket, stat},
+        unistd,
+    };
     use predicates::prelude::predicate;
 
     static ALL_SHH_RUN_OPTS: LazyLock<Vec<Vec<&'static str>>> = LazyLock::new(all_shh_run_opts);
@@ -129,7 +135,7 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
     /// C program sending or receiving UDP datagrams through `sendmmsg` or `recvmmsg`
     const MMSG_UDP_SRC: &str = include_str!("mmsg_udp.c");
 
-    /// C program receiving a UDP datagram through a call naming no sender
+    /// C program waiting for incoming traffic through a call naming no peer
     const RECV_UNNAMED_PEER_SRC: &str = include_str!("recv_unnamed_peer.c");
 
     /// Path of the tested `shh` binary
@@ -156,9 +162,9 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
         let bin = shh_bin();
         let profile_dir = tempfile::tempdir().unwrap();
         let profile = profile_dir.path().join("profile");
+        // Socket addresses are decoded with network firewalling, as when profiling a service
         Command::new(&bin)
-            .arg("run")
-            .arg("-p")
+            .args(["run", "-f", "-p"])
             .arg(&profile)
             .arg("--")
             .args(cmd)
@@ -303,6 +309,34 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
         thread::spawn(move || {
             while stopped.recv_timeout(WRITE_INTERVAL) == Err(mpsc::RecvTimeoutError::Timeout) {
                 socket.send_to(b"x", ("127.0.0.1", port)).unwrap();
+            }
+        });
+        (port, stop)
+    }
+
+    /// Connect over TCP from 127.0.0.2 to a free port of 127.0.0.1 every `WRITE_INTERVAL`, closing each connection
+    /// without a reset, until the returned sender is dropped
+    fn connect_tcp_to_free_port() -> (u16, mpsc::Sender<()>) {
+        let port = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let src = socket::SockaddrIn::new(127, 0, 0, 2, 0);
+        let dst = socket::SockaddrIn::new(127, 0, 0, 1, port);
+        let (stop, stopped) = mpsc::channel();
+        thread::spawn(move || {
+            while stopped.recv_timeout(WRITE_INTERVAL) == Err(mpsc::RecvTimeoutError::Timeout) {
+                let sock = socket::socket(
+                    socket::AddressFamily::Inet,
+                    socket::SockType::Stream,
+                    socket::SockFlag::empty(),
+                    None,
+                )
+                .unwrap();
+                socket::bind(sock.as_raw_fd(), &src).unwrap();
+                // Refused while nothing listens
+                let _ = socket::connect(sock.as_raw_fd(), &dst);
             }
         });
         (port, stop)
@@ -686,7 +720,7 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
 
     #[test]
     fn systemd_run_recv_unnamed_peer() {
-        // Receive a UDP datagram from 127.0.0.2 through calls naming no sender, on a socket bound to 127.0.0.1, which
+        // Wait for incoming traffic from 127.0.0.2 through calls naming no peer, on a socket bound to 127.0.0.1, which
         // 32-bit x86 programs call as recvmmsg_time64 and sendfile64
         let bin_dir = tempfile::tempdir_in("/var/lib").unwrap();
         let bin = bin_dir.path().join("recv_unnamed_peer");
@@ -698,26 +732,70 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
             &bin_32bit,
         );
         let shh_opts_sets_32bit = shh_run_opts_32bit();
-        let (port, _sending) = send_udp_to_free_port();
-        let port = port.to_string();
-        for (program, call, shh_opts_sets) in [
-            (&bin, "recvfrom", ALL_SHH_RUN_OPTS.as_slice()),
-            (&bin, "recvfrom-empty-addr", ALL_SHH_RUN_OPTS.as_slice()),
-            (&bin, "recvfrom-short-addr", ALL_SHH_RUN_OPTS.as_slice()),
-            (&bin, "recvmsg", ALL_SHH_RUN_OPTS.as_slice()),
-            (&bin, "recvmmsg", ALL_SHH_RUN_OPTS.as_slice()),
-            (&bin, "read", ALL_SHH_RUN_OPTS.as_slice()),
-            (&bin, "readv", ALL_SHH_RUN_OPTS.as_slice()),
-            (&bin, "preadv2", ALL_SHH_RUN_OPTS.as_slice()),
-            (&bin, "splice", ALL_SHH_RUN_OPTS.as_slice()),
-            (&bin, "sendfile", ALL_SHH_RUN_OPTS.as_slice()),
-            (&bin_32bit, "recvmmsg", &shh_opts_sets_32bit),
-            (&bin_32bit, "sendfile", &shh_opts_sets_32bit),
+        let (udp_port, _sending) = send_udp_to_free_port();
+        let udp_port = udp_port.to_string();
+        let (tcp_port, _connecting) = connect_tcp_to_free_port();
+        let tcp_port = tcp_port.to_string();
+        for (program, call, port, shh_opts_sets) in [
+            (&bin, "recvfrom", &udp_port, ALL_SHH_RUN_OPTS.as_slice()),
+            (
+                &bin,
+                "recvfrom-empty-addr",
+                &udp_port,
+                ALL_SHH_RUN_OPTS.as_slice(),
+            ),
+            (
+                &bin,
+                "recvfrom-short-addr",
+                &udp_port,
+                ALL_SHH_RUN_OPTS.as_slice(),
+            ),
+            (&bin, "recvmsg", &udp_port, ALL_SHH_RUN_OPTS.as_slice()),
+            (&bin, "recvmmsg", &udp_port, ALL_SHH_RUN_OPTS.as_slice()),
+            (&bin, "read", &udp_port, ALL_SHH_RUN_OPTS.as_slice()),
+            (&bin, "readv", &udp_port, ALL_SHH_RUN_OPTS.as_slice()),
+            (&bin, "preadv2", &udp_port, ALL_SHH_RUN_OPTS.as_slice()),
+            (&bin, "splice", &udp_port, ALL_SHH_RUN_OPTS.as_slice()),
+            (&bin, "sendfile", &udp_port, ALL_SHH_RUN_OPTS.as_slice()),
+            (&bin, "accept", &tcp_port, ALL_SHH_RUN_OPTS.as_slice()),
+            (&bin, "accept4", &tcp_port, ALL_SHH_RUN_OPTS.as_slice()),
+            (&bin_32bit, "recvmmsg", &udp_port, &shh_opts_sets_32bit),
+            (&bin_32bit, "sendfile", &udp_port, &shh_opts_sets_32bit),
         ] {
-            let cmd = [program.to_str().unwrap(), call, &port];
-            for sd_opts in generate_options(&cmd, shh_opts_sets) {
+            let cmd = [program.to_str().unwrap(), call, port];
+            for (shh_opts, sd_opts) in
+                iter::zip(shh_opts_sets, generate_options(&cmd, shh_opts_sets))
+            {
+                // The peer of an accepted connection is named, not allowed with any other address
+                if call.starts_with("accept") && shh_opts.contains(&"-f") {
+                    assert!(sd_opts.contains(&"IPAddressAllow=127.0.0.1 127.0.0.2".to_owned()));
+                }
                 let _ = systemd_run(&cmd, &sd_opts, false);
             }
+        }
+    }
+
+    #[test]
+    fn shh_run_decode_sockets() {
+        // Socket addresses are decoded with network firewalling only
+        let log_dir = tempfile::tempdir().unwrap();
+        for (shh_opts, decoded) in [(vec![], false), (vec!["-f"], true)] {
+            let log = log_dir.path().join(format!("{decoded}.log"));
+            Command::new(shh_bin())
+                .arg("run")
+                .args(shh_opts)
+                .arg("-l")
+                .arg(&log)
+                .args([
+                    "--",
+                    "python3",
+                    "-c",
+                    "import socket; socket.socket().bind(('127.0.0.1', 0))",
+                ])
+                .unwrap();
+            let trace = fs::read_to_string(&log).unwrap();
+            assert!(trace.contains(" bind("));
+            assert_eq!(trace.contains("<TCP:["), decoded);
         }
     }
 

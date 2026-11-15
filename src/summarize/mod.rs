@@ -3792,15 +3792,16 @@ mod tests {
         make_syscall("read", vec![fd, buf_expr(b"x"), int_literal(16)], 1)
     }
 
-    /// Build the activity of an `AF_INET` socket on any local port
-    fn inet_activity(
+    /// Build the activity of a socket on any local port
+    fn network_activity(
+        af: SocketFamily,
         proto: SocketProtocol,
         kind: NetworkActivityKind,
         address: SetSpecifier<NetworkAddress>,
     ) -> ProgramAction {
         ProgramAction::NetworkActivity(
             NetworkActivity {
-                af: SetSpecifier::One(SocketFamily::Ipv4),
+                af: SetSpecifier::One(af),
                 proto: SetSpecifier::One(proto),
                 kind: SetSpecifier::One(kind),
                 local_port: SetSpecifier::All,
@@ -3808,6 +3809,15 @@ mod tests {
             }
             .into(),
         )
+    }
+
+    /// Build the activity of an `AF_INET` socket on any local port
+    fn inet_activity(
+        proto: SocketProtocol,
+        kind: NetworkActivityKind,
+        address: SetSpecifier<NetworkAddress>,
+    ) -> ProgramAction {
+        network_activity(SocketFamily::Ipv4, proto, kind, address)
     }
 
     /// Summarize calls, and check their actions are network activities followed by the names of the calls
@@ -4068,18 +4078,8 @@ mod tests {
     fn recv_unnamed_peer_ipv6() {
         let _ = simple_logger::SimpleLogger::new().init();
 
-        let activity = |af, kind| {
-            ProgramAction::NetworkActivity(
-                NetworkActivity {
-                    af: SetSpecifier::One(af),
-                    proto: SetSpecifier::One(SocketProtocol::Udp),
-                    kind: SetSpecifier::One(kind),
-                    local_port: SetSpecifier::All,
-                    address: SetSpecifier::All,
-                }
-                .into(),
-            )
-        };
+        let activity =
+            |af, kind| network_activity(af, SocketProtocol::Udp, kind, SetSpecifier::All);
         let created = activity(SocketFamily::Ipv6, NetworkActivityKind::SocketCreation);
         let received = |af| activity(af, NetworkActivityKind::SendRecv);
         for (bindv6only, activities) in [
@@ -4116,5 +4116,141 @@ mod tests {
                 .concat()
             );
         }
+    }
+
+    #[test]
+    fn accept_unnamed_peer() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let null = || named_symbol("NULL");
+        let pointer = || int_literal(0x7ffc_9a69_7f90);
+        let fd =
+            |metadata: Option<&str>| metadata.map_or_else(|| int_literal(3), |m| fd_expr(3, m));
+        let socket = |af: &str, metadata: Option<&str>| {
+            let mut sc = make_syscall(
+                "socket",
+                vec![
+                    named_symbol(af),
+                    named_symbol("SOCK_STREAM"),
+                    named_symbol("IPPROTO_IP"),
+                ],
+                3,
+            );
+            sc.ret_val.as_mut().unwrap().metadata = metadata.map(|m| m.as_bytes().to_vec());
+            sc
+        };
+        let activity = |af, kind, address| network_activity(af, SocketProtocol::Tcp, kind, address);
+        let created = |af| activity(af, NetworkActivityKind::SocketCreation, SetSpecifier::All);
+        let accepted = |af, address| activity(af, NetworkActivityKind::Accept, address);
+        let ip = |addr: &str| SetSpecifier::One(addr.parse::<IpAddr>().unwrap().into());
+        for (af, created_metadata, listening, peer, activities) in [
+            (
+                "AF_INET",
+                Some("TCP:[7]"),
+                Some("TCP:[127.0.0.1:41022]"),
+                Some("TCP:[127.0.0.1:41022->127.0.0.2:54817]"),
+                vec![accepted(SocketFamily::Ipv4, ip("127.0.0.2"))],
+            ),
+            (
+                "AF_INET6",
+                Some("TCPv6:[7]"),
+                Some("TCPv6:[[::]:35791]"),
+                Some("TCPv6:[[::1]:35791->[::1]:59754]"),
+                vec![accepted(SocketFamily::Ipv6, ip("::1"))],
+            ),
+            // A dual-stack socket accepting an IPv4 peer
+            (
+                "AF_INET6",
+                Some("TCPv6:[7]"),
+                Some("TCPv6:[[::]:35791]"),
+                Some("TCPv6:[[::ffff:127.0.0.1]:35791->[::ffff:127.0.0.3]:35299]"),
+                vec![
+                    accepted(SocketFamily::Ipv4, ip("127.0.0.3")),
+                    accepted(SocketFamily::Ipv6, ip("::ffff:127.0.0.3")),
+                ],
+            ),
+            // Accepted sockets whose metadata names no peer
+            (
+                "AF_INET6",
+                Some("TCPv6:[7]"),
+                Some("TCPv6:[[::]:35791]"),
+                Some("TCPv6:[4913846]"),
+                vec![
+                    accepted(SocketFamily::Ipv4, SetSpecifier::All),
+                    accepted(SocketFamily::Ipv6, SetSpecifier::All),
+                ],
+            ),
+            (
+                "AF_INET",
+                Some("socket:[7]"),
+                Some("socket:[7]"),
+                Some("socket:[6]"),
+                vec![accepted(SocketFamily::Ipv4, SetSpecifier::All)],
+            ),
+            (
+                "AF_UNIX",
+                Some("UNIX-STREAM:[7]"),
+                Some("UNIX-STREAM:[7]"),
+                Some("UNIX-STREAM:[55->54]"),
+                vec![accepted(
+                    SocketFamily::Other("AF_UNIX".to_owned()),
+                    SetSpecifier::All,
+                )],
+            ),
+            (
+                "AF_INET",
+                None,
+                None,
+                None,
+                vec![accepted(SocketFamily::Ipv4, SetSpecifier::All)],
+            ),
+            // Another socket reusing the descriptor number of the listening one
+            (
+                "AF_INET",
+                Some("TCP:[7]"),
+                Some("UNIX-STREAM:[8]"),
+                Some("UNIX-STREAM:[9->8]"),
+                vec![],
+            ),
+        ] {
+            for (name, mut args) in [
+                ("accept", vec![null(), null()]),
+                // An address buffer of zero length
+                ("accept", vec![pointer(), pointer()]),
+                (
+                    "accept4",
+                    vec![null(), null(), named_symbol("SOCK_CLOEXEC")],
+                ),
+                (
+                    "accept4",
+                    vec![pointer(), pointer(), named_symbol("SOCK_CLOEXEC")],
+                ),
+            ] {
+                args.insert(0, fd(listening));
+                let mut call = make_syscall(name, args, 4);
+                call.ret_val.as_mut().unwrap().metadata = peer.map(|m| m.as_bytes().to_vec());
+                assert_network_activities(
+                    vec![socket(af, created_metadata), call],
+                    [vec![created(af.parse().unwrap())], activities.clone()].concat(),
+                );
+            }
+        }
+        // A failed accept returns no socket
+        assert_network_activities(
+            vec![
+                socket("AF_INET", Some("TCP:[7]")),
+                make_failed_syscall(
+                    "accept4",
+                    vec![
+                        fd(Some("TCP:[127.0.0.1:41022]")),
+                        null(),
+                        null(),
+                        named_symbol("SOCK_CLOEXEC"),
+                    ],
+                    "EAGAIN",
+                ),
+            ],
+            vec![created(SocketFamily::Ipv4)],
+        );
     }
 }

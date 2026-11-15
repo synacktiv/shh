@@ -24,7 +24,12 @@ pub(crate) struct Strace {
 }
 
 impl Strace {
-    pub(crate) fn run(command: &[&str], log_path: Option<PathBuf>) -> anyhow::Result<Self> {
+    /// Start tracing a command, decoding the addresses of its sockets if `decode_sockets` is set
+    pub(crate) fn run(
+        command: &[&str],
+        log_path: Option<PathBuf>,
+        decode_sockets: bool,
+    ) -> anyhow::Result<Self> {
         // Create named pipe in runtime directory or a temp dir
         let mut pipe_path_builder = tempfile::Builder::new();
         pipe_path_builder.prefix("strace_").suffix(".pipe");
@@ -56,7 +61,11 @@ impl Strace {
                 // "-e",
                 // "write=all",
                 "-e",
-                "decode-fds=path",
+                if decode_sockets {
+                    "decode-fds=path,socket"
+                } else {
+                    "decode-fds=path"
+                },
                 "--output-append-mode",
                 "-o",
                 #[expect(clippy::unwrap_used)]

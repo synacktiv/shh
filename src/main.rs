@@ -132,7 +132,7 @@ fn main() -> anyhow::Result<()> {
             // Run strace
             let cmd = command.iter().map(|a| &**a).collect::<Vec<&str>>();
             let st = Arc::new(
-                strace::Strace::run(&cmd, strace_log_path)
+                strace::Strace::run(&cmd, strace_log_path, hardening_opts.network_firewalling)
                     .context("Failed to setup strace profiling")?,
             );
 

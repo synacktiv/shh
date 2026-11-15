@@ -1,5 +1,5 @@
-/* Receive a UDP datagram on a port of 127.0.0.1 through a call naming no sender, failing after 5 seconds without
- * one */
+/* Wait for incoming traffic on a port of 127.0.0.1 through a call naming no peer, failing after 5 seconds
+ * without any */
 
 #define _GNU_SOURCE
 #include <arpa/inet.h>
@@ -17,9 +17,15 @@ int main(int argc, char *argv[]) {
         errx(2, "Usage: %s CALL PORT", argv[0]);
     }
     const char *call = argv[1];
-    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    int stream = strncmp(call, "accept", strlen("accept")) == 0;
+    int fd = socket(AF_INET, stream ? SOCK_STREAM : SOCK_DGRAM, 0);
     if (fd == -1) {
         err(1, "socket");
+    }
+    /* Binds the port of a previous run whose connection is still closing */
+    int reuse = 1;
+    if (stream && setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) == -1) {
+        err(1, "setsockopt");
     }
     struct sockaddr_in addr = {
         .sin_family = AF_INET,
@@ -28,6 +34,9 @@ int main(int argc, char *argv[]) {
     };
     if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
         err(1, "bind");
+    }
+    if (stream && listen(fd, 1) == -1) {
+        err(1, "listen");
     }
     /* Terminates the process */
     alarm(5);
@@ -68,6 +77,10 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(call, "sendfile") == 0) {
         /* A pipe, the only output of a socket input */
         ret = sendfile(pipe_fds[1], fd, NULL, sizeof(buf));
+    } else if (strcmp(call, "accept") == 0) {
+        ret = accept(fd, NULL, NULL);
+    } else if (strcmp(call, "accept4") == 0) {
+        ret = accept4(fd, NULL, NULL, SOCK_CLOEXEC);
     } else {
         errx(2, "Unknown call %s", call);
     }

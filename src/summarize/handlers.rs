@@ -7,7 +7,7 @@ use std::{
     ffi::OsStr,
     fs::{self, File},
     io::{BufRead as _, BufReader, Read},
-    net::IpAddr,
+    net::{IpAddr, SocketAddr},
     os::{
         fd::RawFd,
         unix::{ffi::OsStrExt as _, fs::FileTypeExt as _},
@@ -647,19 +647,37 @@ impl SyscallHandler for NetworkHandler {
     ) -> Result<(), HandlerError> {
         // Calls without an address argument read from their descriptor
         let receive = sc.name.starts_with("recv") || matches!(self.sockaddr, SockaddrArg::None);
-        // A failed receive gets no message, nor its address
-        if receive && !sc.is_successful() {
+        let accept = sc.name.starts_with("accept");
+        // A failed call gets no incoming traffic, nor its address
+        if (receive || accept) && !sc.is_successful() {
             return Ok(());
         }
         let fd = self.fd.extract(sc)?;
-        // Messages received without a decoded address, or past the printed ones, come from peers the trace does
-        // not name, while none is sent past them
+        // Incoming traffic without a decoded address, or past the printed addresses, comes from peers the arguments
+        // do not name
         let (sockaddrs, mut unnamed) = self.sockaddr.extract(sc)?;
         for sockaddr in sockaddrs {
             unnamed |= !handle_sockaddr(sc, fd, sockaddr, actions, state)?;
         }
-        if receive && unnamed {
-            push_unnamed_peer_activity(sc, fd, actions, state)?;
+        if unnamed
+            && (receive || accept)
+            && let Some(info) = state.proc_fd.get_sock_info(sc.pid, fd_number(fd)?)
+            // Another file may reuse the descriptor number of a closed socket
+            && info.label.as_deref() == fd.metadata().map(fd_label)
+        {
+            if accept {
+                // Record an accept from the peer named by the metadata of the accepted socket, or from any peer
+                let address = sc
+                    .ret_val
+                    .as_ref()
+                    .and_then(|ret_val| ret_val.metadata.as_deref())
+                    .and_then(metadata_peer)
+                    .map_or(SetSpecifier::All, |peer| SetSpecifier::One(peer.into()));
+                push_socket_activity(sc, fd, SetSpecifier::All, address, actions, state)?;
+            } else if info.proto != SocketProtocol::Tcp && !info.connected {
+                // Stream and connected sockets receive only from their peer
+                push_socket_activity(sc, fd, SetSpecifier::All, SetSpecifier::All, actions, state)?;
+            }
         }
         Ok(())
     }
@@ -828,28 +846,13 @@ fn push_socket_activity(
     Ok(())
 }
 
-/// Record a receive from any peer, on a socket whose peers the trace may not name
-fn push_unnamed_peer_activity(
-    sc: &Syscall,
-    fd: &Expression,
-    actions: &mut Vec<ProgramAction>,
-    state: &ProgramState,
-) -> Result<(), HandlerError> {
-    let label = fd.metadata().map(fd_label);
-    if state
-        .proc_fd
-        .get_sock_info(sc.pid, fd_number(fd)?)
-        .is_some_and(|info| {
-            // Another file may reuse the descriptor number of a closed socket
-            info.label.as_deref() == label
-                // Stream and connected sockets receive only from their peer
-                && info.proto != SocketProtocol::Tcp
-                && !info.connected
-        })
-    {
-        push_socket_activity(sc, fd, SetSpecifier::All, SetSpecifier::All, actions, state)?;
-    }
-    Ok(())
+/// Get the peer IP address of descriptor metadata
+fn metadata_peer(metadata: &[u8]) -> Option<IpAddr> {
+    let (_, peer) = str::from_utf8(metadata).ok()?.rsplit_once("->")?;
+    peer.strip_suffix(']')?
+        .parse::<SocketAddr>()
+        .ok()
+        .map(|peer| peer.ip())
 }
 
 /// Get the number of a descriptor argument
