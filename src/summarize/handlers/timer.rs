@@ -6,7 +6,7 @@ use crate::{
     summarize::{ProgramState, action::ProgramAction},
 };
 
-/// Handle `epoll_ctl` syscall
+/// Handler for `epoll_ctl` syscall
 pub(crate) struct EpollCtlHandler {
     pub op: usize,
     pub event: usize,
@@ -42,7 +42,7 @@ impl SyscallHandler for EpollCtlHandler {
     }
 }
 
-/// Handle timer creation and sleep syscalls
+/// Handler for timer creation and sleep syscalls
 pub(crate) struct TimerHandler {
     pub clockid: usize,
 }

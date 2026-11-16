@@ -16,7 +16,7 @@ use crate::{
     systemd::{SocketFamily, SocketProtocol},
 };
 
-/// Handle socket syscall
+/// Handler for socket syscall
 pub(crate) struct SocketHandler {
     pub af: usize,
     pub flags: usize,
@@ -99,7 +99,7 @@ pub(crate) enum DupQualifier {
     Pidfd(usize),
 }
 
-/// Handle syscalls duplicating a descriptor
+/// Handler for syscalls duplicating a descriptor
 pub(crate) struct DupHandler {
     pub fd: usize,
     pub qualifier: Option<DupQualifier>,
@@ -139,7 +139,7 @@ impl SyscallHandler for DupHandler {
     }
 }
 
-/// Handle setsockopt syscalls to track `IPV6_V6ONLY` option
+/// Handler for setsockopt syscalls to track `IPV6_V6ONLY` option
 pub(crate) struct SetsockoptHandler {
     pub fd: usize,
     pub level: usize,

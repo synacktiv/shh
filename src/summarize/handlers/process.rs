@@ -25,7 +25,7 @@ use crate::{
     summarize::{ProgramState, action::ProgramAction},
 };
 
-/// Handle chdir-like syscalls
+/// Handler for chdir-like syscalls
 pub(crate) struct ChdirHandler {
     pub path: FdOrPath<usize>,
 }
@@ -50,7 +50,7 @@ impl SyscallHandler for ChdirHandler {
     }
 }
 
-/// Handle clone/clone3 syscalls
+/// Handler for clone/clone3 syscalls
 pub(crate) struct Clone3Handler {
     pub args: usize,
 }
@@ -87,7 +87,7 @@ impl SyscallHandler for Clone3Handler {
     }
 }
 
-/// Handle fork/vfork syscalls
+/// Handler for fork/vfork syscalls
 pub(crate) struct ForkHandler;
 
 impl SyscallHandler for ForkHandler {
@@ -112,7 +112,7 @@ impl SyscallHandler for ForkHandler {
     }
 }
 
-/// Handle unshare syscall
+/// Handler for unshare syscall
 pub(crate) struct UnshareHandler {
     pub flags: usize,
 }
@@ -139,7 +139,7 @@ impl SyscallHandler for UnshareHandler {
     }
 }
 
-/// Handle exec-like syscalls
+/// Handler for exec-like syscalls
 pub(crate) struct ExecHandler {
     pub relfd: Option<usize>,
     pub path: usize,
@@ -166,7 +166,7 @@ impl SyscallHandler for ExecHandler {
     }
 }
 
-/// Handle syscalls sending a signal to a process or thread ID
+/// Handler for syscalls sending a signal to a process or thread ID
 pub(crate) struct KillHandler {
     pub pid: usize,
     pub sig: usize,
@@ -197,7 +197,7 @@ impl SyscallHandler for KillHandler {
     }
 }
 
-/// Handle `pidfd_send_signal` syscall
+/// Handler for `pidfd_send_signal` syscall
 pub(crate) struct PidfdSendSignalHandler {
     pub pidfd: usize,
     pub sig: usize,
@@ -273,7 +273,7 @@ fn kill_other(sender: pid_t, target: pid_t, sig: &Expression) -> Result<bool, Ha
     Ok(true)
 }
 
-/// Handle `sched_setscheduler` syscall
+/// Handler for `sched_setscheduler` syscall
 pub(crate) struct SetSchedulerHandler {
     pub policy: usize,
 }

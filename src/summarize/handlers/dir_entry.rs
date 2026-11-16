@@ -13,7 +13,7 @@ use crate::{
     summarize::{ProgramState, action::ProgramAction},
 };
 
-/// Handle rename-like syscalls
+/// Handler for rename-like syscalls
 pub(crate) struct RenameHandler {
     pub relfd_src: Option<usize>,
     pub path_src: usize,
@@ -106,7 +106,7 @@ impl SyscallHandler for RenameHandler {
     }
 }
 
-/// Handle entry removal syscalls
+/// Handler for entry removal syscalls
 pub(crate) struct RemoveHandler {
     pub path: PathHandler,
 }
@@ -131,7 +131,7 @@ impl SyscallHandler for RemoveHandler {
     }
 }
 
-/// Handle hard link creation syscalls
+/// Handler for hard link creation syscalls
 pub(crate) struct LinkHandler {
     pub old: PathHandler,
     pub new: PathHandler,

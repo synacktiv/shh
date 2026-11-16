@@ -27,7 +27,7 @@ pub(crate) enum FollowSymlink {
     Never,
 }
 
-/// Handle syscalls acting on a path possibly relative to a file descriptor
+/// Handler for syscalls acting on a path possibly relative to a file descriptor
 pub(crate) struct PathHandler {
     pub relfd: Option<usize>,
     pub path: usize,
@@ -123,7 +123,7 @@ impl SyscallHandler for PathHandler {
     }
 }
 
-/// Handle file access check syscalls
+/// Handler for file access check syscalls
 pub(crate) struct AccessHandler {
     pub path: PathHandler,
     pub mode: usize,
@@ -157,7 +157,7 @@ impl SyscallHandler for AccessHandler {
     }
 }
 
-/// Handle `fanotify_mark` syscall
+/// Handler for `fanotify_mark` syscall
 pub(crate) struct FanotifyMarkHandler {
     pub path: PathHandler,
     pub flags: usize,
@@ -187,7 +187,7 @@ impl SyscallHandler for FanotifyMarkHandler {
     }
 }
 
-/// Handle mount syscall
+/// Handler for mount syscall
 pub(crate) struct MountHandler {
     pub flags: usize,
 }

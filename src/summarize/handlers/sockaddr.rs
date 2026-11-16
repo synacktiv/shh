@@ -130,7 +130,7 @@ fn msg_parts(msghdr: &Expression) -> Result<(&Expression, Vec<&Expression>), Han
     Ok((name, fds))
 }
 
-/// Handle network syscalls
+/// Handler for network syscalls
 pub(crate) struct NetworkHandler {
     pub fd: usize,
     pub sockaddr: SockaddrArg,

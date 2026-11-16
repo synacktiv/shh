@@ -6,7 +6,7 @@ use crate::{
     summarize::{ProgramState, action::ProgramAction},
 };
 
-/// Handle `memfd_create` syscall
+/// Handler for `memfd_create` syscall
 pub(crate) struct MemfdCreateHandler {
     pub flags: usize,
 }
@@ -31,7 +31,7 @@ impl SyscallHandler for MemfdCreateHandler {
     }
 }
 
-/// Handle mmap-like syscalls
+/// Handler for mmap-like syscalls
 pub(crate) struct MmapHandler {
     pub prot: usize,
     pub flags: Option<usize>,
@@ -80,7 +80,7 @@ impl SyscallHandler for MmapHandler {
     }
 }
 
-/// Handle `shmat` syscall
+/// Handler for `shmat` syscall
 pub(crate) struct ShmAtHandler {
     pub flags: usize,
 }
@@ -105,7 +105,7 @@ impl SyscallHandler for ShmAtHandler {
     }
 }
 
-/// Handle `shmctl` syscall
+/// Handler for `shmctl` syscall
 pub(crate) struct ShmCtlHandler {
     pub op: usize,
 }

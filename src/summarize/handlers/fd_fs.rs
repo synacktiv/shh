@@ -27,7 +27,7 @@ pub(super) fn fd_path(
     Some(path)
 }
 
-/// Handle stat-like syscalls operating on file descriptors
+/// Handler for stat-like syscalls operating on file descriptors
 pub(crate) struct StatFdHandler {
     pub fd: usize,
 }
@@ -46,7 +46,7 @@ impl SyscallHandler for StatFdHandler {
     }
 }
 
-/// Handle syscalls changing the attributes of the file of a descriptor
+/// Handler for syscalls changing the attributes of the file of a descriptor
 pub(crate) struct FdWriteHandler {
     pub fd: usize,
 }
@@ -65,7 +65,7 @@ impl SyscallHandler for FdWriteHandler {
     }
 }
 
-/// Handle `ioctl` syscall
+/// Handler for `ioctl` syscall
 pub(crate) struct IoctlHandler {
     pub fd: usize,
     pub request: usize,

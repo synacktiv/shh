@@ -17,7 +17,7 @@ use crate::{
     summarize::{ProgramState, action::ProgramAction},
 };
 
-/// Handle open-like syscalls
+/// Handler for open-like syscalls
 pub(crate) struct OpenHandler {
     pub relfd: Option<usize>,
     pub path: usize,
@@ -145,7 +145,7 @@ impl SyscallHandler for OpenHandler {
     }
 }
 
-/// Handle mknod-like syscalls
+/// Handler for mknod-like syscalls
 pub(crate) struct MknodHandler {
     pub path: PathHandler,
     pub mode: usize,
