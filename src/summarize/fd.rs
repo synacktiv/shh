@@ -56,16 +56,27 @@ type FdTableId = usize;
 /// Index of a tracked socket
 type SocketId = usize;
 
+/// Reference from a descriptor to a tracked socket
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
+enum SocketRef {
+    Id(SocketId),
+    /// The socket registered under descriptor metadata, if any
+    Metadata(Vec<u8>),
+}
+
 /// Process fd-table topology and shared socket state
 ///
 /// Descriptor closures are not tracked
 #[derive(Debug, Default)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
 pub(crate) struct ProcessFdTracker {
-    /// Tracked socket IDs keyed by fd-table ID and descriptor
-    socket_ids: HashMap<(FdTableId, RawFd), SocketId>,
+    /// Tracked socket references keyed by fd-table ID and descriptor
+    socket_refs: HashMap<(FdTableId, RawFd), SocketRef>,
     /// Tracked sockets, shared by the descriptors designating them
     sockets: Vec<SocketInfo>,
+    /// Tracked socket IDs keyed by the metadata of their descriptors
+    metadata_ids: HashMap<Vec<u8>, SocketId>,
     /// Which fd table each pid currently uses.
     pid_table: HashMap<pid_t, FdTableId>,
     /// Counter for allocating synthetic fd-table ids.
@@ -76,32 +87,54 @@ impl ProcessFdTracker {
     /// Register socket info for a PID and socket file descriptor
     pub(crate) fn add_sock_info(&mut self, pid: pid_t, fd: RawFd, info: SocketInfo) {
         let table_id = self.table_id_for_pid_mut(pid);
-        self.socket_ids.insert((table_id, fd), self.sockets.len());
+        self.socket_refs
+            .insert((table_id, fd), SocketRef::Id(self.sockets.len()));
         self.sockets.push(info);
     }
 
     /// Get socket info for a PID and socket file descriptor
     pub(crate) fn get_sock_info(&self, pid: pid_t, fd: RawFd) -> Option<&SocketInfo> {
-        let table_id = self.pid_table.get(&pid)?;
-        self.sockets.get(*self.socket_ids.get(&(*table_id, fd))?)
+        self.sockets.get(self.socket_id(pid, fd)?)
     }
 
     /// Get mutable socket info for a PID and socket file descriptor
     pub(crate) fn get_sock_info_mut(&mut self, pid: pid_t, fd: RawFd) -> Option<&mut SocketInfo> {
-        let table_id = self.pid_table.get(&pid)?;
-        self.sockets
-            .get_mut(*self.socket_ids.get(&(*table_id, fd))?)
+        let socket_id = self.socket_id(pid, fd)?;
+        self.sockets.get_mut(socket_id)
     }
 
-    /// Make a descriptor designate the same tracked socket as another, or none
-    pub(crate) fn dup_fd(&mut self, pid: pid_t, old_fd: RawFd, new_fd: RawFd) {
-        let Some(&table_id) = self.pid_table.get(&pid) else {
-            return;
-        };
-        if let Some(&socket_id) = self.socket_ids.get(&(table_id, old_fd)) {
-            self.socket_ids.insert((table_id, new_fd), socket_id);
+    /// Register descriptor metadata for the tracked socket a descriptor designates
+    pub(crate) fn register_metadata(&mut self, pid: pid_t, fd: RawFd, metadata: &[u8]) {
+        if let Some(socket_id) = self.socket_id(pid, fd) {
+            self.metadata_ids.insert(metadata.to_vec(), socket_id);
+        }
+    }
+
+    /// Make a descriptor designate the tracked socket registered under its metadata, now or later, or none without
+    /// metadata
+    pub(crate) fn designate_by_metadata(&mut self, pid: pid_t, fd: RawFd, metadata: Option<&[u8]>) {
+        let table_id = self.table_id_for_pid_mut(pid);
+        if let Some(metadata) = metadata {
+            self.socket_refs
+                .insert((table_id, fd), SocketRef::Metadata(metadata.to_vec()));
         } else {
-            self.socket_ids.remove(&(table_id, new_fd));
+            self.socket_refs.remove(&(table_id, fd));
+        }
+    }
+
+    /// Make a descriptor designate the same tracked socket as a descriptor of a process, or none
+    pub(crate) fn dup_fd(&mut self, old: Option<(pid_t, RawFd)>, pid: pid_t, new_fd: RawFd) {
+        let socket_ref = old
+            .and_then(|(old_pid, old_fd)| {
+                let old_table_id = self.pid_table.get(&old_pid)?;
+                self.socket_refs.get(&(*old_table_id, old_fd))
+            })
+            .cloned();
+        let table_id = self.table_id_for_pid_mut(pid);
+        if let Some(socket_ref) = socket_ref {
+            self.socket_refs.insert((table_id, new_fd), socket_ref);
+        } else {
+            self.socket_refs.remove(&(table_id, new_fd));
         }
     }
 
@@ -117,7 +150,7 @@ impl ProcessFdTracker {
             self.pid_table.insert(child_pid, parent_table_id);
         } else {
             let child_table_id = self.alloc_table_id();
-            self.copy_socket_ids(parent_table_id, child_table_id);
+            self.copy_socket_refs(parent_table_id, child_table_id);
             self.pid_table.insert(child_pid, child_table_id);
         }
     }
@@ -126,7 +159,7 @@ impl ProcessFdTracker {
     pub(crate) fn split_fd_table(&mut self, pid: pid_t) {
         let old_table_id = self.table_id_for_pid_mut(pid);
         let new_table_id = self.alloc_table_id();
-        self.copy_socket_ids(old_table_id, new_table_id);
+        self.copy_socket_refs(old_table_id, new_table_id);
         self.pid_table.insert(pid, new_table_id);
     }
 
@@ -146,15 +179,23 @@ impl ProcessFdTracker {
         })
     }
 
-    fn copy_socket_ids(&mut self, src_table: FdTableId, dst_table: FdTableId) {
-        let ids_to_copy = self
-            .socket_ids
+    /// Get the ID of the tracked socket a descriptor designates
+    fn socket_id(&self, pid: pid_t, fd: RawFd) -> Option<SocketId> {
+        let table_id = self.pid_table.get(&pid)?;
+        match self.socket_refs.get(&(*table_id, fd))? {
+            SocketRef::Id(socket_id) => Some(*socket_id),
+            SocketRef::Metadata(metadata) => self.metadata_ids.get(metadata).copied(),
+        }
+    }
+
+    fn copy_socket_refs(&mut self, src_table: FdTableId, dst_table: FdTableId) {
+        let refs_to_copy = self
+            .socket_refs
             .iter()
-            .filter_map(|((table_id, fd), socket_id)| {
-                (*table_id == src_table).then_some(((dst_table, *fd), *socket_id))
-            })
+            .filter(|((table_id, _), _)| *table_id == src_table)
+            .map(|((_, fd), socket_ref)| ((dst_table, *fd), socket_ref.clone()))
             .collect::<Vec<_>>();
-        self.socket_ids.extend(ids_to_copy);
+        self.socket_refs.extend(refs_to_copy);
     }
 }
 
@@ -920,7 +961,7 @@ mod tests {
         let mut tracker = ProcessFdTracker::default();
         tracker.add_sock_info(1000, 3, info(false));
         tracker.add_sock_info(1000, 4, info(true));
-        tracker.dup_fd(1000, 3, 4);
+        tracker.dup_fd(Some((1000, 3)), 1000, 4);
         assert_eq!(tracker.get_sock_info(1000, 4), Some(&info(false)));
     }
 }

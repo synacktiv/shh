@@ -62,9 +62,9 @@ impl Strace {
                 // "write=all",
                 "-e",
                 if decode_sockets {
-                    "decode-fds=path,socket"
+                    "decode-fds=path,socket,pidfd"
                 } else {
-                    "decode-fds=path"
+                    "decode-fds=path,pidfd"
                 },
                 "--output-append-mode",
                 "-o",

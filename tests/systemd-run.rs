@@ -141,6 +141,9 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
     /// C program using a socket through a copy of its descriptor
     const DUP_SOCKET_SRC: &str = include_str!("dup_socket.c");
 
+    /// Python script using sockets a parent passes to its child, or takes from it
+    const PASSED_SOCKET_SCRIPT: &str = include_str!("passed_socket.py");
+
     /// Path of the tested `shh` binary
     fn shh_bin() -> String {
         env::var("CARGO_BIN_EXE_shh").unwrap_or_else(|_| env!("CARGO_BIN_EXE_shh").to_owned())
@@ -800,6 +803,15 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
             for sd_opts in generate_options(&cmd, shh_opts_sets) {
                 let _ = systemd_run(&cmd, &sd_opts, false);
             }
+        }
+    }
+
+    #[test]
+    fn systemd_run_passed_socket() {
+        // Use sockets created by another process of the service, passed with SCM_RIGHTS before or after being bound,
+        // or taken with pidfd_getfd: send datagrams to an address, and bind a port
+        for case in ["unbound", "bound", "pidfd_getfd"] {
+            profile_and_run(&["python3", "-c", PASSED_SOCKET_SCRIPT, case], false);
         }
     }
 

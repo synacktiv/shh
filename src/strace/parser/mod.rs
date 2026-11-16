@@ -867,7 +867,7 @@ mod tests {
     }
 
     #[test]
-    fn socket_details() {
+    fn fd_details() {
         let int_with_metadata = |value, details: &str| IntegerExpression {
             value: IntegerExpressionValue::Literal(value),
             metadata: Some(details.as_bytes().to_vec()),
@@ -882,6 +882,7 @@ mod tests {
             r#"UNIX-STREAM:[4913849->4913848,"\x2f\x74\x6d\x70\x2f\x73"]"#,
             "NETLINK:[ROUTE:917]",
             "L2TP/IP:[4951101]",
+            "pid:108",
         ] {
             assert_eq!(
                 parse_line(

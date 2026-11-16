@@ -20,7 +20,7 @@ pub(crate) use process::{
     UnshareHandler,
 };
 pub(crate) use sockaddr::{NetworkHandler, SockaddrArg};
-pub(crate) use socket::{DupHandler, SetsockoptHandler, SocketHandler};
+pub(crate) use socket::{DupHandler, DupQualifier, SetsockoptHandler, SocketHandler};
 pub(crate) use timer::{EpollCtlHandler, TimerHandler};
 use walk::resolve_path;
 pub(crate) use walk::{PathWalk, traverse_path_within};

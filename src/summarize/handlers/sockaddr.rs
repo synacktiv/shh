@@ -65,42 +65,69 @@ pub(crate) enum SockaddrArg {
 }
 
 impl ExtractArg for SockaddrArg {
-    /// The socket addresses, and whether the call may carry messages from addresses not among them
-    type Output<'a> = (Vec<&'a Expression>, bool);
+    /// The socket addresses, whether the call may carry messages from addresses not among them, and the
+    /// descriptors passed in `SCM_RIGHTS` control messages
+    type Output<'a> = (Vec<&'a Expression>, bool, Vec<&'a Expression>);
 
     fn extract<'a>(&self, sc: &'a Syscall) -> Result<Self::Output<'a>, HandlerError> {
         match self {
-            Self::Sockaddr(i) => Ok((vec![i.extract(sc)?], false)),
-            Self::MsgHdr(i) => Ok((vec![msg_name(i.extract(sc)?)?], false)),
+            Self::Sockaddr(i) => Ok((vec![i.extract(sc)?], false, vec![])),
+            Self::MsgHdr(i) => {
+                let (name, fds) = msg_parts(i.extract(sc)?)?;
+                Ok((vec![name], false, fds))
+            }
             Self::MmsgHdrs(i) => match i.extract(sc)? {
                 Expression::Collection {
                     values, truncated, ..
-                } => Ok((
-                    values
-                        .iter()
-                        .map(|(_, msg)| {
-                            let members = unpack_expr!(msg, Expression::Struct(members) => members);
-                            msg_name(unpack_struct_member!(members, "msg_hdr"))
-                        })
-                        .collect::<Result<_, _>>()?,
-                    *truncated,
-                )),
+                } => {
+                    let mut names = Vec::with_capacity(values.len());
+                    let mut fds = vec![];
+                    for (_, msg) in values {
+                        let members = unpack_expr!(msg, Expression::Struct(members) => members);
+                        let msghdr = unpack_struct_member!(members, "msg_hdr");
+                        let (name, msg_fds) = msg_parts(msghdr)?;
+                        names.push(name);
+                        fds.extend(msg_fds);
+                    }
+                    Ok((names, *truncated, fds))
+                }
                 // An empty batch
                 Expression::Integer(IntegerExpression {
                     value: IntegerExpressionValue::NamedSymbol(NamedSymbol::Unambiguous(s)),
                     ..
-                }) if s == "NULL" => Ok((vec![], false)),
+                }) if s == "NULL" => Ok((vec![], false, vec![])),
                 other => Err(err_expr_type!(other)),
             },
-            Self::None => Ok((vec![], true)),
+            Self::None => Ok((vec![], true, vec![])),
         }
     }
 }
 
-/// Get the socket address of a `msghdr` struct
-fn msg_name(msghdr: &Expression) -> Result<&Expression, HandlerError> {
+/// Get the socket address of a `msghdr` struct, and the descriptors passed in its `SCM_RIGHTS` control messages
+fn msg_parts(msghdr: &Expression) -> Result<(&Expression, Vec<&Expression>), HandlerError> {
     let members = unpack_expr!(msghdr, Expression::Struct(members) => members);
-    Ok(unpack_struct_member!(members, "msg_name"))
+    let name = unpack_struct_member!(members, "msg_name");
+    // Absent without control data, an address when unreadable
+    let Some(Expression::Collection { values: cmsgs, .. }) = members.get("msg_control") else {
+        return Ok((name, vec![]));
+    };
+    let mut fds = vec![];
+    for (_, cmsg) in cmsgs {
+        let cmsg = unpack_expr!(cmsg, Expression::Struct(fields) => fields);
+        if matches!(
+            unpack_struct_member!(cmsg, "cmsg_type"),
+            Expression::Integer(IntegerExpression {
+                value: IntegerExpressionValue::NamedSymbol(NamedSymbol::Unambiguous(t)),
+                ..
+            }) if t == "SCM_RIGHTS"
+        )
+            // Absent, or a buffer, for data shorter than a descriptor
+            && let Some(Expression::Collection { values, .. }) = cmsg.get("cmsg_data")
+        {
+            fds.extend(values.iter().map(|(_, fd)| fd));
+        }
+    }
+    Ok((name, fds))
 }
 
 /// Handle network syscalls
@@ -126,7 +153,24 @@ impl SyscallHandler for NetworkHandler {
         let fd = self.fd.extract(sc)?;
         // Incoming traffic without a decoded address, or past the printed addresses, comes from peers the arguments
         // do not name
-        let (sockaddrs, mut unnamed) = self.sockaddr.extract(sc)?;
+        let (sockaddrs, mut unnamed, passed_fds) = self.sockaddr.extract(sc)?;
+        for passed_fd in passed_fds {
+            let number = fd_number(passed_fd)?;
+            if receive {
+                // The sender registers the socket under the metadata both processes show
+                state
+                    .proc_fd
+                    .designate_by_metadata(sc.pid, number, passed_fd.metadata());
+            } else if let Some(metadata) = passed_fd.metadata()
+                && state
+                    .proc_fd
+                    .get_sock_info(sc.pid, number)
+                    // Another socket may reuse the descriptor number of a closed one
+                    .is_some_and(|info| info.label.as_deref() == Some(fd_label(metadata)))
+            {
+                state.proc_fd.register_metadata(sc.pid, number, metadata);
+            }
+        }
         for sockaddr in sockaddrs {
             unnamed |= !handle_sockaddr(sc, fd, sockaddr, actions, state)?;
         }
@@ -332,13 +376,15 @@ fn metadata_peer(metadata: &[u8]) -> Option<IpAddr> {
 mod tests {
     use std::{collections::HashMap, fs, os::unix, path::PathBuf};
 
+    use nix::libc::pid_t;
+
     use super::*;
     use crate::{
         strace::SyscallItem,
         summarize::{
             handlers::tests::{
-                buf_expr, fd_expr, int_literal, make_failed_syscall, make_syscall, named_symbol,
-                summarize_syscall, syscall,
+                buf_expr, fd_expr, int_literal, make_bind_inet, make_failed_syscall, make_syscall,
+                named_symbol, summarize_syscall, syscall,
             },
             program_state, summarize,
         },
@@ -589,6 +635,10 @@ mod tests {
 
         let activity = |kind, address| inet_activity(SocketProtocol::Udp, kind, address);
         let peer = |addr: &str| SetSpecifier::One(addr.parse::<IpAddr>().unwrap().into());
+        let timespec = Expression::Struct(HashMap::from([
+            ("tv_sec".to_owned(), int_literal(0)),
+            ("tv_nsec".to_owned(), int_literal(0)),
+        ]));
         for (name, msgs, ret, peers) in [
             (
                 "sendmsg",
@@ -617,6 +667,17 @@ mod tests {
                 msghdr(int_literal(0x7ffc_19ef_9970)),
                 1,
                 vec![SetSpecifier::All],
+            ),
+            // With control data other than descriptors
+            (
+                "recvmsg",
+                cmsg_msghdr(
+                    inet_sockaddr("127.0.0.2"),
+                    "SCM_TIMESTAMPING_OLD",
+                    vec![timespec; 3],
+                ),
+                1,
+                vec![peer("127.0.0.2")],
             ),
             (
                 "sendmmsg",
@@ -787,6 +848,24 @@ mod tests {
     /// Build a `read` call on a descriptor
     fn read(fd: Expression) -> Syscall {
         make_syscall("read", vec![fd, buf_expr(b"x"), int_literal(16)], 1)
+    }
+
+    /// Build a `sendto` call of a process to 127.0.0.5 through a descriptor
+    fn sendto(pid: pid_t, fd: Expression) -> Syscall {
+        let mut sc = make_syscall(
+            "sendto",
+            vec![
+                fd,
+                buf_expr(b"x"),
+                int_literal(1),
+                int_literal(0),
+                inet_sockaddr("127.0.0.5"),
+                int_literal(16),
+            ],
+            1,
+        );
+        sc.pid = pid;
+        sc
     }
 
     /// Build the activity of a socket on any local port
@@ -1137,20 +1216,6 @@ mod tests {
     fn send_through_duplicate() {
         let _ = simple_logger::SimpleLogger::new().init();
 
-        let sendto = |fd| {
-            make_syscall(
-                "sendto",
-                vec![
-                    fd_expr(fd, "socket:[7]"),
-                    buf_expr(b"x"),
-                    int_literal(1),
-                    int_literal(0),
-                    inet_sockaddr("127.0.0.5"),
-                    int_literal(16),
-                ],
-                1,
-            )
-        };
         let fcntl = |name, cmd, ret| {
             make_syscall(name, vec![sock(), named_symbol(cmd), int_literal(0)], ret)
         };
@@ -1199,7 +1264,230 @@ mod tests {
                 ));
             }
             assert_network_activities(
-                vec![inet_socket("SOCK_DGRAM", "socket:[7]"), call, sendto(fd)],
+                vec![
+                    inet_socket("SOCK_DGRAM", "socket:[7]"),
+                    call,
+                    sendto(1000, fd_expr(fd, "socket:[7]")),
+                ],
+                activities,
+            );
+        }
+    }
+
+    /// Build a `msghdr` expression naming a socket address, with a control message of an array
+    fn cmsg_msghdr(name: Expression, cmsg_type: &str, data: Vec<Expression>) -> Expression {
+        let cmsg = Expression::Struct(HashMap::from([
+            ("cmsg_level".to_owned(), named_symbol("SOL_SOCKET")),
+            ("cmsg_type".to_owned(), named_symbol(cmsg_type)),
+            (
+                "cmsg_data".to_owned(),
+                Expression::Collection {
+                    complement: false,
+                    values: data.into_iter().map(|item| (None, item)).collect(),
+                    truncated: false,
+                },
+            ),
+        ]));
+        Expression::Struct(HashMap::from([
+            ("msg_name".to_owned(), name),
+            (
+                "msg_control".to_owned(),
+                Expression::Collection {
+                    complement: false,
+                    values: vec![(None, cmsg)],
+                    truncated: false,
+                },
+            ),
+        ]))
+    }
+
+    /// Build a call of a process sending or receiving a descriptor through a Unix socket
+    fn pass_fd(name: &str, pid: pid_t, fd: Expression) -> Syscall {
+        let unix_sock = fd_expr(4, "UNIX-STREAM:[20]");
+        let msg = cmsg_msghdr(named_symbol("NULL"), "SCM_RIGHTS", vec![fd]);
+        let mut sc = if name.ends_with("mmsg") {
+            let msgs = Expression::Collection {
+                complement: false,
+                values: vec![(
+                    None,
+                    Expression::Struct(HashMap::from([("msg_hdr".to_owned(), msg)])),
+                )],
+                truncated: false,
+            };
+            make_syscall(
+                name,
+                vec![unix_sock, msgs, int_literal(1), int_literal(0)],
+                1,
+            )
+        } else {
+            make_syscall(name, vec![unix_sock, msg, int_literal(0)], 1)
+        };
+        sc.pid = pid;
+        sc
+    }
+
+    #[test]
+    fn use_passed_socket() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let pidfd_getfd = |pidfd, target: &str| {
+            let mut sc = make_syscall(
+                "pidfd_getfd",
+                vec![fd_expr(11, pidfd), fd_expr(3, target), int_literal(0)],
+                12,
+            );
+            sc.pid = 2000;
+            sc.ret_val.as_mut().unwrap().metadata = Some(target.as_bytes().to_vec());
+            sc
+        };
+        let dup = |fd| {
+            let mut sc = make_syscall("dup", vec![fd], 6);
+            sc.pid = 2000;
+            sc
+        };
+        let bound = "UDP:[127.0.0.1:5000]";
+        for (created, passing, used, recorded) in [
+            // Passed by each pair of calls, in either trace order
+            (
+                "socket:[7]",
+                vec![
+                    pass_fd("sendmsg", 1000, fd_expr(3, "socket:[7]")),
+                    pass_fd("recvmsg", 2000, fd_expr(5, "socket:[7]")),
+                ],
+                fd_expr(5, "socket:[7]"),
+                true,
+            ),
+            (
+                "socket:[7]",
+                vec![
+                    pass_fd("recvmsg", 2000, fd_expr(5, "socket:[7]")),
+                    pass_fd("sendmsg", 1000, fd_expr(3, "socket:[7]")),
+                ],
+                fd_expr(5, "socket:[7]"),
+                true,
+            ),
+            (
+                "socket:[7]",
+                vec![
+                    pass_fd("sendmmsg", 1000, fd_expr(3, "socket:[7]")),
+                    pass_fd("recvmmsg", 2000, fd_expr(5, "socket:[7]")),
+                ],
+                fd_expr(5, "socket:[7]"),
+                true,
+            ),
+            // Passed bound, its details decoded, in either trace order
+            (
+                "UDP:[7]",
+                vec![
+                    pass_fd("sendmsg", 1000, fd_expr(3, bound)),
+                    pass_fd("recvmsg", 2000, fd_expr(5, bound)),
+                ],
+                fd_expr(5, bound),
+                true,
+            ),
+            (
+                "UDP:[7]",
+                vec![
+                    pass_fd("recvmsg", 2000, fd_expr(5, bound)),
+                    pass_fd("sendmsg", 1000, fd_expr(3, bound)),
+                ],
+                fd_expr(5, bound),
+                true,
+            ),
+            // Duplicated before its sender's line
+            (
+                "UDP:[7]",
+                vec![
+                    pass_fd("recvmsg", 2000, fd_expr(5, bound)),
+                    dup(fd_expr(5, bound)),
+                    pass_fd("sendmsg", 1000, fd_expr(3, bound)),
+                ],
+                fd_expr(6, bound),
+                true,
+            ),
+            // Taken from its process, unbound or bound
+            (
+                "UDP:[7]",
+                vec![pidfd_getfd("pid:1000", "UDP:[7]")],
+                fd_expr(12, "UDP:[7]"),
+                true,
+            ),
+            (
+                "UDP:[7]",
+                vec![pidfd_getfd("pid:1000", bound)],
+                fd_expr(12, bound),
+                true,
+            ),
+            // Taken from a process outside the tracer's PID namespace
+            (
+                "UDP:[7]",
+                vec![pidfd_getfd("anon_inode:[pidfd]", "UDP:[9]")],
+                fd_expr(12, "UDP:[9]"),
+                false,
+            ),
+            // Received under the number of an inherited socket, from outside the service
+            (
+                "UDP:[7]",
+                vec![
+                    make_syscall("fork", vec![], 2000),
+                    pass_fd("recvmsg", 2000, fd_expr(3, "UDP:[9]")),
+                ],
+                fd_expr(3, "UDP:[9]"),
+                false,
+            ),
+            // Received without metadata under the number of an inherited socket
+            (
+                "UDP:[7]",
+                vec![
+                    make_syscall("fork", vec![], 2000),
+                    pass_fd("recvmsg", 2000, int_literal(3)),
+                ],
+                int_literal(3),
+                false,
+            ),
+            // Sent through the number of a tracked socket that an untracked one reuses
+            (
+                "UDP:[7]",
+                vec![
+                    pass_fd("sendmsg", 1000, fd_expr(3, "TCP:[10]")),
+                    pass_fd("recvmsg", 2000, fd_expr(5, "TCP:[10]")),
+                ],
+                fd_expr(5, "TCP:[10]"),
+                false,
+            ),
+        ] {
+            let mut activities = vec![inet_activity(
+                SocketProtocol::Udp,
+                NetworkActivityKind::SocketCreation,
+                SetSpecifier::All,
+            )];
+            if recorded {
+                activities.extend([
+                    inet_activity(
+                        SocketProtocol::Udp,
+                        NetworkActivityKind::SendRecv,
+                        SetSpecifier::One("127.0.0.5".parse::<IpAddr>().unwrap().into()),
+                    ),
+                    ProgramAction::NetworkActivity(
+                        NetworkActivity {
+                            af: SetSpecifier::One(SocketFamily::Ipv4),
+                            proto: SetSpecifier::One(SocketProtocol::Udp),
+                            kind: SetSpecifier::One(NetworkActivityKind::Bind),
+                            local_port: SetSpecifier::One(NonZeroU16::new(5000).unwrap().into()),
+                            address: SetSpecifier::None,
+                        }
+                        .into(),
+                    ),
+                ]);
+            }
+            let bind = make_bind_inet(2000, fd_number(&used).unwrap().into(), 5000);
+            assert_network_activities(
+                [
+                    vec![inet_socket("SOCK_DGRAM", created)],
+                    passing,
+                    vec![sendto(2000, used), bind],
+                ]
+                .concat(),
                 activities,
             );
         }

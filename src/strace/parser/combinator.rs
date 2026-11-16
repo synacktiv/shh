@@ -782,6 +782,10 @@ fn parse_int_metadata(i: &str) -> IResult<&str, Option<Vec<u8>>> {
                 )),
                 |s: &str| s.as_bytes().to_vec(),
             ),
+            // Process of a pidfd, printed unescaped
+            map(recognize((tag("pid:"), digit1)), |s: &str| {
+                s.as_bytes().to_vec()
+            }),
             many0(parse_buffer_byte),
         )),
         (char('>'), opt(tag("(deleted)"))),

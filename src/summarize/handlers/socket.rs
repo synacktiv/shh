@@ -5,6 +5,8 @@ use std::{
     os::fd::RawFd,
 };
 
+use nix::libc::pid_t;
+
 use super::{ExtractArg as _, HandlerError, SyscallHandler, fd_label, fd_number};
 use crate::{
     strace::{Expression, IntegerExpression, IntegerExpressionValue, NamedSymbol, Syscall},
@@ -59,16 +61,22 @@ impl SyscallHandler for SocketHandler {
         let ret_fd = ret_val.value().ok_or_else(|| err_value!(sc.ret_val, i64))?;
 
         if ret_fd != -1 {
+            let fd =
+                TryInto::<RawFd>::try_into(ret_fd).map_err(|_| err_value!(ret_fd, i64 => RawFd))?;
+            let metadata = ret_val.metadata.as_deref();
             state.proc_fd.add_sock_info(
                 sc.pid,
-                TryInto::<RawFd>::try_into(ret_fd).map_err(|_| err_value!(ret_fd, i64 => RawFd))?,
+                fd,
                 SocketInfo {
                     proto: proto.clone(),
                     af: af.clone().into(),
                     connected: false,
-                    label: ret_val.metadata.as_deref().map(|m| fd_label(m).to_vec()),
+                    label: metadata.map(|m| fd_label(m).to_vec()),
                 },
             );
+            if let Some(metadata) = metadata {
+                state.proc_fd.register_metadata(sc.pid, fd, metadata);
+            }
         }
 
         actions.push(ProgramAction::NetworkActivity(
@@ -85,11 +93,18 @@ impl SyscallHandler for SocketHandler {
     }
 }
 
+/// Argument index qualifying a descriptor copy
+pub(crate) enum DupQualifier {
+    /// Index of the `fcntl` command argument
+    FcntlCmd(usize),
+    /// Index of the pidfd argument
+    Pidfd(usize),
+}
+
 /// Handle syscalls duplicating a descriptor
 pub(crate) struct DupHandler {
     pub fd: usize,
-    /// Index of the `fcntl` command argument, absent for the `dup` calls
-    pub fcntl_cmd: Option<usize>,
+    pub qualifier: Option<DupQualifier>,
 }
 
 impl SyscallHandler for DupHandler {
@@ -103,18 +118,40 @@ impl SyscallHandler for DupHandler {
             Some(fd) if fd >= 0 => fd,
             _ => return Ok(()),
         };
-        if let Some(cmd) = self.fcntl_cmd.extract(sc)? {
-            let cmd =
-                unpack_expr!(cmd, Expression::Integer(IntegerExpression { value, .. }) => value);
-            if !cmd.is_flag_set("F_DUPFD") && !cmd.is_flag_set("F_DUPFD_CLOEXEC") {
-                return Ok(());
+        let old_pid = match &self.qualifier {
+            Some(DupQualifier::FcntlCmd(cmd)) => {
+                let cmd = unpack_expr!(
+                    cmd.extract(sc)?,
+                    Expression::Integer(IntegerExpression { value, .. }) => value
+                );
+                if !cmd.is_flag_set("F_DUPFD") && !cmd.is_flag_set("F_DUPFD_CLOEXEC") {
+                    return Ok(());
+                }
+                Some(sc.pid)
             }
-        }
+            Some(DupQualifier::Pidfd(pidfd)) => pidfd_pid(pidfd.extract(sc)?)?,
+            None => Some(sc.pid),
+        };
         let old_fd = fd_number(self.fd.extract(sc)?)?;
         let new_fd = RawFd::try_from(new_fd).map_err(|_| err_value!(new_fd, i64 => RawFd))?;
-        state.proc_fd.dup_fd(sc.pid, old_fd, new_fd);
+        state
+            .proc_fd
+            .dup_fd(old_pid.map(|pid| (pid, old_fd)), sc.pid, new_fd);
         Ok(())
     }
+}
+
+/// Get the process a pidfd argument designates, if the tracer sees it
+fn pidfd_pid(pidfd: &Expression) -> Result<Option<pid_t>, HandlerError> {
+    // strace shows the path of a pidfd whose process is outside its PID namespace
+    let Some(pid) = pidfd.metadata().and_then(|m| m.strip_prefix(b"pid:")) else {
+        return Ok(None);
+    };
+    str::from_utf8(pid)
+        .ok()
+        .and_then(|pid| pid.parse().ok())
+        .map(Some)
+        .ok_or_else(|| err_value!(pid, pid_t))
 }
 
 /// Handle setsockopt syscalls to track `IPV6_V6ONLY` option
