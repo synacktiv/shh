@@ -138,6 +138,9 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
     /// C program waiting for incoming traffic through a call naming no peer
     const RECV_UNNAMED_PEER_SRC: &str = include_str!("recv_unnamed_peer.c");
 
+    /// C program using a socket through a copy of its descriptor
+    const DUP_SOCKET_SRC: &str = include_str!("dup_socket.c");
+
     /// Path of the tested `shh` binary
     fn shh_bin() -> String {
         env::var("CARGO_BIN_EXE_shh").unwrap_or_else(|_| env!("CARGO_BIN_EXE_shh").to_owned())
@@ -690,13 +693,14 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
         let bin_32bit = bin_dir.path().join("mmsg_udp_32bit");
         compile_c(MMSG_UDP_SRC, &[], &bin);
         compile_c(MMSG_UDP_SRC, &["-m32"], &bin_32bit);
-        let shh_opts_sets_32bit = shh_run_opts_32bit();
+        let opts = ALL_SHH_RUN_OPTS.as_slice();
+        let opts_32bit = shh_run_opts_32bit();
         let (recv_port, _sending) = send_udp_to_free_port();
         let recv_port = recv_port.to_string();
         for (program, kind, port, shh_opts_sets) in [
-            (&bin, "sendmmsg", "9", ALL_SHH_RUN_OPTS.as_slice()),
-            (&bin, "recvmmsg", &recv_port, ALL_SHH_RUN_OPTS.as_slice()),
-            (&bin_32bit, "recvmmsg", &recv_port, &shh_opts_sets_32bit),
+            (&bin, "sendmmsg", "9", opts),
+            (&bin, "recvmmsg", &recv_port, opts),
+            (&bin_32bit, "recvmmsg", &recv_port, &opts_32bit),
         ] {
             let cmd = [program.to_str().unwrap(), kind, port, "1"];
             for sd_opts in generate_options(&cmd, shh_opts_sets) {
@@ -731,36 +735,27 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
             &["-m32", "-D_FILE_OFFSET_BITS=64"],
             &bin_32bit,
         );
-        let shh_opts_sets_32bit = shh_run_opts_32bit();
+        let opts = ALL_SHH_RUN_OPTS.as_slice();
+        let opts_32bit = shh_run_opts_32bit();
         let (udp_port, _sending) = send_udp_to_free_port();
         let udp_port = udp_port.to_string();
         let (tcp_port, _connecting) = connect_tcp_to_free_port();
         let tcp_port = tcp_port.to_string();
         for (program, call, port, shh_opts_sets) in [
-            (&bin, "recvfrom", &udp_port, ALL_SHH_RUN_OPTS.as_slice()),
-            (
-                &bin,
-                "recvfrom-empty-addr",
-                &udp_port,
-                ALL_SHH_RUN_OPTS.as_slice(),
-            ),
-            (
-                &bin,
-                "recvfrom-short-addr",
-                &udp_port,
-                ALL_SHH_RUN_OPTS.as_slice(),
-            ),
-            (&bin, "recvmsg", &udp_port, ALL_SHH_RUN_OPTS.as_slice()),
-            (&bin, "recvmmsg", &udp_port, ALL_SHH_RUN_OPTS.as_slice()),
-            (&bin, "read", &udp_port, ALL_SHH_RUN_OPTS.as_slice()),
-            (&bin, "readv", &udp_port, ALL_SHH_RUN_OPTS.as_slice()),
-            (&bin, "preadv2", &udp_port, ALL_SHH_RUN_OPTS.as_slice()),
-            (&bin, "splice", &udp_port, ALL_SHH_RUN_OPTS.as_slice()),
-            (&bin, "sendfile", &udp_port, ALL_SHH_RUN_OPTS.as_slice()),
-            (&bin, "accept", &tcp_port, ALL_SHH_RUN_OPTS.as_slice()),
-            (&bin, "accept4", &tcp_port, ALL_SHH_RUN_OPTS.as_slice()),
-            (&bin_32bit, "recvmmsg", &udp_port, &shh_opts_sets_32bit),
-            (&bin_32bit, "sendfile", &udp_port, &shh_opts_sets_32bit),
+            (&bin, "recvfrom", &udp_port, opts),
+            (&bin, "recvfrom-empty-addr", &udp_port, opts),
+            (&bin, "recvfrom-short-addr", &udp_port, opts),
+            (&bin, "recvmsg", &udp_port, opts),
+            (&bin, "recvmmsg", &udp_port, opts),
+            (&bin, "read", &udp_port, opts),
+            (&bin, "readv", &udp_port, opts),
+            (&bin, "preadv2", &udp_port, opts),
+            (&bin, "splice", &udp_port, opts),
+            (&bin, "sendfile", &udp_port, opts),
+            (&bin, "accept", &tcp_port, opts),
+            (&bin, "accept4", &tcp_port, opts),
+            (&bin_32bit, "recvmmsg", &udp_port, &opts_32bit),
+            (&bin_32bit, "sendfile", &udp_port, &opts_32bit),
         ] {
             let cmd = [program.to_str().unwrap(), call, port];
             for (shh_opts, sd_opts) in
@@ -770,6 +765,39 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
                 if call.starts_with("accept") && shh_opts.contains(&"-f") {
                     assert!(sd_opts.contains(&"IPAddressAllow=127.0.0.1 127.0.0.2".to_owned()));
                 }
+                let _ = systemd_run(&cmd, &sd_opts, false);
+            }
+        }
+    }
+
+    #[test]
+    fn systemd_run_dup_socket() {
+        // Use a socket through a copy of its descriptor, made by each duplicating call or inherited by a forked child:
+        // send to 127.0.0.5, bind a port, and disconnect the socket from its peer to receive from 127.0.0.2. 32-bit
+        // x86 programs call fcntl as fcntl64
+        let bin_dir = tempfile::tempdir_in("/var/lib").unwrap();
+        let bin = bin_dir.path().join("dup_socket");
+        let bin_32bit = bin_dir.path().join("dup_socket_32bit");
+        compile_c(DUP_SOCKET_SRC, &[], &bin);
+        compile_c(DUP_SOCKET_SRC, &["-m32"], &bin_32bit);
+        let opts = ALL_SHH_RUN_OPTS.as_slice();
+        let opts_32bit = shh_run_opts_32bit();
+        let (udp_port, _sending) = send_udp_to_free_port();
+        let udp_port = udp_port.to_string();
+        for (program, action, call, port, shh_opts_sets) in [
+            (&bin, "send", "dup", "9", opts),
+            (&bin, "send", "dup2", "9", opts),
+            (&bin, "send", "dup3", "9", opts),
+            (&bin, "send", "F_DUPFD", "9", opts),
+            (&bin, "send", "F_DUPFD_CLOEXEC", "9", opts),
+            (&bin_32bit, "send", "F_DUPFD", "9", &opts_32bit),
+            (&bin_32bit, "send", "F_DUPFD_CLOEXEC", "9", &opts_32bit),
+            (&bin, "bind", "dup", "1235", opts),
+            (&bin, "disconnect", "dup", &udp_port, opts),
+            (&bin, "disconnect", "fork", &udp_port, opts),
+        ] {
+            let cmd = [program.to_str().unwrap(), action, call, port];
+            for sd_opts in generate_options(&cmd, shh_opts_sets) {
                 let _ = systemd_run(&cmd, &sd_opts, false);
             }
         }

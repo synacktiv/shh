@@ -3,7 +3,7 @@
 use super::{
     action::ProgramAction,
     handlers::{
-        AccessHandler, ChdirHandler, Clone3Handler, EpollCtlHandler, ExecHandler,
+        AccessHandler, ChdirHandler, Clone3Handler, DupHandler, EpollCtlHandler, ExecHandler,
         FanotifyMarkHandler, FdOrPath, FdWriteHandler, FollowSymlink, ForkHandler, IoctlHandler,
         KillHandler, LinkHandler, MemfdCreateHandler, MknodHandler, MmapHandler, MountHandler,
         NetworkHandler, OpenHandler, PathHandler, RemoveHandler, RenameHandler,
@@ -58,6 +58,9 @@ pub(super) static SYSCALL_MAP: phf::Map<&'static str, &'static dyn SyscallHandle
         path: 0,
         flags: None,
     },
+    "dup" => &DupHandler { fd: 0, fcntl_cmd: None },
+    "dup2" => &DupHandler { fd: 0, fcntl_cmd: None },
+    "dup3" => &DupHandler { fd: 0, fcntl_cmd: None },
     "epoll_ctl" => &EpollCtlHandler { op: 1, event: 3 },
     "execve" => &ExecHandler {
         relfd: None,
@@ -129,6 +132,7 @@ pub(super) static SYSCALL_MAP: phf::Map<&'static str, &'static dyn SyscallHandle
         },
         action: ProgramAction::Write,
     },
+    "fcntl" | "fcntl64" => &DupHandler { fd: 0, fcntl_cmd: Some(1) },
     "file_getattr" => &PathHandler {
         relfd: Some(0),
         path: 1,

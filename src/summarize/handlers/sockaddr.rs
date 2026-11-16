@@ -180,6 +180,8 @@ fn handle_sockaddr(
     if sc.name == "connect"
         && sc.is_successful()
         && let Some(info) = state.proc_fd.get_sock_info_mut(sc.pid, fd_number(fd)?)
+        // Another socket may reuse the descriptor number of a closed one
+        && info.label.as_deref() == fd.metadata().map(fd_label)
     {
         info.connected = af_str != "AF_UNSPEC";
     }
@@ -968,6 +970,15 @@ mod tests {
                 named_symbol("AF_UNSPEC"),
             )])))
         };
+        let disconnect_through = |fd| {
+            let mut sc = disconnect();
+            sc.args[0] = fd;
+            sc
+        };
+        let in_child = |mut sc: Syscall| {
+            sc.pid = 2000;
+            sc
+        };
         let peer = || SetSpecifier::One("127.0.0.3".parse::<IpAddr>().unwrap().into());
         let created = || {
             inet_activity(
@@ -1064,8 +1075,133 @@ mod tests {
                 ],
                 vec![created(), connected(peer()), received(SetSpecifier::All)],
             ),
+            // A disconnect applies to every descriptor of the socket
+            (
+                vec![
+                    udp_socket(),
+                    connect_peer(),
+                    make_syscall("dup", vec![sock()], 4),
+                    disconnect_through(fd_expr(4, "socket:[7]")),
+                    recvfrom(named_symbol("NULL")),
+                ],
+                vec![
+                    created(),
+                    connected(peer()),
+                    connected(SetSpecifier::None),
+                    received(SetSpecifier::All),
+                ],
+            ),
+            (
+                vec![
+                    udp_socket(),
+                    connect_peer(),
+                    make_syscall("fork", vec![], 2000),
+                    disconnect(),
+                    in_child(recvfrom(named_symbol("NULL"))),
+                ],
+                vec![
+                    created(),
+                    connected(peer()),
+                    connected(SetSpecifier::None),
+                    received(SetSpecifier::All),
+                ],
+            ),
+            // A disconnect through a descriptor designating another socket leaves the socket connected
+            (
+                vec![
+                    udp_socket(),
+                    connect_peer(),
+                    make_syscall("dup", vec![sock()], 4),
+                    make_syscall("dup2", vec![fd_expr(5, "socket:[8]"), int_literal(4)], 4),
+                    disconnect_through(fd_expr(4, "socket:[8]")),
+                    recvfrom(named_symbol("NULL")),
+                ],
+                vec![created(), connected(peer())],
+            ),
+            (
+                vec![
+                    udp_socket(),
+                    connect_peer(),
+                    make_syscall("fork", vec![], 2000),
+                    in_child(disconnect_through(fd_expr(3, "UNIX:[9]"))),
+                    recvfrom(named_symbol("NULL")),
+                ],
+                vec![created(), connected(peer()), connected(SetSpecifier::None)],
+            ),
         ] {
             assert_network_activities(calls, activities);
+        }
+    }
+
+    #[test]
+    fn send_through_duplicate() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let sendto = |fd| {
+            make_syscall(
+                "sendto",
+                vec![
+                    fd_expr(fd, "socket:[7]"),
+                    buf_expr(b"x"),
+                    int_literal(1),
+                    int_literal(0),
+                    inet_sockaddr("127.0.0.5"),
+                    int_literal(16),
+                ],
+                1,
+            )
+        };
+        let fcntl = |name, cmd, ret| {
+            make_syscall(name, vec![sock(), named_symbol(cmd), int_literal(0)], ret)
+        };
+        for (call, fd, sent) in [
+            (make_syscall("dup", vec![sock()], 7), 7, true),
+            (
+                make_syscall("dup2", vec![sock(), int_literal(7)], 7),
+                7,
+                true,
+            ),
+            (
+                make_syscall(
+                    "dup3",
+                    vec![sock(), int_literal(7), named_symbol("O_CLOEXEC")],
+                    7,
+                ),
+                7,
+                true,
+            ),
+            (fcntl("fcntl", "F_DUPFD", 7), 7, true),
+            (fcntl("fcntl", "F_DUPFD_CLOEXEC", 7), 7, true),
+            (fcntl("fcntl64", "F_DUPFD_CLOEXEC", 7), 7, true),
+            // Other commands return no descriptor
+            (
+                make_syscall("fcntl", vec![sock(), named_symbol("F_GETFL")], 2),
+                2,
+                false,
+            ),
+            // A failed call returns no descriptor
+            (
+                make_failed_syscall("dup", vec![sock()], "EMFILE"),
+                -1,
+                false,
+            ),
+        ] {
+            let mut activities = vec![inet_activity(
+                SocketProtocol::Udp,
+                NetworkActivityKind::SocketCreation,
+                SetSpecifier::All,
+            )];
+            if sent {
+                activities.push(inet_activity(
+                    SocketProtocol::Udp,
+                    NetworkActivityKind::SendRecv,
+                    SetSpecifier::One("127.0.0.5".parse::<IpAddr>().unwrap().into()),
+                ));
+            }
+            assert_network_activities(
+                vec![inet_socket("SOCK_DGRAM", "socket:[7]"), call, sendto(fd)],
+                activities,
+            );
         }
     }
 

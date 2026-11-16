@@ -1,4 +1,4 @@
-//! Socket creation and option syscall handlers
+//! Socket descriptor and option syscall handlers
 
 use std::{
     any::{type_name, type_name_of_val},
@@ -85,6 +85,38 @@ impl SyscallHandler for SocketHandler {
     }
 }
 
+/// Handle syscalls duplicating a descriptor
+pub(crate) struct DupHandler {
+    pub fd: usize,
+    /// Index of the `fcntl` command argument, absent for the `dup` calls
+    pub fcntl_cmd: Option<usize>,
+}
+
+impl SyscallHandler for DupHandler {
+    fn handle(
+        &self,
+        sc: &Syscall,
+        _actions: &mut Vec<ProgramAction>,
+        state: &mut ProgramState,
+    ) -> Result<(), HandlerError> {
+        let new_fd = match sc.ret_val.as_ref().and_then(IntegerExpression::value) {
+            Some(fd) if fd >= 0 => fd,
+            _ => return Ok(()),
+        };
+        if let Some(cmd) = self.fcntl_cmd.extract(sc)? {
+            let cmd =
+                unpack_expr!(cmd, Expression::Integer(IntegerExpression { value, .. }) => value);
+            if !cmd.is_flag_set("F_DUPFD") && !cmd.is_flag_set("F_DUPFD_CLOEXEC") {
+                return Ok(());
+            }
+        }
+        let old_fd = fd_number(self.fd.extract(sc)?)?;
+        let new_fd = RawFd::try_from(new_fd).map_err(|_| err_value!(new_fd, i64 => RawFd))?;
+        state.proc_fd.dup_fd(sc.pid, old_fd, new_fd);
+        Ok(())
+    }
+}
+
 /// Handle setsockopt syscalls to track `IPV6_V6ONLY` option
 pub(crate) struct SetsockoptHandler {
     pub fd: usize,
@@ -153,8 +185,11 @@ impl SyscallHandler for SetsockoptHandler {
         // Update socket info if known and IPv6
         if let Some(SocketInfo {
             af: SocketAfInfo::Ipv6 { v6only },
+            label,
             ..
         }) = state.proc_fd.get_sock_info_mut(sc.pid, fd_raw)
+            // Another socket may reuse the descriptor number of a closed one
+            && label.as_deref() == fd.metadata().map(fd_label)
         {
             *v6only = Some(val != 0);
         }
@@ -175,7 +210,7 @@ mod tests {
         handlers::{
             NetworkHandler, SockaddrArg,
             tests::{
-                binary_or_flags, buf_expr, int_literal, make_bind_inet, make_socket_inet,
+                binary_or_flags, buf_expr, fd_expr, int_literal, make_bind_inet, make_socket_inet,
                 make_syscall, named_symbol,
             },
         },
@@ -453,6 +488,32 @@ mod tests {
             })
             .as_ref()
         );
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn setsockopt_v6only_other_socket() {
+        // Another socket reusing the descriptor number of a tracked one
+        let handler = SetsockoptHandler {
+            fd: 0,
+            level: 1,
+            optname: 2,
+            optval: 3,
+        };
+        let mut state = program_state();
+        let info = || SocketInfo {
+            proto: SocketProtocol::Tcp,
+            af: SocketAfInfo::Ipv6 { v6only: None },
+            connected: false,
+            label: Some(b"TCPv6".to_vec()),
+        };
+        state.proc_fd.add_sock_info(1000, 3, info());
+
+        let mut sc = make_setsockopt(3, "SOL_IPV6", "IPV6_V6ONLY", 1);
+        sc.args[0] = fd_expr(3, "UNIX:[9]");
+        let mut actions = vec![];
+        handler.handle(&sc, &mut actions, &mut state).unwrap();
+        assert_eq!(state.proc_fd.get_sock_info(1000, 3), Some(&info()));
         assert!(actions.is_empty());
     }
 

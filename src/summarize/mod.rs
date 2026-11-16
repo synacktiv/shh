@@ -23,7 +23,7 @@ use syscall_map::SYSCALL_MAP;
 /// Obviously, keeping this to a minimum is a goal
 #[derive(Debug)]
 pub(crate) struct ProgramState {
-    /// Process fd-table topology and socket protocol tracking
+    /// Process fd-table topology and shared socket state
     proc_fd: ProcessFdTracker,
     /// Current working directory
     cur_dir: PathBuf,
