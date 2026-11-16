@@ -5,9 +5,7 @@ use std::{
     os::fd::RawFd,
 };
 
-use nix::libc::pid_t;
-
-use super::{ExtractArg as _, HandlerError, SyscallHandler, fd_label, fd_number};
+use super::{ExtractArg as _, HandlerError, SyscallHandler, fd_label, fd_number, pidfd_pid};
 use crate::{
     strace::{Expression, IntegerExpression, IntegerExpressionValue, NamedSymbol, Syscall},
     summarize::{
@@ -139,19 +137,6 @@ impl SyscallHandler for DupHandler {
             .dup_fd(old_pid.map(|pid| (pid, old_fd)), sc.pid, new_fd);
         Ok(())
     }
-}
-
-/// Get the process a pidfd argument designates, if the tracer sees it
-fn pidfd_pid(pidfd: &Expression) -> Result<Option<pid_t>, HandlerError> {
-    // strace shows the path of a pidfd whose process is outside its PID namespace
-    let Some(pid) = pidfd.metadata().and_then(|m| m.strip_prefix(b"pid:")) else {
-        return Ok(None);
-    };
-    str::from_utf8(pid)
-        .ok()
-        .and_then(|pid| pid.parse().ok())
-        .map(Some)
-        .ok_or_else(|| err_value!(pid, pid_t))
 }
 
 /// Handle setsockopt syscalls to track `IPV6_V6ONLY` option

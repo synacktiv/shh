@@ -144,6 +144,35 @@ if libc.syscall(SYS_openat2, AT_FDCWD, path.encode(), how, ctypes.c_size_t(len(h
     /// Python script using sockets a parent passes to its child, or takes from it
     const PASSED_SOCKET_SCRIPT: &str = include_str!("passed_socket.py");
 
+    /// Python script probing a process with signal 0 through a given syscall
+    const SIGNAL_SCRIPT: &str = "
+import ctypes, os, signal, sys
+
+# Values from <asm-generic/siginfo.h> and x86_64 <sys/syscall.h>
+SI_QUEUE = -1
+SYS_tkill = 200
+SYS_tgkill = 234
+SYS_rt_tgsigqueueinfo = 297
+
+syscall, pid = sys.argv[1], int(sys.argv[2])
+libc = ctypes.CDLL(None, use_errno=True)
+# siginfo_t of 128 bytes, starting with si_signo, si_errno and si_code
+siginfo = (ctypes.c_int * 32)(signal.SIGCONT, 0, SI_QUEUE)
+if syscall == 'pidfd_send_signal':
+    signal.pidfd_send_signal(os.pidfd_open(pid), signal.SIGCONT)
+else:
+    ret = {
+        'kill': lambda: libc.kill(pid, signal.SIGCONT),
+        'tkill': lambda: libc.syscall(SYS_tkill, pid, signal.SIGCONT),
+        'tgkill': lambda: libc.syscall(SYS_tgkill, pid, pid, signal.SIGCONT),
+        'rt_sigqueueinfo': lambda: libc.sigqueue(pid, signal.SIGCONT, None),
+        'rt_tgsigqueueinfo': lambda: libc.syscall(SYS_rt_tgsigqueueinfo, pid, pid, signal.SIGCONT, siginfo),
+    }[syscall]()
+    if ret != 0:
+        err = ctypes.get_errno()
+        raise OSError(err, os.strerror(err), syscall)
+";
+
     /// Path of the tested `shh` binary
     fn shh_bin() -> String {
         env::var("CARGO_BIN_EXE_shh").unwrap_or_else(|_| env!("CARGO_BIN_EXE_shh").to_owned())
@@ -1905,5 +1934,49 @@ if libc.timer_create(clock, None, ctypes.byref(ctypes.c_void_p())) != 0:
         let bin = bin_dir.path().join("shmat_exec");
         compile_c(SHMAT_EXEC_SRC, &[], &bin);
         profile_and_run(&[bin.to_str().unwrap()], false);
+    }
+
+    #[test]
+    fn systemd_run_signal_other_user() {
+        // Send SIGCONT to a process of the test user, in another session, through each signal sending syscall,
+        // which needs CAP_KILL in a system service; a user service runs as the test user
+        let pgrep = Command::new("pgrep")
+            .args(["-o", "-u", &env::var("TEST_USER").unwrap()])
+            .unwrap();
+        let pid = String::from_utf8(pgrep.stdout).unwrap();
+        for syscall in [
+            "kill",
+            "tkill",
+            "tgkill",
+            "rt_sigqueueinfo",
+            "rt_tgsigqueueinfo",
+            "pidfd_send_signal",
+        ] {
+            profile_and_run(
+                &["python3", "-c", SIGNAL_SCRIPT, syscall, pid.trim_end()],
+                false,
+            );
+        }
+    }
+
+    #[test]
+    fn systemd_run_sigcont_same_session() {
+        // Send SIGCONT to a child of the test user, which needs no CAP_KILL from the same session
+        let cmd = [
+            "python3",
+            "-c",
+            "import os, signal, subprocess, sys
+child = subprocess.Popen(('sleep', '1'), user=sys.argv[1])
+os.kill(child.pid, signal.SIGCONT)
+child.wait()",
+            &env::var("TEST_USER").unwrap(),
+        ];
+        for sd_opts in generate_options(&cmd, &ALL_SHH_RUN_OPTS) {
+            assert!(sd_opts.iter().any(|opt| {
+                opt.strip_prefix("CapabilityBoundingSet=~")
+                    .is_some_and(|caps| caps.split(' ').any(|cap| cap == "CAP_KILL"))
+            }));
+            let _ = systemd_run(&cmd, &sd_opts, false);
+        }
     }
 }

@@ -8,22 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub(crate) use dir_entry::{LinkHandler, RemoveHandler, RenameHandler};
-pub(crate) use fd_fs::{FdWriteHandler, IoctlHandler, StatFdHandler};
-pub(crate) use memory::{MemfdCreateHandler, MmapHandler, ShmAtHandler, ShmCtlHandler};
-pub(crate) use open::{MknodHandler, OpenHandler};
-pub(crate) use path::{
-    AccessHandler, FanotifyMarkHandler, FollowSymlink, MountHandler, PathHandler,
-};
-pub(crate) use process::{
-    ChdirHandler, Clone3Handler, ExecHandler, ForkHandler, KillHandler, SetSchedulerHandler,
-    UnshareHandler,
-};
-pub(crate) use sockaddr::{NetworkHandler, SockaddrArg};
-pub(crate) use socket::{DupHandler, DupQualifier, SetsockoptHandler, SocketHandler};
-pub(crate) use timer::{EpollCtlHandler, TimerHandler};
-use walk::resolve_path;
-pub(crate) use walk::{PathWalk, traverse_path_within};
+use nix::libc::pid_t;
 
 use super::{ProgramState, action::ProgramAction};
 use crate::strace::{BufferExpression, BufferType, Expression, Syscall};
@@ -104,6 +89,23 @@ mod socket;
 mod timer;
 mod walk;
 
+pub(crate) use dir_entry::{LinkHandler, RemoveHandler, RenameHandler};
+pub(crate) use fd_fs::{FdWriteHandler, IoctlHandler, StatFdHandler};
+pub(crate) use memory::{MemfdCreateHandler, MmapHandler, ShmAtHandler, ShmCtlHandler};
+pub(crate) use open::{MknodHandler, OpenHandler};
+pub(crate) use path::{
+    AccessHandler, FanotifyMarkHandler, FollowSymlink, MountHandler, PathHandler,
+};
+pub(crate) use process::{
+    ChdirHandler, Clone3Handler, ExecHandler, ForkHandler, KillHandler, PidfdSendSignalHandler,
+    SetSchedulerHandler, UnshareHandler,
+};
+pub(crate) use sockaddr::{NetworkHandler, SockaddrArg};
+pub(crate) use socket::{DupHandler, DupQualifier, SetsockoptHandler, SocketHandler};
+pub(crate) use timer::{EpollCtlHandler, TimerHandler};
+use walk::resolve_path;
+pub(crate) use walk::{PathWalk, traverse_path_within};
+
 /// Trait for handling a syscall and producing summary actions
 pub(crate) trait SyscallHandler: Send + Sync {
     /// Handle a syscall and append resulting actions
@@ -173,6 +175,19 @@ fn fd_number(fd: &Expression) -> Result<RawFd, HandlerError> {
     let fd = unpack_expr!(fd, Expression::Integer(fd) => fd);
     let value = fd.value().ok_or_else(|| err_value!(fd, RawFd))?;
     RawFd::try_from(value).map_err(|_| err_value!(value, i64 => RawFd))
+}
+
+/// Get the process a pidfd argument designates, if the tracer sees it
+fn pidfd_pid(pidfd: &Expression) -> Result<Option<pid_t>, HandlerError> {
+    // strace shows the path of a pidfd whose process is outside its PID namespace
+    let Some(pid) = pidfd.metadata().and_then(|m| m.strip_prefix(b"pid:")) else {
+        return Ok(None);
+    };
+    str::from_utf8(pid)
+        .ok()
+        .and_then(|pid| pid.parse().ok())
+        .map(Some)
+        .ok_or_else(|| err_value!(pid, pid_t))
 }
 
 /// Get the path of a path argument

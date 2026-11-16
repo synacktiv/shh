@@ -6,9 +6,10 @@ use super::{
         AccessHandler, ChdirHandler, Clone3Handler, DupHandler, DupQualifier, EpollCtlHandler,
         ExecHandler, FanotifyMarkHandler, FdOrPath, FdWriteHandler, FollowSymlink, ForkHandler,
         IoctlHandler, KillHandler, LinkHandler, MemfdCreateHandler, MknodHandler, MmapHandler,
-        MountHandler, NetworkHandler, OpenHandler, PathHandler, RemoveHandler, RenameHandler,
-        SetSchedulerHandler, SetsockoptHandler, ShmAtHandler, ShmCtlHandler, SockaddrArg,
-        SocketHandler, StatFdHandler, SyscallHandler, TimerHandler, UnshareHandler,
+        MountHandler, NetworkHandler, OpenHandler, PathHandler, PidfdSendSignalHandler,
+        RemoveHandler, RenameHandler, SetSchedulerHandler, SetsockoptHandler, ShmAtHandler,
+        ShmCtlHandler, SockaddrArg, SocketHandler, StatFdHandler, SyscallHandler, TimerHandler,
+        UnshareHandler,
     },
 };
 
@@ -337,6 +338,7 @@ pub(super) static SYSCALL_MAP: phf::Map<&'static str, &'static dyn SyscallHandle
         flags: Some(2),
     },
     "pidfd_getfd" => &DupHandler { fd: 1, qualifier: Some(DupQualifier::Pidfd(0)) },
+    "pidfd_send_signal" => &PidfdSendSignalHandler { pidfd: 0, sig: 1, flags: 3 },
     "pkey_mprotect" => &MmapHandler {
         prot: 2,
         flags: None,
@@ -405,6 +407,8 @@ pub(super) static SYSCALL_MAP: phf::Map<&'static str, &'static dyn SyscallHandle
             action: ProgramAction::Remove,
         },
     },
+    "rt_sigqueueinfo" => &KillHandler { pid: 0, sig: 1 },
+    "rt_tgsigqueueinfo" => &KillHandler { pid: 1, sig: 2 },
     "sched_setscheduler" => &SetSchedulerHandler { policy: 1 },
     "sendfile" | "sendfile64" => &NetworkHandler { fd: 1, sockaddr: SockaddrArg::None },
     "sendmmsg" => &NetworkHandler { fd: 0, sockaddr: SockaddrArg::MmsgHdrs(1) },
@@ -468,7 +472,9 @@ pub(super) static SYSCALL_MAP: phf::Map<&'static str, &'static dyn SyscallHandle
         follow: FollowSymlink::Never,
         action: ProgramAction::Create,
     },
+    "tgkill" => &KillHandler { pid: 1, sig: 2 },
     "timer_create" | "timerfd_create" => &TimerHandler { clockid: 0 },
+    "tkill" => &KillHandler { pid: 0, sig: 1 },
     "truncate" | "truncate64" => &PathHandler {
         relfd: None,
         path: 0,

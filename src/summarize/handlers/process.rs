@@ -11,10 +11,13 @@ use std::{
 use anyhow::Context as _;
 use goblin::elf;
 use itertools::Itertools as _;
-use nix::libc::{pid_t, uid_t};
+use nix::{
+    libc::{PIDFD_SIGNAL_PROCESS_GROUP, pid_t, uid_t},
+    unistd,
+};
 
 use super::{
-    ExtractArg as _, FdOrPath, HandlerError, SyscallHandler, path_arg,
+    ExtractArg as _, FdOrPath, HandlerError, SyscallHandler, path_arg, pidfd_pid,
     walk::{resolve_path, traverse_path},
 };
 use crate::{
@@ -163,7 +166,7 @@ impl SyscallHandler for ExecHandler {
     }
 }
 
-/// Handle kill syscall
+/// Handle syscalls sending a signal to a process or thread ID
 pub(crate) struct KillHandler {
     pub pid: usize,
     pub sig: usize,
@@ -187,51 +190,87 @@ impl SyscallHandler for KillHandler {
             }) => pid_val
         );
         let pid_val = pid_t::try_from(*pid_val).map_err(|_| err_value!(*pid_val, i64 => pid_t))?;
-        let sig_name = match sig {
-            Expression::Integer(IntegerExpression {
-                value: IntegerExpressionValue::NamedSymbol(NamedSymbol::Unambiguous(sig_name)),
-                ..
-            }) => Some(sig_name),
-            Expression::Integer(IntegerExpression {
-                value: IntegerExpressionValue::Literal(0),
-                ..
-            }) => None,
-            _ => {
-                return Err(err_expr_type!(sig));
-            }
-        };
-        // https://man7.org/linux/man-pages/man2/kill.2.html
-        if pid_val > 0 {
-            if sig_name.is_some_and(|s| s == "SIGCONT")
-                && (nix::unistd::getsid(Some(nix::unistd::Pid::from_raw(pid_val)))
-                    .and_then(|s| {
-                        nix::unistd::getsid(Some(nix::unistd::Pid::from_raw(sc.pid)))
-                            .map(|cs| s == cs)
-                    })
-                    .unwrap_or_default())
-            {
-                return Ok(());
-            }
-            // Note: for signals that stop the target process, most of the time we will
-            // fail to parse target UIDs here because it is already dead,
-            // which will lead to "under" hardening
-            if process_uids(pid_val)
-                .and_then(|u| {
-                    process_uids(sc.pid).map(|cu| {
-                        (cu.real == u.real)
-                            || (cu.real == u.saved)
-                            || (cu.effective == u.real)
-                            || (cu.effective == u.saved)
-                    })
-                })
-                .unwrap_or_default()
-            {
-                return Ok(());
-            }
+        if kill_other(sc.pid, pid_val, sig)? {
+            actions.push(ProgramAction::KillOther);
         }
-        actions.push(ProgramAction::KillOther);
         Ok(())
     }
+}
+
+/// Handle `pidfd_send_signal` syscall
+pub(crate) struct PidfdSendSignalHandler {
+    pub pidfd: usize,
+    pub sig: usize,
+    pub flags: usize,
+}
+
+impl SyscallHandler for PidfdSendSignalHandler {
+    fn handle(
+        &self,
+        sc: &Syscall,
+        actions: &mut Vec<ProgramAction>,
+        _state: &mut ProgramState,
+    ) -> Result<(), HandlerError> {
+        let pidfd = self.pidfd.extract(sc)?;
+        let sig = self.sig.extract(sc)?;
+        let flags = unpack_expr!(
+            self.flags.extract(sc)?,
+            Expression::Integer(IntegerExpression { value, .. }) => value
+        );
+
+        // The process group the process leads is signaled instead
+        let pid = if flags.is_flag_set("PIDFD_SIGNAL_PROCESS_GROUP")
+            || flags
+                .value()
+                .is_some_and(|v| v & i64::from(PIDFD_SIGNAL_PROCESS_GROUP) != 0)
+        {
+            None
+        } else {
+            pidfd_pid(pidfd)?
+        };
+        if pid.map_or(Ok(true), |pid| kill_other(sc.pid, pid, sig))? {
+            actions.push(ProgramAction::KillOther);
+        }
+        Ok(())
+    }
+}
+
+/// Check whether a signal sent to a process ID may reach a process its sender has no evident permission to signal
+fn kill_other(sender: pid_t, target: pid_t, sig: &Expression) -> Result<bool, HandlerError> {
+    let sig_name = match sig {
+        Expression::Integer(IntegerExpression {
+            value: IntegerExpressionValue::NamedSymbol(NamedSymbol::Unambiguous(sig_name)),
+            ..
+        }) => Some(sig_name),
+        Expression::Integer(IntegerExpression {
+            value: IntegerExpressionValue::Literal(0),
+            ..
+        }) => None,
+        _ => {
+            return Err(err_expr_type!(sig));
+        }
+    };
+    // https://man7.org/linux/man-pages/man2/kill.2.html
+    if target > 0 {
+        let session_id = |pid| unistd::getsid(Some(unistd::Pid::from_raw(pid)));
+        if sig_name.is_some_and(|s| s == "SIGCONT")
+            && session_id(target).is_ok_and(|sid| session_id(sender) == Ok(sid))
+        {
+            return Ok(false);
+        }
+        // Note: for signals that terminate the target process, most of the time we will
+        // fail to parse target UIDs here because it is already dead,
+        // which will lead to "under" hardening
+        if let Ok(target_uids) = process_uids(target)
+            && let Ok(sender_uids) = process_uids(sender)
+            && [sender_uids.real, sender_uids.effective]
+                .iter()
+                .any(|uid| [target_uids.real, target_uids.saved].contains(uid))
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// Handle `sched_setscheduler` syscall
@@ -326,9 +365,51 @@ where
 mod tests {
     use super::*;
     use crate::summarize::{
-        handlers::tests::{buf_expr, int_literal, make_syscall, named_symbol},
+        handlers::tests::{
+            buf_expr, fd_expr, int_literal, make_syscall, named_symbol, summarize_syscall,
+        },
         program_state,
     };
+
+    /// Process ID above the kernel's `PID_MAX_LIMIT`, of no process
+    const NO_SUCH_PID: i64 = 4_194_305;
+
+    /// Build a successful syscall made by the test process
+    fn own_syscall(name: &str, args: Vec<Expression>) -> Syscall {
+        let mut sc = make_syscall(name, args, 0);
+        sc.pid = unistd::getpid().as_raw();
+        sc
+    }
+
+    /// Build the argument lists of every signal sending syscall but `kill`, targeting a thread, and a process if
+    /// the syscall takes both
+    fn signal_args(process: i64, thread: i64) -> [(&'static str, Vec<Expression>); 5] {
+        [
+            ("tkill", vec![int_literal(thread), int_literal(0)]),
+            (
+                "tgkill",
+                vec![
+                    int_literal(process),
+                    int_literal(thread),
+                    named_symbol("SIGTERM"),
+                ],
+            ),
+            ("rt_sigqueueinfo", vec![int_literal(thread), int_literal(0)]),
+            (
+                "rt_tgsigqueueinfo",
+                vec![int_literal(process), int_literal(thread), int_literal(0)],
+            ),
+            (
+                "pidfd_send_signal",
+                vec![
+                    fd_expr(3, format!("pid:{thread}")),
+                    int_literal(0),
+                    named_symbol("NULL"),
+                    int_literal(0),
+                ],
+            ),
+        ]
+    }
 
     #[test]
     fn read_process_uids_works() {
@@ -519,6 +600,80 @@ x86_Thread_features_locked:
             Err(HandlerError::ExpressionTypeMismatch { .. })
         ));
         assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn signal_own_process() {
+        let own = i64::from(unistd::getpid().as_raw());
+        for (name, args) in signal_args(own, own) {
+            assert_eq!(
+                summarize_syscall(own_syscall(name, args)),
+                vec![ProgramAction::Syscalls([name.into()].into())]
+            );
+        }
+    }
+
+    #[test]
+    fn signal_unknown_thread_kill_other() {
+        let own = i64::from(unistd::getpid().as_raw());
+        for (name, args) in signal_args(own, NO_SUCH_PID) {
+            assert_eq!(
+                summarize_syscall(own_syscall(name, args)),
+                vec![
+                    ProgramAction::KillOther,
+                    ProgramAction::Syscalls([name.into()].into()),
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn pidfd_signal_unknown_target_kill_other() {
+        let own = format!("pid:{}", unistd::getpid());
+        for (pidfd, flags) in [
+            // Process outside the tracer's PID namespace
+            (fd_expr(3, "anon_inode:[pidfd]"), int_literal(0)),
+            // PIDFD_SELF_THREAD
+            (int_literal(-10000), int_literal(0)),
+            (fd_expr(3, &own), named_symbol("PIDFD_SIGNAL_PROCESS_GROUP")),
+            // PIDFD_SIGNAL_PROCESS_GROUP, undecoded by strace < 6.9
+            (fd_expr(3, &own), int_literal(4)),
+        ] {
+            assert_eq!(
+                summarize_syscall(own_syscall(
+                    "pidfd_send_signal",
+                    vec![pidfd, int_literal(0), named_symbol("NULL"), flags],
+                )),
+                vec![
+                    ProgramAction::KillOther,
+                    ProgramAction::Syscalls(["pidfd_send_signal".into()].into()),
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn pidfd_signal_own_thread_scopes() {
+        let own = format!("pid:{}", unistd::getpid());
+        for flags in [
+            named_symbol("PIDFD_SIGNAL_THREAD"),
+            named_symbol("PIDFD_SIGNAL_THREAD_GROUP"),
+            int_literal(1),
+            int_literal(2),
+        ] {
+            assert_eq!(
+                summarize_syscall(own_syscall(
+                    "pidfd_send_signal",
+                    vec![
+                        fd_expr(3, &own),
+                        int_literal(0),
+                        named_symbol("NULL"),
+                        flags
+                    ],
+                )),
+                vec![ProgramAction::Syscalls(["pidfd_send_signal".into()].into())]
+            );
+        }
     }
 
     #[test]
