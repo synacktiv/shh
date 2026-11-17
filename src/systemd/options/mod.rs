@@ -338,6 +338,7 @@ pub(crate) enum DeniableAction {
     NetworkActivity(Box<NetworkActivity>),
     Read(PathBuf),
     SetAlarm,
+    SetHardwareClock,
     SetRealtimeScheduler,
     Wakeup,
     WriteExecuteMemoryMapping,
@@ -367,6 +368,7 @@ impl DeniableAction {
             Self::MknodSpecial => matches!(action, ProgramAction::MknodSpecial),
             Self::Read(path) => matches!(action, ProgramAction::Read(p) if p == path),
             Self::SetAlarm => matches!(action, ProgramAction::SetAlarm),
+            Self::SetHardwareClock => matches!(action, ProgramAction::SetHardwareClock),
             Self::SetRealtimeScheduler => matches!(action, ProgramAction::SetRealtimeScheduler),
             Self::Wakeup => matches!(action, ProgramAction::Wakeup),
             Self::WriteExecuteMemoryMapping => {

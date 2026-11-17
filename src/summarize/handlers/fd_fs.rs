@@ -88,11 +88,22 @@ impl SyscallHandler for IoctlHandler {
             "FS_IOC_SETVERSION",
             "FS_IOC_SET_ENCRYPTION_POLICY",
         ];
+        /// Requests setting the time or parameters of a hardware clock
+        const HARDWARE_CLOCK_SET_REQUESTS: [&str; 4] = [
+            "RTC_EPOCH_SET",
+            "RTC_PARAM_SET",
+            "RTC_PLL_SET",
+            "RTC_SET_TIME",
+        ];
         let request = unpack_expr!(
             self.request.extract(sc)?,
             Expression::Integer(IntegerExpression { value, .. }) => value
         );
-        if ATTR_WRITE_REQUESTS.iter().any(|r| request.is_flag_set(r))
+        let matches_request = |names: &[&str]| names.iter().any(|name| request.is_flag_set(name));
+        if matches_request(&HARDWARE_CLOCK_SET_REQUESTS) {
+            actions.push(ProgramAction::SetHardwareClock);
+        }
+        if matches_request(&ATTR_WRITE_REQUESTS)
             && let Some(path) = fd_path(self.fd.extract(sc)?, actions, &state.cur_dir)
         {
             actions.push(ProgramAction::Write(path));
@@ -449,6 +460,25 @@ mod tests {
                 summarize_syscall(sc),
                 vec![ProgramAction::Syscalls([name].into())]
             );
+        }
+    }
+
+    #[test]
+    fn ioctl_rtc_requests() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let fd = fd_expr(3, "/dev/rtc0");
+        for (request, mut expected) in [
+            ("RTC_SET_TIME", vec![ProgramAction::SetHardwareClock]),
+            ("RTC_EPOCH_SET", vec![ProgramAction::SetHardwareClock]),
+            ("RTC_PARAM_SET", vec![ProgramAction::SetHardwareClock]),
+            ("RTC_PLL_SET", vec![ProgramAction::SetHardwareClock]),
+            ("RTC_ALM_SET", vec![]),
+            ("RTC_WKALM_SET", vec![]),
+        ] {
+            let args = vec![fd.clone(), named_symbol(request), int_literal(0)];
+            expected.push(ProgramAction::Syscalls(["ioctl".into()].into()));
+            assert_eq!(summarize_syscall(make_syscall("ioctl", args, 0)), expected);
         }
     }
 

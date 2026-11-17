@@ -43,6 +43,8 @@ pub(crate) enum ProgramAction {
     RequireSameMount(PathBuf, PathBuf),
     /// Set privileged timer alarm
     SetAlarm,
+    /// Set the time or parameters of a hardware clock
+    SetHardwareClock,
     /// Set scheduler to a real time one
     SetRealtimeScheduler,
     /// Names of the syscalls made by the program

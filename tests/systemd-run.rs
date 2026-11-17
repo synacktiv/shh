@@ -1914,6 +1914,22 @@ else:
     }
 
     #[test]
+    fn systemd_run_rtc_set_time() {
+        // Set the hardware clock to the time it holds, which needs CAP_SYS_TIME; a user service lacks it
+        let script = "
+import fcntl, os
+
+# Requests of <linux/rtc.h> in the generic ioctl encoding, on a 36-byte struct rtc_time
+RTC_RD_TIME = 0x80247009
+RTC_SET_TIME = 0x4024700a
+
+fd = os.open('/dev/rtc0', os.O_RDONLY)
+fcntl.ioctl(fd, RTC_SET_TIME, fcntl.ioctl(fd, RTC_RD_TIME, bytes(36)))
+";
+        profile_and_run(&["python3", "-c", script], false);
+    }
+
+    #[test]
     fn systemd_run_timer_cpu_clock() {
         // Create a timer on the CPU clock of the thread, a dynamic clock
         let script = "

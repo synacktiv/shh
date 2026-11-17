@@ -501,8 +501,8 @@ impl OptionSpec for ProtectClock {
             possible_values: vec![OptionValueDescription {
                 value: OptionValue::Boolean(true),
                 desc: OptionEffect::Simple(OptionValueEffect::Multiple(vec![
-                    OptionValueEffect::DenyWrite(PathDescription::pattern("/dev/rtc.*")),
                     // See handling of CAP_SYS_TIME
+                    OptionValueEffect::DenyAction(DeniableAction::SetHardwareClock),
                     OptionValueEffect::DenySyscalls(DenySyscalls::Single("stime")),
                     OptionValueEffect::DenySyscalls(DenySyscalls::Class("clock")),
                     // See handling of CAP_WAKE_ALARM
@@ -1470,6 +1470,7 @@ impl OptionSpec for CapabilityBoundingSet {
                 OptionValueEffect::Multiple(vec![
                     OptionValueEffect::DenySyscalls(DenySyscalls::Class("clock")),
                     OptionValueEffect::DenySyscalls(DenySyscalls::Single("stime")),
+                    OptionValueEffect::DenyAction(DeniableAction::SetHardwareClock),
                 ]),
             ),
             (

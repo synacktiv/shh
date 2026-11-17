@@ -872,6 +872,21 @@ mod tests {
     }
 
     #[test]
+    fn resolve_protect_clock() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let (opts, hardening_opts) = test_options_standard(&["ProtectClock"]);
+        let expected = [OptionWithValue {
+            name: "ProtectClock",
+            value: OptionValue::Boolean(true),
+        }];
+        let actions = [ProgramAction::Write("/dev/rtc0".into())];
+        assert_eq!(resolve(&opts, &actions, &hardening_opts), expected);
+        let actions = [ProgramAction::SetHardwareClock];
+        assert!(resolve(&opts, &actions, &hardening_opts).is_empty());
+    }
+
+    #[test]
     fn resolve_protect_system_remove() {
         let _ = simple_logger::SimpleLogger::new().init();
 
@@ -1631,6 +1646,18 @@ mod tests {
         let candidates = resolve(&opts, &actions, &hardening_opts);
         assert_eq!(candidates.len(), 1);
         assert!(!candidates[0].to_string().contains("CAP_SYS_PTRACE"));
+    }
+
+    #[test]
+    fn resolve_capability_bounding_set_hardware_clock() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let (opts, hardening_opts) = test_options_standard(&["CapabilityBoundingSet"]);
+
+        let actions = vec![ProgramAction::SetHardwareClock];
+        let candidates = resolve(&opts, &actions, &hardening_opts);
+        assert_eq!(candidates.len(), 1);
+        assert!(!candidates[0].to_string().contains("CAP_SYS_TIME"));
     }
 
     #[test]
