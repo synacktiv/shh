@@ -331,6 +331,26 @@ else:
         }
     }
 
+    /// Profile a command, and run it as a system service with the options generated for every `shh run` option
+    /// set, each checked to remove `cap` from the bounding set
+    fn profile_and_run_dropping(cmd: &[&str], cap: &str) {
+        for sd_opts in generate_options(cmd, &ALL_SHH_RUN_OPTS) {
+            assert!(sd_opts.iter().any(|opt| {
+                opt.strip_prefix("CapabilityBoundingSet=~")
+                    .is_some_and(|caps| caps.split(' ').any(|c| c == cap))
+            }));
+            let _ = systemd_run(cmd, &sd_opts, false);
+        }
+    }
+
+    /// PID of the oldest process of the test user, kept running by lingering in the test environment
+    fn oldest_test_user_pid() -> String {
+        let pgrep = Command::new("pgrep")
+            .args(["-o", "-u", &env::var("TEST_USER").unwrap()])
+            .unwrap();
+        str::from_utf8(&pgrep.stdout).unwrap().trim_end().to_owned()
+    }
+
     /// Send UDP datagrams from 127.0.0.2 to a free port of 127.0.0.1 every `WRITE_INTERVAL`, until the returned
     /// sender is dropped
     fn send_udp_to_free_port() -> (u16, mpsc::Sender<()>) {
@@ -1072,7 +1092,7 @@ else:
     fn systemd_run_ptrace_attach() {
         // Attach to and detach from a different user's process, requiring CAP_SYS_PTRACE
         let script = r#"
-import ctypes, os, subprocess, sys
+import ctypes, os, sys
 
 # Request values from <sys/ptrace.h>
 PTRACE_ATTACH = 16
@@ -1085,16 +1105,13 @@ def ptrace(request, pid):
         errno = ctypes.get_errno()
         raise OSError(errno, os.strerror(errno))
 
-# Oldest process of the user, kept running by lingering in the test environment
-target_pid = int(subprocess.check_output(["pgrep", "--oldest", "--euid", sys.argv[1]]))
+target_pid = int(sys.argv[1])
 ptrace(PTRACE_ATTACH, target_pid)
 # Attaching stops the target, it must be waited for before it can be detached
 os.waitpid(target_pid, 0)
 ptrace(PTRACE_DETACH, target_pid)
 "#;
-        let user = env::var("TEST_USER").unwrap();
-        let cmd = ["python3", "-c", script, &user];
-        profile_and_run(&cmd, false);
+        profile_and_run(&["python3", "-c", script, &oldest_test_user_pid()], false);
     }
 
     #[test]
@@ -1956,10 +1973,7 @@ if libc.timer_create(clock, None, ctypes.byref(ctypes.c_void_p())) != 0:
     fn systemd_run_signal_other_user() {
         // Send SIGCONT to a process of the test user, in another session, through each signal sending syscall,
         // which needs CAP_KILL in a system service; a user service runs as the test user
-        let pgrep = Command::new("pgrep")
-            .args(["-o", "-u", &env::var("TEST_USER").unwrap()])
-            .unwrap();
-        let pid = String::from_utf8(pgrep.stdout).unwrap();
+        let pid = oldest_test_user_pid();
         for syscall in [
             "kill",
             "tkill",
@@ -1968,10 +1982,7 @@ if libc.timer_create(clock, None, ctypes.byref(ctypes.c_void_p())) != 0:
             "rt_tgsigqueueinfo",
             "pidfd_send_signal",
         ] {
-            profile_and_run(
-                &["python3", "-c", SIGNAL_SCRIPT, syscall, pid.trim_end()],
-                false,
-            );
+            profile_and_run(&["python3", "-c", SIGNAL_SCRIPT, syscall, &pid], false);
         }
     }
 
@@ -1987,12 +1998,61 @@ os.kill(child.pid, signal.SIGCONT)
 child.wait()",
             &env::var("TEST_USER").unwrap(),
         ];
-        for sd_opts in generate_options(&cmd, &ALL_SHH_RUN_OPTS) {
-            assert!(sd_opts.iter().any(|opt| {
-                opt.strip_prefix("CapabilityBoundingSet=~")
-                    .is_some_and(|caps| caps.split(' ').any(|cap| cap == "CAP_KILL"))
-            }));
-            let _ = systemd_run(&cmd, &sd_opts, false);
-        }
+        profile_and_run_dropping(&cmd, "CAP_KILL");
+    }
+
+    #[test]
+    fn systemd_run_ioctl_drops_cap_kill() {
+        // Count the bytes buffered in a pipe, an ioctl which needs no CAP_KILL
+        let cmd = [
+            "python3",
+            "-c",
+            "import fcntl, os, termios
+r, _ = os.pipe()
+fcntl.ioctl(r, termios.FIONREAD, bytes(4))",
+        ];
+        profile_and_run_dropping(&cmd, "CAP_KILL");
+    }
+
+    #[test]
+    fn systemd_run_kdsigaccept() {
+        // Register for a signal on console keyboard requests, which needs CAP_KILL, and CAP_SYS_TTY_CONFIG from
+        // outside the console's session; a user service lacks both
+        let script = "
+import fcntl, os, signal
+
+# Request of <linux/kd.h>
+KDSIGACCEPT = 0x4b4e
+
+fd = os.open('/dev/tty0', os.O_RDWR | os.O_NOCTTY)
+fcntl.ioctl(fd, KDSIGACCEPT, signal.SIGUSR1)
+";
+        profile_and_run(&["python3", "-c", script], false);
+    }
+
+    #[test]
+    fn systemd_run_perf_sigtrap_other_user() {
+        // Open a disabled perf event set to send SIGTRAP to a process of the test user, which needs CAP_KILL or
+        // CAP_SYS_PTRACE in a system service; a user service runs as the test user
+        let script = "
+import ctypes, os, struct, sys
+
+# Values from <linux/perf_event.h> and x86_64 <sys/syscall.h>
+PERF_TYPE_SOFTWARE = 1
+PERF_COUNT_SW_DUMMY = 9
+PERF_ATTR_SIZE_VER7 = 128
+# Bits of the flags field of struct perf_event_attr, at offset 40
+DISABLED, REMOVE_ON_EXEC, SIGTRAP = 1 << 0, 1 << 36, 1 << 37
+SYS_perf_event_open = 298
+
+attr = ctypes.create_string_buffer(PERF_ATTR_SIZE_VER7)
+struct.pack_into('<IIQ', attr, 0, PERF_TYPE_SOFTWARE, PERF_ATTR_SIZE_VER7, PERF_COUNT_SW_DUMMY)
+struct.pack_into('<Q', attr, 40, DISABLED | REMOVE_ON_EXEC | SIGTRAP)
+libc = ctypes.CDLL(None, use_errno=True)
+if libc.syscall(SYS_perf_event_open, attr, int(sys.argv[1]), -1, -1, 0) < 0:
+    err = ctypes.get_errno()
+    raise OSError(err, os.strerror(err), 'perf_event_open')
+";
+        profile_and_run(&["python3", "-c", script, &oldest_test_user_pid()], false);
     }
 }

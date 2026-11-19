@@ -103,6 +103,9 @@ impl SyscallHandler for IoctlHandler {
         if matches_request(&HARDWARE_CLOCK_SET_REQUESTS) {
             actions.push(ProgramAction::SetHardwareClock);
         }
+        if request.is_flag_set("KDSIGACCEPT") {
+            actions.push(ProgramAction::AcceptKeyboardSignal);
+        }
         if matches_request(&ATTR_WRITE_REQUESTS)
             && let Some(path) = fd_path(self.fd.extract(sc)?, actions, &state.cur_dir)
         {
@@ -464,40 +467,42 @@ mod tests {
     }
 
     #[test]
-    fn ioctl_rtc_requests() {
+    fn ioctl_requests() {
         let _ = simple_logger::SimpleLogger::new().init();
 
-        let fd = fd_expr(3, "/dev/rtc0");
-        for (request, mut expected) in [
-            ("RTC_SET_TIME", vec![ProgramAction::SetHardwareClock]),
-            ("RTC_EPOCH_SET", vec![ProgramAction::SetHardwareClock]),
-            ("RTC_PARAM_SET", vec![ProgramAction::SetHardwareClock]),
-            ("RTC_PLL_SET", vec![ProgramAction::SetHardwareClock]),
-            ("RTC_ALM_SET", vec![]),
-            ("RTC_WKALM_SET", vec![]),
+        for (device, request, mut expected) in [
+            (
+                "/dev/rtc0",
+                "RTC_SET_TIME",
+                vec![ProgramAction::SetHardwareClock],
+            ),
+            (
+                "/dev/rtc0",
+                "RTC_EPOCH_SET",
+                vec![ProgramAction::SetHardwareClock],
+            ),
+            (
+                "/dev/rtc0",
+                "RTC_PARAM_SET",
+                vec![ProgramAction::SetHardwareClock],
+            ),
+            (
+                "/dev/rtc0",
+                "RTC_PLL_SET",
+                vec![ProgramAction::SetHardwareClock],
+            ),
+            ("/dev/rtc0", "RTC_ALM_SET", vec![]),
+            ("/dev/rtc0", "RTC_WKALM_SET", vec![]),
+            (
+                "/dev/tty0",
+                "KDSIGACCEPT",
+                vec![ProgramAction::AcceptKeyboardSignal],
+            ),
+            ("/dev/pts/0", "TCGETS", vec![]),
         ] {
-            let args = vec![fd.clone(), named_symbol(request), int_literal(0)];
+            let args = vec![fd_expr(3, device), named_symbol(request), int_literal(0)];
             expected.push(ProgramAction::Syscalls(["ioctl".into()].into()));
             assert_eq!(summarize_syscall(make_syscall("ioctl", args, 0)), expected);
         }
-    }
-
-    #[test]
-    fn ioctl_other_request_writes_nothing() {
-        let _ = simple_logger::SimpleLogger::new().init();
-
-        let sc = make_syscall(
-            "ioctl",
-            vec![
-                fd_expr(0, "/dev/pts/0"),
-                named_symbol("TCGETS"),
-                Expression::Struct(HashMap::from([("c_iflag".to_owned(), int_literal(0))])),
-            ],
-            0,
-        );
-        assert_eq!(
-            summarize_syscall(sc),
-            vec![ProgramAction::Syscalls(["ioctl".into()].into())]
-        );
     }
 }

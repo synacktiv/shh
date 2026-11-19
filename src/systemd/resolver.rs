@@ -1661,6 +1661,29 @@ mod tests {
     }
 
     #[test]
+    fn resolve_capability_bounding_set_kill() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let (opts, hardening_opts) = test_options_standard(&["CapabilityBoundingSet"]);
+
+        for (action, drops_cap_kill) in [
+            (ProgramAction::Syscalls(["ioctl".into()].into()), true),
+            (ProgramAction::AcceptKeyboardSignal, false),
+            (
+                ProgramAction::Syscalls(["perf_event_open".into()].into()),
+                false,
+            ),
+        ] {
+            let candidates = resolve(&opts, &[action], &hardening_opts);
+            assert_eq!(candidates.len(), 1);
+            assert_eq!(
+                candidates[0].to_string().contains("CAP_KILL"),
+                drops_cap_kill
+            );
+        }
+    }
+
+    #[test]
     fn resolve_capability_bounding_set_wake_lock() {
         let _ = simple_logger::SimpleLogger::new().init();
 

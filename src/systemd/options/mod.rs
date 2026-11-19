@@ -330,6 +330,7 @@ impl EmptyPathDescription {
 /// A program action that can be directly denied by a systemd option.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum DeniableAction {
+    AcceptKeyboardSignal,
     HostMountNamespace,
     HugePageMemoryMapping,
     KillOther,
@@ -359,6 +360,7 @@ impl DeniableAction {
                     false
                 }
             }
+            Self::AcceptKeyboardSignal => matches!(action, ProgramAction::AcceptKeyboardSignal),
             Self::HostMountNamespace => matches!(action, ProgramAction::HostMountNamespace),
             Self::HugePageMemoryMapping => {
                 matches!(action, ProgramAction::HugePageMemoryMapping)

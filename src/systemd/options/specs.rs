@@ -1372,7 +1372,9 @@ impl OptionSpec for CapabilityBoundingSet {
                 "CAP_KILL",
                 OptionValueEffect::Multiple(vec![
                     OptionValueEffect::DenyAction(DeniableAction::KillOther),
-                    OptionValueEffect::DenySyscalls(DenySyscalls::Single("ioctl")),
+                    OptionValueEffect::DenyAction(DeniableAction::AcceptKeyboardSignal),
+                    // perf events signaling another process
+                    OptionValueEffect::DenySyscalls(DenySyscalls::Single("perf_event_open")),
                 ]),
             ),
             // TODO CAP_LEASE

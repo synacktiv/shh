@@ -17,6 +17,8 @@ use crate::{
 /// This does *not* map 1-1 with a syscall, and does *not* necessarily respect chronology
 #[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum ProgramAction {
+    /// Register for a signal on console keyboard requests
+    AcceptKeyboardSignal,
     /// Create a path, or an unnamed file in the directory it names
     Create(PathBuf),
     /// Exec a path
