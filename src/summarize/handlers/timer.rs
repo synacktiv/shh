@@ -60,10 +60,7 @@ impl SyscallHandler for TimerHandler {
             self.clockid.extract(sc)?,
             Expression::Integer(IntegerExpression { value, .. }) => value
         );
-        if PRIVILEGED_CLOCK_NAMES
-            .iter()
-            .any(|name| clockid.is_flag_set(name))
-        {
+        if clockid.is_any_flag_set(&PRIVILEGED_CLOCK_NAMES) {
             actions.push(ProgramAction::SetAlarm);
         }
         Ok(())

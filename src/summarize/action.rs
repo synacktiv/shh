@@ -19,6 +19,8 @@ use crate::{
 pub(crate) enum ProgramAction {
     /// Register for a signal on console keyboard requests
     AcceptKeyboardSignal,
+    /// Control a virtual console
+    ControlVirtualConsole,
     /// Create a path, or an unnamed file in the directory it names
     Create(PathBuf),
     /// Exec a path

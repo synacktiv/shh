@@ -122,7 +122,7 @@ impl SyscallHandler for DupHandler {
                     cmd.extract(sc)?,
                     Expression::Integer(IntegerExpression { value, .. }) => value
                 );
-                if !cmd.is_flag_set("F_DUPFD") && !cmd.is_flag_set("F_DUPFD_CLOEXEC") {
+                if !cmd.is_any_flag_set(&["F_DUPFD", "F_DUPFD_CLOEXEC"]) {
                     return Ok(());
                 }
                 Some(sc.pid)

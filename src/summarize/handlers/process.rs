@@ -294,7 +294,7 @@ impl SyscallHandler for SetSchedulerHandler {
                 ..
             }) => policy_val
         );
-        if RT_SCHEDULERS.iter().any(|s| policy_val.is_flag_set(s)) {
+        if policy_val.is_any_flag_set(&RT_SCHEDULERS) {
             actions.push(ProgramAction::SetRealtimeScheduler);
         }
         Ok(())

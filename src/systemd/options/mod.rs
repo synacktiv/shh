@@ -331,6 +331,7 @@ impl EmptyPathDescription {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum DeniableAction {
     AcceptKeyboardSignal,
+    ControlVirtualConsole,
     HostMountNamespace,
     HugePageMemoryMapping,
     KillOther,
@@ -361,6 +362,7 @@ impl DeniableAction {
                 }
             }
             Self::AcceptKeyboardSignal => matches!(action, ProgramAction::AcceptKeyboardSignal),
+            Self::ControlVirtualConsole => matches!(action, ProgramAction::ControlVirtualConsole),
             Self::HostMountNamespace => matches!(action, ProgramAction::HostMountNamespace),
             Self::HugePageMemoryMapping => {
                 matches!(action, ProgramAction::HugePageMemoryMapping)

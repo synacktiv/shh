@@ -190,6 +190,11 @@ impl IntegerExpressionValue {
         }
     }
 
+    /// Check whether any of the given flags are set
+    pub(crate) fn is_any_flag_set(&self, flags: &[&str]) -> bool {
+        flags.iter().any(|flag| self.is_flag_set(flag))
+    }
+
     pub(crate) fn flags(&self) -> Vec<String> {
         match self {
             IntegerExpressionValue::NamedSymbol(NamedSymbol::Unambiguous(v)) => vec![v.clone()],

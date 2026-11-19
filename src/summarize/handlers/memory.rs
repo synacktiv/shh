@@ -123,7 +123,7 @@ impl SyscallHandler for ShmCtlHandler {
             op,
             Expression::Integer(IntegerExpression { value: op, .. }) => op
         );
-        if op.is_flag_set("SHM_LOCK") || op.is_flag_set("SHM_UNLOCK") {
+        if op.is_any_flag_set(&["SHM_LOCK", "SHM_UNLOCK"]) {
             actions.push(ProgramAction::LockMemoryMapping);
         }
         Ok(())

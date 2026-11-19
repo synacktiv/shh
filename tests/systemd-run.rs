@@ -332,13 +332,15 @@ else:
     }
 
     /// Profile a command, and run it as a system service with the options generated for every `shh run` option
-    /// set, each checked to remove `cap` from the bounding set
-    fn profile_and_run_dropping(cmd: &[&str], cap: &str) {
+    /// set, each checked to remove `caps` from the bounding set
+    fn profile_and_run_dropping(cmd: &[&str], caps: &[&str]) {
         for sd_opts in generate_options(cmd, &ALL_SHH_RUN_OPTS) {
-            assert!(sd_opts.iter().any(|opt| {
-                opt.strip_prefix("CapabilityBoundingSet=~")
-                    .is_some_and(|caps| caps.split(' ').any(|c| c == cap))
-            }));
+            let dropped: Vec<_> = sd_opts
+                .iter()
+                .filter_map(|opt| opt.strip_prefix("CapabilityBoundingSet=~"))
+                .flat_map(|dropped| dropped.split(' '))
+                .collect();
+            assert!(caps.iter().all(|cap| dropped.contains(cap)));
             let _ = systemd_run(cmd, &sd_opts, false);
         }
     }
@@ -1998,12 +2000,12 @@ os.kill(child.pid, signal.SIGCONT)
 child.wait()",
             &env::var("TEST_USER").unwrap(),
         ];
-        profile_and_run_dropping(&cmd, "CAP_KILL");
+        profile_and_run_dropping(&cmd, &["CAP_KILL"]);
     }
 
     #[test]
-    fn systemd_run_ioctl_drops_cap_kill() {
-        // Count the bytes buffered in a pipe, an ioctl which needs no CAP_KILL
+    fn systemd_run_ioctl_drops_caps() {
+        // Query the number of bytes buffered in a pipe with an unprivileged ioctl
         let cmd = [
             "python3",
             "-c",
@@ -2011,7 +2013,23 @@ child.wait()",
 r, _ = os.pipe()
 fcntl.ioctl(r, termios.FIONREAD, bytes(4))",
         ];
-        profile_and_run_dropping(&cmd, "CAP_KILL");
+        profile_and_run_dropping(&cmd, &["CAP_KILL", "CAP_SYS_TTY_CONFIG"]);
+    }
+
+    #[test]
+    fn systemd_run_kiocsound() {
+        // Stop the console speaker, which needs CAP_SYS_TTY_CONFIG from outside the console's session; a user
+        // service lacks it
+        let script = "
+import fcntl, os
+
+# Request of <linux/kd.h>
+KIOCSOUND = 0x4b2f
+
+fd = os.open('/dev/tty0', os.O_RDWR | os.O_NOCTTY)
+fcntl.ioctl(fd, KIOCSOUND, 0)
+";
+        profile_and_run(&["python3", "-c", script], false);
     }
 
     #[test]

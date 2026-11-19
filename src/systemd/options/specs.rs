@@ -1479,7 +1479,8 @@ impl OptionSpec for CapabilityBoundingSet {
                 "CAP_SYS_TTY_CONFIG",
                 OptionValueEffect::Multiple(vec![
                     OptionValueEffect::DenySyscalls(DenySyscalls::Single("vhangup")),
-                    OptionValueEffect::DenySyscalls(DenySyscalls::Single("ioctl")),
+                    OptionValueEffect::DenyAction(DeniableAction::ControlVirtualConsole),
+                    OptionValueEffect::DenyAction(DeniableAction::AcceptKeyboardSignal),
                 ]),
             ),
             (

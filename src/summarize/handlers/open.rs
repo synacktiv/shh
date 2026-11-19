@@ -65,9 +65,7 @@ impl SyscallHandler for OpenHandler {
                 (
                     create,
                     create && flags_val.is_flag_set("O_EXCL"),
-                    flags_val.is_flag_set("O_WRONLY")
-                        || flags_val.is_flag_set("O_RDWR")
-                        || flags_val.is_flag_set("O_TRUNC"),
+                    flags_val.is_any_flag_set(&["O_WRONLY", "O_RDWR", "O_TRUNC"]),
                     flags_val.is_flag_set("O_RDONLY") || !flags_val.is_flag_set("O_WRONLY"),
                 )
             }
@@ -162,10 +160,7 @@ impl SyscallHandler for MknodHandler {
         let mode = self.mode.extract(sc)?;
         let mode = unpack_expr!(mode, Expression::Integer(mode) => mode);
 
-        if PRIVILEGED_ST_MODES
-            .iter()
-            .any(|pm| mode.value.is_flag_set(pm))
-        {
+        if mode.value.is_any_flag_set(&PRIVILEGED_ST_MODES) {
             actions.push(ProgramAction::MknodSpecial);
         }
         self.path.handle(sc, actions, state)

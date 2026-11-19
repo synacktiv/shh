@@ -1684,6 +1684,27 @@ mod tests {
     }
 
     #[test]
+    fn resolve_capability_bounding_set_tty_config() {
+        let _ = simple_logger::SimpleLogger::new().init();
+
+        let (opts, hardening_opts) = test_options_standard(&["CapabilityBoundingSet"]);
+
+        for (action, drops_cap_sys_tty_config) in [
+            (ProgramAction::Syscalls(["ioctl".into()].into()), true),
+            (ProgramAction::ControlVirtualConsole, false),
+            (ProgramAction::AcceptKeyboardSignal, false),
+            (ProgramAction::Syscalls(["vhangup".into()].into()), false),
+        ] {
+            let candidates = resolve(&opts, &[action], &hardening_opts);
+            assert_eq!(candidates.len(), 1);
+            assert_eq!(
+                candidates[0].to_string().contains("CAP_SYS_TTY_CONFIG"),
+                drops_cap_sys_tty_config
+            );
+        }
+    }
+
+    #[test]
     fn resolve_capability_bounding_set_wake_lock() {
         let _ = simple_logger::SimpleLogger::new().init();
 

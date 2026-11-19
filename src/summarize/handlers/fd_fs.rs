@@ -95,18 +95,55 @@ impl SyscallHandler for IoctlHandler {
             "RTC_PLL_SET",
             "RTC_SET_TIME",
         ];
+        /// Requests controlling a virtual console
+        const VIRTUAL_CONSOLE_CONTROL_REQUESTS: [&str; 31] = [
+            // Restricted outside the foreground console
+            "GIO_UNIMAP",
+            "KDFONTOP",
+            "KDKBDREP",
+            "KDMKTONE",
+            "KDSETKEYCODE",
+            "KDSETLED",
+            "KDSETMODE",
+            "KDSKBDIACR",
+            "KDSKBDIACRUC",
+            "KDSKBENT",
+            "KDSKBLED",
+            "KDSKBMODE",
+            "KDSKBSENT",
+            "KIOCSOUND",
+            "PIO_CMAP",
+            "PIO_FONT",
+            "PIO_FONTRESET",
+            "PIO_FONTX",
+            "PIO_SCRNMAP",
+            "PIO_UNIMAP",
+            "PIO_UNIMAPCLR",
+            "PIO_UNISCRNMAP",
+            "VT_ACTIVATE",
+            "VT_LOCKSWITCH",
+            "VT_RELDISP",
+            "VT_RESIZE",
+            "VT_RESIZEX",
+            "VT_SETACTIVATE",
+            "VT_SETMODE",
+            "VT_UNLOCKSWITCH",
+            "VT_WAITACTIVE",
+        ];
         let request = unpack_expr!(
             self.request.extract(sc)?,
             Expression::Integer(IntegerExpression { value, .. }) => value
         );
-        let matches_request = |names: &[&str]| names.iter().any(|name| request.is_flag_set(name));
-        if matches_request(&HARDWARE_CLOCK_SET_REQUESTS) {
+        if request.is_any_flag_set(&HARDWARE_CLOCK_SET_REQUESTS) {
             actions.push(ProgramAction::SetHardwareClock);
         }
         if request.is_flag_set("KDSIGACCEPT") {
             actions.push(ProgramAction::AcceptKeyboardSignal);
         }
-        if matches_request(&ATTR_WRITE_REQUESTS)
+        if request.is_any_flag_set(&VIRTUAL_CONSOLE_CONTROL_REQUESTS) {
+            actions.push(ProgramAction::ControlVirtualConsole);
+        }
+        if request.is_any_flag_set(&ATTR_WRITE_REQUESTS)
             && let Some(path) = fd_path(self.fd.extract(sc)?, actions, &state.cur_dir)
         {
             actions.push(ProgramAction::Write(path));
@@ -124,6 +161,9 @@ mod tests {
     use crate::{
         strace::{IntegerExpressionValue, NamedSymbol, SyscallItem},
         summarize::{
+            action::ProgramAction::{
+                AcceptKeyboardSignal, ControlVirtualConsole, SetHardwareClock,
+            },
             handlers::tests::{
                 binary_or_flags, buf_expr, fd_expr, int_literal, make_failed_syscall, make_syscall,
                 named_symbol, summarize_syscall,
@@ -470,37 +510,23 @@ mod tests {
     fn ioctl_requests() {
         let _ = simple_logger::SimpleLogger::new().init();
 
-        for (device, request, mut expected) in [
-            (
-                "/dev/rtc0",
-                "RTC_SET_TIME",
-                vec![ProgramAction::SetHardwareClock],
-            ),
-            (
-                "/dev/rtc0",
-                "RTC_EPOCH_SET",
-                vec![ProgramAction::SetHardwareClock],
-            ),
-            (
-                "/dev/rtc0",
-                "RTC_PARAM_SET",
-                vec![ProgramAction::SetHardwareClock],
-            ),
-            (
-                "/dev/rtc0",
-                "RTC_PLL_SET",
-                vec![ProgramAction::SetHardwareClock],
-            ),
-            ("/dev/rtc0", "RTC_ALM_SET", vec![]),
-            ("/dev/rtc0", "RTC_WKALM_SET", vec![]),
-            (
-                "/dev/tty0",
-                "KDSIGACCEPT",
-                vec![ProgramAction::AcceptKeyboardSignal],
-            ),
-            ("/dev/pts/0", "TCGETS", vec![]),
+        for (device, request, action) in [
+            ("/dev/rtc0", "RTC_SET_TIME", Some(SetHardwareClock)),
+            ("/dev/rtc0", "RTC_EPOCH_SET", Some(SetHardwareClock)),
+            ("/dev/rtc0", "RTC_PARAM_SET", Some(SetHardwareClock)),
+            ("/dev/rtc0", "RTC_PLL_SET", Some(SetHardwareClock)),
+            ("/dev/rtc0", "RTC_ALM_SET", None),
+            ("/dev/rtc0", "RTC_WKALM_SET", None),
+            ("/dev/tty0", "KDSIGACCEPT", Some(AcceptKeyboardSignal)),
+            ("/dev/tty0", "KIOCSOUND", Some(ControlVirtualConsole)),
+            ("/dev/tty0", "KDSKBENT", Some(ControlVirtualConsole)),
+            ("/dev/tty0", "VT_ACTIVATE", Some(ControlVirtualConsole)),
+            ("/dev/tty0", "GIO_UNIMAP", Some(ControlVirtualConsole)),
+            ("/dev/tty0", "KDGKBMODE", None),
+            ("/dev/pts/0", "TCGETS", None),
         ] {
             let args = vec![fd_expr(3, device), named_symbol(request), int_literal(0)];
+            let mut expected: Vec<_> = action.into_iter().collect();
             expected.push(ProgramAction::Syscalls(["ioctl".into()].into()));
             assert_eq!(summarize_syscall(make_syscall("ioctl", args, 0)), expected);
         }
