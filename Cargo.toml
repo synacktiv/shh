@@ -8,7 +8,7 @@ keywords = ["systemd", "hardening", "strace", "system", "security"]
 categories = ["command-line-utilities"]
 license = "GPL-3.0-only"
 version = "2026.3.8"
-rust-version = "1.89"
+rust-version = "1.91"
 edition = "2024"
 exclude = ["test-env/target"]
 
@@ -29,19 +29,20 @@ const-gen = { version = "1.6.10", default-features = false, features = ["std", "
 
 [dependencies]
 anyhow = { version = "1.0.104", default-features = false, features = ["std", "backtrace"] }
-postcard = { version = "1.1.3", default-features = false, features = ["use-std"] }
-chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 clap = { version = "4.6.7", default-features = false, features = ["std", "color", "help", "usage", "error-context", "suggestions", "derive"] }
 clap_complete = { version = "4.6.11", default-features = false, optional = true }
 clap_mangen = { version = "0.3.3", default-features = false, optional = true }
+ecow = { version = "0.3.1", default-features = false, features = ["serde", "std"] }
 function_name = { version = "0.3.0", default-features = false }
 goblin = { version = "0.10.7", default-features = false, features = ["std", "elf32", "elf64", "endian_fd"] }
 itertools = { version = "0.15.0", default-features = false, features = ["use_std"] }
+jiff = { version = "1.0.1", default-features = false, features = ["std"] }
 log = { version = "0.4.35", default-features = false, features = ["max_level_trace", "release_max_level_debug"] }
 nix = { version = "0.31.3", default-features = false, features = ["fs", "user", "process", "signal"] }
 nom = { version = "8.0.0", default-features = false, features = ["std"] }
 path-clean = { version = "1.0.1", default-features = false }
 phf = { version = "0.14.0", default-features = false, features = ["std", "macros", "ptrhash"] }
+postcard = { version = "1.1.3", default-features = false, features = ["use-std"] }
 rand = { version = "0.10.3", default-features = false, features = ["std", "thread_rng"] }
 regex = { version = "1.13.1", default-features = false, features = ["std", "perf"] }
 serde = { version = "1.0.229", default-features = false, features = ["std", "derive"] }
@@ -49,10 +50,9 @@ shlex = { version = "2.0.1", default-features = false, features = ["std"] }
 signal-hook = { version = "0.4.6", default-features = false, features = ["iterator"] }
 simple_logger = { version = "5.2.0", default-features = false, features = ["colors", "stderr"] }
 strum = { version = "0.28.0", default-features = false, features = ["std", "derive"] }
+systemd-duration = { version = "0.3.1", default-features = false }
 tempfile = { version = "3.27.0", default-features = false }
 thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
-ecow = { version = "0.3.1", default-features = false, features = ["serde", "std"] }
-systemd-duration = { version = "0.3.1", default-features = false }
 
 [dev-dependencies]
 assert_cmd = { version = "2.2.2", default-features = false, features = ["color", "color-auto"] }
@@ -62,8 +62,8 @@ insta = { version = "1.49.0", default-features = false, features = ["colors", "r
 nix = { version = "0.31.3", default-features = false, features = ["fs", "net", "user"] }
 predicates = { version = "3.1.4", default-features = false, features = ["color", "regex"] }
 pretty_assertions = { version = "1.4.1", default-features = false, features = ["std"] }
-smol_str = { version = "0.3.7", default-features = false }
 ron = { version = "0.12.3", default-features = false, features = ["std"] }
+smol_str = { version = "0.3.7", default-features = false }
 ureq = { version = "3.5.1", default-features = false }
 
 [features]

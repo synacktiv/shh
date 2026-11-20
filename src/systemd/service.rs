@@ -337,21 +337,14 @@ impl Service {
 
     pub(crate) fn rename_hardening_fragment(&self) -> anyhow::Result<bool> {
         let fragment_path = self.fragment_path(HARDENING_FRAGMENT_NAME, true);
-        let moved = if fragment_path.is_file() {
-            let now = chrono::Local::now();
-            #[expect(clippy::unwrap_used)]
-            let dest_fragment_path = fragment_path.with_file_name(format!(
-                "{}.old.{}",
-                fragment_path.file_name().unwrap().to_string_lossy(),
-                now.format("%Y%m%d%H%M%S")
-            ));
-            fs::rename(&fragment_path, &dest_fragment_path)?;
-            log::info!("{fragment_path:?} moved to {dest_fragment_path:?}");
-            true
-        } else {
-            false
-        };
-        Ok(moved)
+        if !fragment_path.is_file() {
+            return Ok(false);
+        }
+        let timestamp = jiff::Timestamp::now().strftime("%Y%m%dT%H%M%SZ");
+        let dest_fragment_path = fragment_path.with_added_extension(format!("old.{timestamp}"));
+        fs::rename(&fragment_path, &dest_fragment_path)?;
+        log::info!("{fragment_path:?} moved to {dest_fragment_path:?}");
+        Ok(true)
     }
 
     pub(crate) fn add_hardening_fragment(

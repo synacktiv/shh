@@ -234,4 +234,72 @@ mod tests {
 
         teardown_weborf_instance(instance);
     }
+
+    #[test]
+    fn refresh_backs_up_hardening_fragment() {
+        let service_name = "shh-refresh-test";
+        let unit_path = format!("/etc/systemd/system/{service_name}.service");
+        let hardening_fragment_dir = format!("/etc/systemd/system/{service_name}.service.d");
+        let profiling_fragment_dir = format!("/run/systemd/system/{service_name}.service.d");
+        let hardening_fragment = "[Service]\nProtectHome=true\n";
+
+        fs::write(&unit_path, "[Service]\nExecStart=/bin/sleep infinity\n").unwrap();
+        fs::create_dir_all(&hardening_fragment_dir).unwrap();
+        fs::write(
+            format!("{hardening_fragment_dir}/zz_shh-harden.conf"),
+            hardening_fragment,
+        )
+        .unwrap();
+        let mut status = Command::new("systemctl")
+            .arg("daemon-reload")
+            .status()
+            .unwrap();
+        assert!(status.success());
+
+        let before = jiff::Timestamp::now();
+        let output = Command::new(shh_bin())
+            // POSIX notation for a local time 9 hours ahead of UTC
+            .env("TZ", "UTC-09")
+            .args([
+                "service",
+                "start-profile",
+                service_name,
+                "--refresh",
+                "--no-restart",
+            ])
+            .output()
+            .unwrap();
+        let after = jiff::Timestamp::now();
+        assert!(output.status.success());
+
+        let fragment_dir_entries: Vec<String> = fs::read_dir(&hardening_fragment_dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        let expected_backup_names: Vec<String> = (before.as_second()..=after.as_second())
+            .map(|second| {
+                let timestamp = jiff::Timestamp::from_second(second).unwrap();
+                format!(
+                    "zz_shh-harden.conf.old.{suffix}",
+                    suffix = timestamp.strftime("%Y%m%dT%H%M%SZ")
+                )
+            })
+            .collect();
+        assert_eq!(fragment_dir_entries.len(), 1);
+        let backup_name = &fragment_dir_entries[0];
+        assert!(expected_backup_names.contains(backup_name));
+        assert_eq!(
+            fs::read_to_string(format!("{hardening_fragment_dir}/{backup_name}")).unwrap(),
+            hardening_fragment
+        );
+
+        fs::remove_file(&unit_path).unwrap();
+        fs::remove_dir_all(&hardening_fragment_dir).unwrap();
+        fs::remove_dir_all(&profiling_fragment_dir).unwrap();
+        status = Command::new("systemctl")
+            .arg("daemon-reload")
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
 }
